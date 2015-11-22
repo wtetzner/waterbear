@@ -1,0 +1,18 @@
+
+
+date-record = date cave+
+<sp> = <#'\\s+'>
+<nl> = <#'[\\s*\n]+'>
+date  = <'date'> sp #'\\w{3}-\\d{1,2}-\\d{4}' nl
+cave  = <'cave'> sp name nl <'{'> nl+ assn* path* <'}'> nl
+assn  = label sp* <'='> sp* value nl
+label = 'avg_temp' | 'material' | 'altitude' | 'parent'
+path  =  <'path'> sp name nl <'{'> nl assn* measurements <'}'> nl
+measurements = <'measurements'> sp <'{'> triple+ <'}'> nl
+triple = <'('> num <','> num <','> num <')'> sp? <','>? nl?
+name  = #'[a-zA-Z0-9_-]+'
+value = #'[a-zA-Z0-9\\.]+'
+num   = #'\\d+'
+
+
+
