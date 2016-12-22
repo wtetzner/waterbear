@@ -31,7 +31,7 @@ pub struct B3 {
 
 impl B3 {
     pub fn new(value: u8) -> Option<B3> {
-        if value < 9 {
+        if value < 8 {
             Some(B3 {
                 value: value
             })
@@ -55,7 +55,7 @@ pub struct A12 {
 
 impl A12 {
     pub fn new(value: u16) -> Option<A12> {
-        if value < 144 {
+        if value < 4096 {
             Some(A12 {
                 value: value
             })
@@ -92,7 +92,7 @@ pub struct D9 {
 
 impl D9 {
     pub fn new(value: u16) -> Option<D9> {
-        if value < 81 {
+        if value < 512 {
             Some(D9 {
                 value: value
             })
@@ -242,40 +242,40 @@ impl Instruction {
             &Instruction::Add_d9(d9) => { push_bits!(bits, [ 1, 0, 0, 0, 0, 0, 1 ]); d9.push_bits(bits);},
             &Instruction::Add_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 0, 0, 0, 0, 1,  bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 0, 0, 0, 0, 1,  bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Addc_i8(i8) => { push_byte(bits, 0b10010001); push_signed_byte(bits, i8); },
             &Instruction::Addc_d9(d9) => { push_bits!(bits, [ 1, 0, 0, 1, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Addc_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 0, 0, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 0, 0, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Sub_i8(i8) => { push_byte(bits, 0b10100001); push_signed_byte(bits, i8); },
             &Instruction::Sub_d9(d9) => { push_bits!(bits, [ 1, 0, 1, 0, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Sub_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 0, 1, 0, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 0, 1, 0, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Subc_i8(i8) => { push_byte(bits, 0b10110001); push_signed_byte(bits, i8); },
             &Instruction::Subc_d9(d9) => { push_bits!(bits, [ 1, 0, 1, 1, 0, 0, 1]); d9.push_bits(bits); },
             &Instruction::Subc_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 0, 1, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 0, 1, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Inc_d9(d9) => { push_bits!(bits, [ 0, 1, 1, 0, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Inc_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 0, 1, 1, 0, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 1, 1, 0, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Dec_d9(d9) => { push_bits!(bits, [ 0, 1, 1, 1, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Dec_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 0, 1, 1, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 1, 1, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Mul => push_byte(bits, 0b00110000),
@@ -285,21 +285,21 @@ impl Instruction {
             &Instruction::And_d9(d9) => { push_bits!(bits, [ 1, 1, 1, 0, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::And_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 1, 1, 0, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 1, 1, 0, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Or_i8(i8) => { push_byte(bits, 0b11010001); push_signed_byte(bits, i8); },
             &Instruction::Or_d9(d9) => { push_bits!(bits, [ 1, 1, 0, 1, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Or_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 1, 0, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 1, 0, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Xor_i8(i8) => { push_byte(bits, 0b11110001); push_signed_byte(bits, i8); },
             &Instruction::Xor_d9(d9) => { push_bits!(bits, [ 1, 1, 1, 1, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Xor_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 1, 1, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 1, 1, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Rol => push_byte(bits, 0b11100000),
@@ -311,13 +311,13 @@ impl Instruction {
             &Instruction::Ld_d9(d9) => { push_bits!(bits, [ 0, 0, 0, 0, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Ld_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 0, 0, 0, 0, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 0, 0, 0, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::St_d9(d9) => { push_bits!(bits, [ 0, 0, 0, 1, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::St_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 0, 0, 0, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 0, 0, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Mov_d9(i8, d9) => {
@@ -327,7 +327,7 @@ impl Instruction {
             },
             &Instruction::Mov_Rj(i8, rj) => {
                 let index = rj.index();
-                push_bits!(bits, [ 0, 0, 1, 0, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 0, 1, 0, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
                 push_signed_byte(bits, i8);
             },
 
@@ -339,7 +339,7 @@ impl Instruction {
             &Instruction::Xch_d9(d9) => { push_bits!(bits, [ 1, 1, 0, 0, 0, 0, 1 ]); d9.push_bits(bits); },
             &Instruction::Xch_Ri(ri) => {
                 let index = ri.index();
-                push_bits!(bits, [ 1, 1, 0, 0, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 1, 1, 0, 0, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
             },
 
             &Instruction::Jmp(a12) => {
@@ -397,7 +397,7 @@ impl Instruction {
             },
             &Instruction::Dbnz_Ri(ri, i8) => {
                 let index = ri.index();
-                push_bits!(bits, [ 0, 1, 0, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 1, 0, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
                 push_signed_byte(bits, i8);
             },
             &Instruction::Be_i8(i8,r8) => {
@@ -412,7 +412,7 @@ impl Instruction {
             },
             &Instruction::Be_Rj(rj, i8, r8) => {
                 let index = rj.index();
-                push_bits!(bits, [ 0, 0, 1, 1, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 0, 1, 1, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
                 push_signed_byte(bits, i8);
                 push_signed_byte(bits, r8);
             },
@@ -428,7 +428,7 @@ impl Instruction {
             },
             &Instruction::Bne_Rj(rj, i8, r8) => {
                 let index = rj.index();
-                push_bits!(bits, [ 0, 1, 0, 0, 0, 1, bit_from_byte(index, 1), 1, bit_from_byte(index, 0), 0 ]);
+                push_bits!(bits, [ 0, 1, 0, 0, 0, 1, bit_from_byte(index, 1), bit_from_byte(index, 0) ]);
                 push_signed_byte(bits, i8);
                 push_signed_byte(bits, r8);
             },
@@ -482,6 +482,7 @@ impl Instruction {
     }
 
     /// The size in bytes of the instruction
+    #[inline]
     pub fn size(&self) -> usize {
         match self {
             &Instruction::Add_i8(_) => 2,
@@ -647,5 +648,134 @@ fn bit_from_word(input: u16, pos: u8) -> bool {
         input & (1 << pos) != 0
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod Test {
+    use bit_vec::BitVec;
+    use asm::Instruction::*;
+    use asm::IndirectionMode::*;
+    use asm::*;
+
+    #[test]
+    fn test_count_with_encoding() {
+
+        let instructions = vec![
+            Add_i8(15),
+            Add_d9(D9::new(32).expect("Invalid d9 value")),
+            Add_Ri(R0),
+
+            Addc_i8(-126),
+            Addc_d9(D9::new(12).expect("Invalid d9 value")),
+            Addc_Ri(R1),
+
+            Sub_i8(-1),
+            Sub_d9(D9::new(80).expect("Invalid d9 value")),
+            Sub_Ri(R2),
+
+            Subc_i8(3),
+            Subc_d9(D9::new(511).expect("Invalid d9 value")),
+            Subc_Ri(R3),
+
+            Inc_d9(D9::new(12).expect("Invalid d9 value")),
+            Inc_Ri(R0),
+
+            Dec_d9(D9::new(5).expect("Invalid d9 value")),
+            Dec_Ri(R1),
+
+            Mul,
+            Div,
+
+            And_i8(4),
+            And_d9(D9::new(7).expect("Invalid d9 value")),
+            And_Ri(R2),
+
+            Or_i8(0),
+            Or_d9(D9::new(17).expect("Invalid d9 value")),
+            Or_Ri(R3),
+
+            Xor_i8(1),
+            Xor_d9(D9::new(12).expect("Invalid d9 value")),
+            Xor_Ri(R0),
+
+            Rol,
+            Rolc,
+
+            Ror,
+            Rorc,
+
+            Ld_d9(D9::new(11).expect("Invalid d9 value")),
+            Ld_Ri(R1),
+
+            St_d9(D9::new(17).expect("Invalid d9 value")),
+            St_Ri(R2),
+
+            Mov_d9(9, D9::new(23).expect("Invalid d9 value")),
+            Mov_Rj(14, R3),
+
+            Ldc,
+
+            Push(D9::new(45).expect("Invalid d9 value")),
+            Pop(D9::new(54).expect("Invalid d9 value")),
+
+            Xch_d9(D9::new(18).expect("Invalid d9 value")),
+            Xch_Ri(R0),
+
+            Jmp(A12::new(4000).expect("Invalid a12 value")),
+            Jmpf(700),
+
+            Br(75),
+            Brf(123),
+            Bz(22),
+            Bnz(0),
+            Bp(D9::new(32).expect("Invalid d9 value"), B3::new(7).expect("Invalid b3 value"), 12),
+            Bpc(D9::new(32).expect("Invalid d9 value"), B3::new(7).expect("Invalid b3 value"), 12),
+            Bn(D9::new(32).expect("Invalid d9 value"), B3::new(7).expect("Invalid b3 value"), 12),
+            Dbnz_d9(D9::new(76).expect("Invalid d9 value"), 32),
+            Dbnz_Ri(R1, 98),
+            Be_i8(89,89),
+            Be_d9(D9::new(4).expect("Invalid d9 value"),17),
+            Be_Rj(R2, 4, 5),
+            Bne_i8(6,7),
+            Bne_d9(D9::new(8).expect("Invalid d9 value"),9),
+            Bne_Rj(R3, 10, 11),
+
+            Call(A12::new(3000).expect("Invalid a12 value")),
+            Callf(100),
+            Callr(2000),
+
+            Ret,
+            Reti,
+
+            Clr1(D9::new(32).expect("Invalid d9 value"),B3::new(6).expect("Invalid b3 value")),
+            Set1(D9::new(32).expect("Invalid d9 value"),B3::new(6).expect("Invalid b3 value")),
+            Not1(D9::new(32).expect("Invalid d9 value"),B3::new(6).expect("Invalid b3 value")),
+
+            Nop
+        ];
+
+        for inst in instructions.iter() {
+            let mut bits = BitVec::with_capacity(500);
+            inst.encode(&mut bits);
+            let bytes = bits.to_bytes();
+            println!("inst: {:?}", inst);
+            assert!(bytes.len() == inst.size());
+        }
+
+        let mut expected_len = 0;
+        for inst in instructions.iter() {
+            expected_len = expected_len + inst.size();
+        }
+
+        let mut bits = BitVec::with_capacity(500);
+        for inst in instructions.iter() {
+            inst.encode(&mut bits);
+        }
+
+        let results = bits.to_bytes();
+
+        println!("Expected len: {}, encoded len: {}", expected_len, results.len());
+        assert!(expected_len == results.len());
     }
 }
