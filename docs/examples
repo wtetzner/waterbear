@@ -2,8 +2,11 @@
 module org.bovinegenius.wombat/Main
 
 main :: () -> ()
-fn main() {
-  
+main() {
+  let x:  = 
 }
+
+sum :: (int, int) -> int
+sum(left, right) = left + right
 
 
