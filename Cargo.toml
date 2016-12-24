@@ -6,8 +6,5 @@ authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 [dependencies]
 bit-vec = "*"
 clap = "^2.0"
-
-[dependencies.nom]
-version = "^2.0"
-features = ["regexp", "verbose-errors"]
+pest = "0.4"
 
