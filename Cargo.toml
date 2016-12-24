@@ -5,5 +5,9 @@ authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 
 [dependencies]
 bit-vec = "*"
-clap = "*"
+clap = "^2.0"
+
+[dependencies.nom]
+version = "^2.0"
+features = ["regexp", "verbose-errors"]
 
