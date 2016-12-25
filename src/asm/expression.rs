@@ -1,19 +1,29 @@
 
+use std;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum EvaluationError {
     Failure(String),
     NameNotFound(String),
-    DivideByZero(String)
+    DivideByZero(String),
+    NumberError(String,std::num::ParseIntError)
 }
 
+impl std::convert::From<std::num::ParseIntError> for EvaluationError {
+    fn from(err: std::num::ParseIntError) -> EvaluationError {
+        EvaluationError::NumberError("Failed to parse number".to_string(), err)
+    }
+}
+
+#[derive(Debug)]
 pub enum Expression {
     Name(String),
     Plus(Box<Expression>, Box<Expression>),
     Minus(Box<Expression>, Box<Expression>),
     Times(Box<Expression>, Box<Expression>),
     Divide(Box<Expression>, Box<Expression>),
-    Number(u16),
+    Number(i32),
     UpperByte(Box<Expression>),
     LowerByte(Box<Expression>)
 }
