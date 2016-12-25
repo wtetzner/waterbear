@@ -1,13 +1,80 @@
 
+use std;
 use bit_vec::BitVec;
-use std::ops::Index;
-use asm::expression::Expression;
+use asm::expression::{Expression,EvaluationError};
+use std::collections::HashMap;
 
-// trait ToVal<T> {
-//     fn to(&self) -> T;
-// }
+pub trait ToVal<T> {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<T,EvaluationError>;
+}
 
-// impl ToVal<i8>
+impl ToVal<i8> for i8 {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<i8,EvaluationError> { Ok(*self) }
+}
+
+impl ToVal<i8> for Expression {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<i8,EvaluationError> {
+        let value = self.eval(name_lookup)?;
+        Ok(value as i8)
+    }
+}
+
+impl ToVal<B3> for B3 {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<B3,EvaluationError> { Ok(*self) }
+}
+
+impl ToVal<B3> for Expression {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<B3,EvaluationError> {
+        let value = self.eval(name_lookup)?;
+        match B3::new(value) {
+            Some(val) => Ok(val),
+            None => Err(EvaluationError::Failure(format!("Invalid b3 value: {}", value)))
+        }
+    }
+}
+
+impl ToVal<D9> for D9 {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<D9,EvaluationError> { Ok(*self) }
+}
+
+impl ToVal<D9> for Expression {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<D9,EvaluationError> {
+        let value = self.eval(name_lookup)?;
+        match D9::new(value) {
+            Some(val) => Ok(val),
+            None => Err(EvaluationError::Failure(format!("Invalid d9 value: {}", value)))
+        }
+    }
+}
+
+impl ToVal<A12> for A12 {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<A12,EvaluationError> { Ok(*self) }
+}
+
+impl ToVal<A12> for Expression {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<A12,EvaluationError> {
+        let value = self.eval(name_lookup)?;
+        match A12::new(value) {
+            Some(val) => Ok(val),
+            None => Err(EvaluationError::Failure(format!("Invalid a12 value: {}", value)))
+        }
+    }
+}
+
+impl ToVal<u16> for u16 {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<u16,EvaluationError> { Ok(*self) }
+}
+
+impl ToVal<u16> for Expression {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<u16,EvaluationError> {
+        let value = self.eval(name_lookup)?;
+        if value <= (std::u16::MAX as i32) && value >= 0 {
+            Ok(value as u16)
+        } else {
+            Err(EvaluationError::Failure(format!("Invalid u16 value: {}", value)))
+        }
+    }
+}
 
 trait Bitable {
     fn to_bit(self) -> bool;
@@ -37,10 +104,10 @@ pub struct B3 {
 }
 
 impl B3 {
-    pub fn new(value: u8) -> Option<B3> {
-        if value < 8 {
+    pub fn new(value: i32) -> Option<B3> {
+        if value < 8 && value >= 0 {
             Some(B3 {
-                value: value
+                value: value as u8
             })
         } else {
             None
@@ -61,10 +128,10 @@ pub struct A12 {
 }
 
 impl A12 {
-    pub fn new(value: u16) -> Option<A12> {
-        if value < 4096 {
+    pub fn new(value: i32) -> Option<A12> {
+        if value < 4096 && value >= 0 {
             Some(A12 {
-                value: value
+                value: value as u16
             })
         } else {
             None
@@ -98,10 +165,10 @@ pub struct D9 {
 }
 
 impl D9 {
-    pub fn new(value: u16) -> Option<D9> {
-        if value < 512 {
+    pub fn new(value: i32) -> Option<D9> {
+        if value < 512 && value >= 0 {
             Some(D9 {
-                value: value
+                value: value as u16
             })
         } else {
             None
@@ -147,42 +214,42 @@ impl IndirectionMode {
 
 #[allow(non_camel_case_types)]
 #[derive(Debug)]
-pub enum Instruction {
-    Add_i8(i8),
-    Add_d9(D9),
+pub enum Instruction<S3: ToVal<B3>,S8: ToVal<i8>,S9: ToVal<D9>,S12: ToVal<A12>,S16: ToVal<u16>> {
+    Add_i8(S8),
+    Add_d9(S9),
     Add_Ri(IndirectionMode),
 
-    Addc_i8(i8),
-    Addc_d9(D9),
+    Addc_i8(S8),
+    Addc_d9(S9),
     Addc_Ri(IndirectionMode),
 
-    Sub_i8(i8),
-    Sub_d9(D9),
+    Sub_i8(S8),
+    Sub_d9(S9),
     Sub_Ri(IndirectionMode),
 
-    Subc_i8(i8),
-    Subc_d9(D9),
+    Subc_i8(S8),
+    Subc_d9(S9),
     Subc_Ri(IndirectionMode),
 
-    Inc_d9(D9),
+    Inc_d9(S9),
     Inc_Ri(IndirectionMode),
 
-    Dec_d9(D9),
+    Dec_d9(S9),
     Dec_Ri(IndirectionMode),
 
     Mul,
     Div,
 
-    And_i8(i8),
-    And_d9(D9),
+    And_i8(S8),
+    And_d9(S9),
     And_Ri(IndirectionMode),
 
-    Or_i8(i8),
-    Or_d9(D9),
+    Or_i8(S8),
+    Or_d9(S9),
     Or_Ri(IndirectionMode),
 
-    Xor_i8(i8),
-    Xor_d9(D9),
+    Xor_i8(S8),
+    Xor_d9(S9),
     Xor_Ri(IndirectionMode),
 
     Rol,
@@ -191,57 +258,57 @@ pub enum Instruction {
     Ror,
     Rorc,
 
-    Ld_d9(D9),
+    Ld_d9(S9),
     Ld_Ri(IndirectionMode),
 
-    St_d9(D9),
+    St_d9(S9),
     St_Ri(IndirectionMode),
 
-    Mov_d9(i8, D9),
-    Mov_Rj(i8, IndirectionMode),
+    Mov_d9(S8, S9),
+    Mov_Rj(S8, IndirectionMode),
 
     Ldc,
 
-    Push(D9),
-    Pop(D9),
+    Push(S9),
+    Pop(S9),
 
-    Xch_d9(D9),
+    Xch_d9(S9),
     Xch_Ri(IndirectionMode),
 
-    Jmp(A12),
-    Jmpf(u16),
+    Jmp(S12),
+    Jmpf(S16),
 
-    Br(i8),
-    Brf(u16),
-    Bz(i8),
-    Bnz(i8),
-    Bp(D9, B3, i8),
-    Bpc(D9, B3, i8),
-    Bn(D9, B3, i8),
-    Dbnz_d9(D9, i8),
-    Dbnz_Ri(IndirectionMode, i8),
-    Be_i8(i8,i8),
-    Be_d9(D9,i8),
-    Be_Rj(IndirectionMode, i8, i8),
-    Bne_i8(i8,i8),
-    Bne_d9(D9,i8),
-    Bne_Rj(IndirectionMode, i8, i8),
+    Br(S8),
+    Brf(S16),
+    Bz(S8),
+    Bnz(S8),
+    Bp(S9, S3, S8),
+    Bpc(S9, S3, S8),
+    Bn(S9, S3, S8),
+    Dbnz_d9(S9, S8),
+    Dbnz_Ri(IndirectionMode, S8),
+    Be_i8(S8,S8),
+    Be_d9(S9,S8),
+    Be_Rj(IndirectionMode, S8, S8),
+    Bne_i8(S8,S8),
+    Bne_d9(S9,S8),
+    Bne_Rj(IndirectionMode, S8, S8),
 
-    Call(A12),
-    Callf(u16),
-    Callr(u16),
+    Call(S12),
+    Callf(S16),
+    Callr(S16),
 
     Ret,
     Reti,
 
-    Clr1(D9,B3),
-    Set1(D9,B3),
-    Not1(D9,B3),
+    Clr1(S9,S3),
+    Set1(S9,S3),
+    Not1(S9,S3),
 
     Nop
 }
 
-impl Instruction {
+impl Instruction<B3,i8,D9,A12,u16> {
     #[inline]
     pub fn encode(&self, bits: &mut BitVec) {
         match self {
@@ -487,7 +554,9 @@ impl Instruction {
             &Instruction::Nop => push_byte(bits, 0)
         }
     }
+}
 
+impl<S3: ToVal<B3>,S8: ToVal<i8>,S9: ToVal<D9>,S12: ToVal<A12>,S16: ToVal<u16>> Instruction<S3,S8,S9,S12,S16> {
     /// The size in bytes of the instruction
     #[inline]
     pub fn size(&self) -> usize {
@@ -583,6 +652,103 @@ impl Instruction {
             &Instruction::Not1(_,_) => 2,
 
             &Instruction::Nop => 1
+        }
+    }
+
+    #[inline]
+    pub fn reduce(&self, name_lookup: &HashMap<String,i32>) -> Result<Instruction<B3,i8,D9,A12,u16>,EvaluationError> {
+        match self {
+            &Instruction::Add_i8(ref i8) => Ok(Instruction::Add_i8(i8.to(name_lookup)?)),
+            &Instruction::Add_d9(ref d9) => Ok(Instruction::Add_d9(d9.to(name_lookup)?)),
+            &Instruction::Add_Ri(ref ri) => Ok(Instruction::Add_Ri(*ri)),
+
+            &Instruction::Addc_i8(ref i8) => Ok(Instruction::Addc_i8(i8.to(name_lookup)?)),
+            &Instruction::Addc_d9(ref d9) => Ok(Instruction::Addc_d9(d9.to(name_lookup)?)),
+            &Instruction::Addc_Ri(ref ri) => Ok(Instruction::Addc_Ri(*ri)),
+
+            &Instruction::Sub_i8(ref i8) => Ok(Instruction::Sub_i8(i8.to(name_lookup)?)),
+            &Instruction::Sub_d9(ref d9) => Ok(Instruction::Sub_d9(d9.to(name_lookup)?)),
+            &Instruction::Sub_Ri(ref ri) => Ok(Instruction::Sub_Ri(*ri)),
+
+            &Instruction::Subc_i8(ref i8) => Ok(Instruction::Subc_i8(i8.to(name_lookup)?)),
+            &Instruction::Subc_d9(ref d9) => Ok(Instruction::Subc_d9(d9.to(name_lookup)?)),
+            &Instruction::Subc_Ri(ref ri) => Ok(Instruction::Subc_Ri(*ri)),
+
+            &Instruction::Inc_d9(ref d9) => Ok(Instruction::Inc_d9(d9.to(name_lookup)?)),
+            &Instruction::Inc_Ri(ref ri) => Ok(Instruction::Inc_Ri(*ri)),
+
+            &Instruction::Dec_d9(ref d9) => Ok(Instruction::Dec_d9(d9.to(name_lookup)?)),
+            &Instruction::Dec_Ri(ref ri) => Ok(Instruction::Dec_Ri(*ri)),
+
+            &Instruction::Mul => Ok(Instruction::Mul),
+            &Instruction::Div => Ok(Instruction::Div),
+
+            &Instruction::And_i8(ref i8) => Ok(Instruction::And_i8(i8.to(name_lookup)?)),
+            &Instruction::And_d9(ref d9) => Ok(Instruction::And_d9(d9.to(name_lookup)?)),
+            &Instruction::And_Ri(ref ri) => Ok(Instruction::And_Ri(*ri)),
+
+            &Instruction::Or_i8(ref i8) => Ok(Instruction::Or_i8(i8.to(name_lookup)?)),
+            &Instruction::Or_d9(ref d9) => Ok(Instruction::Or_d9(d9.to(name_lookup)?)),
+            &Instruction::Or_Ri(ref ri) => Ok(Instruction::Or_Ri(*ri)),
+
+            &Instruction::Xor_i8(ref i8) => Ok(Instruction::Xor_i8(i8.to(name_lookup)?)),
+            &Instruction::Xor_d9(ref d9) => Ok(Instruction::Xor_d9(d9.to(name_lookup)?)),
+            &Instruction::Xor_Ri(ref ri) => Ok(Instruction::Xor_Ri(*ri)),
+
+            &Instruction::Rol => Ok(Instruction::Rol),
+            &Instruction::Rolc => Ok(Instruction::Rolc),
+
+            &Instruction::Ror => Ok(Instruction::Ror),
+            &Instruction::Rorc => Ok(Instruction::Rorc),
+
+            &Instruction::Ld_d9(ref d9) => Ok(Instruction::Ld_d9(d9.to(name_lookup)?)),
+            &Instruction::Ld_Ri(ref ri) => Ok(Instruction::Ld_Ri(*ri)),
+
+            &Instruction::St_d9(ref d9) => Ok(Instruction::St_d9(d9.to(name_lookup)?)),
+            &Instruction::St_Ri(ref ri) => Ok(Instruction::St_Ri(*ri)),
+
+            &Instruction::Mov_d9(ref i8, ref d9) => Ok(Instruction::Mov_d9(i8.to(name_lookup)?, d9.to(name_lookup)?)),
+            &Instruction::Mov_Rj(ref i8, ref rj) => Ok(Instruction::Mov_Rj(i8.to(name_lookup)?, *rj)),
+
+            &Instruction::Ldc => Ok(Instruction::Ldc),
+
+            &Instruction::Push(ref d9) => Ok(Instruction::Push(d9.to(name_lookup)?)),
+            &Instruction::Pop(ref d9) => Ok(Instruction::Pop(d9.to(name_lookup)?)),
+
+            &Instruction::Xch_d9(ref d9) => Ok(Instruction::Xch_d9(d9.to(name_lookup)?)),
+            &Instruction::Xch_Ri(ref ri) => Ok(Instruction::Xch_Ri(*ri)),
+
+            &Instruction::Jmp(ref a12) => Ok(Instruction::Jmp(a12.to(name_lookup)?)),
+            &Instruction::Jmpf(ref a16) => Ok(Instruction::Jmpf(a16.to(name_lookup)?)),
+
+            &Instruction::Br(ref i8) => Ok(Instruction::Br(i8.to(name_lookup)?)),
+            &Instruction::Brf(ref r16) => Ok(Instruction::Brf(r16.to(name_lookup)?)),
+            &Instruction::Bz(ref i8) => Ok(Instruction::Bz(i8.to(name_lookup)?)),
+            &Instruction::Bnz(ref i8) => Ok(Instruction::Bnz(i8.to(name_lookup)?)),
+            &Instruction::Bp(ref d9, ref b3, ref i8) => Ok(Instruction::Bp(d9.to(name_lookup)?, b3.to(name_lookup)?, i8.to(name_lookup)?)),
+            &Instruction::Bpc(ref d9, ref b3, ref i8) => Ok(Instruction::Bpc(d9.to(name_lookup)?, b3.to(name_lookup)?, i8.to(name_lookup)?)),
+            &Instruction::Bn(ref d9, ref b3, ref i8) => Ok(Instruction::Bn(d9.to(name_lookup)?, b3.to(name_lookup)?, i8.to(name_lookup)?)),
+            &Instruction::Dbnz_d9(ref d9, ref i8) => Ok(Instruction::Dbnz_d9(d9.to(name_lookup)?, i8.to(name_lookup)?)),
+            &Instruction::Dbnz_Ri(ref ri, ref i8) => Ok(Instruction::Dbnz_Ri(*ri, i8.to(name_lookup)?)),
+            &Instruction::Be_i8(ref i8, ref r8) => Ok(Instruction::Be_i8(i8.to(name_lookup)?, r8.to(name_lookup)?)),
+            &Instruction::Be_d9(ref d9,ref i8) => Ok(Instruction::Be_d9(d9.to(name_lookup)?, i8.to(name_lookup)?)),
+            &Instruction::Be_Rj(ref rj, ref i8, ref r8) => Ok(Instruction::Be_Rj(*rj, i8.to(name_lookup)?, r8.to(name_lookup)?)),
+            &Instruction::Bne_i8(ref i8,ref r8) => Ok(Instruction::Bne_i8(i8.to(name_lookup)?, r8.to(name_lookup)?)),
+            &Instruction::Bne_d9(ref d9,ref r8) => Ok(Instruction::Bne_d9(d9.to(name_lookup)?, r8.to(name_lookup)?)),
+            &Instruction::Bne_Rj(ref rj, ref i8, ref r8) => Ok(Instruction::Bne_Rj(*rj, i8.to(name_lookup)?, r8.to(name_lookup)?)),
+
+            &Instruction::Call(ref a12) => Ok(Instruction::Call(a12.to(name_lookup)?)),
+            &Instruction::Callf(ref a16) => Ok(Instruction::Callf(a16.to(name_lookup)?)),
+            &Instruction::Callr(ref r16) => Ok(Instruction::Callr(r16.to(name_lookup)?)),
+
+            &Instruction::Ret => Ok(Instruction::Ret),
+            &Instruction::Reti => Ok(Instruction::Reti),
+
+            &Instruction::Clr1(ref d9, ref b3) => Ok(Instruction::Clr1(d9.to(name_lookup)?, b3.to(name_lookup)?)),
+            &Instruction::Set1(ref d9, ref b3) => Ok(Instruction::Set1(d9.to(name_lookup)?, b3.to(name_lookup)?)),
+            &Instruction::Not1(ref d9, ref b3) => Ok(Instruction::Not1(d9.to(name_lookup)?, b3.to(name_lookup)?)),
+
+            &Instruction::Nop => Ok(Instruction::Nop)
         }
     }
 }

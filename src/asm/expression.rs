@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 pub enum EvaluationError {
+    Failure(String),
     NameNotFound(String),
     DivideByZero(String)
 }
