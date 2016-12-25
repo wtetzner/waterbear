@@ -1,14 +1,22 @@
+#![recursion_limit = "500"]
 
 extern crate bit_vec;
 
 #[macro_use]
 extern crate clap;
 
+#[macro_use]
+extern crate pest;
+
+use asm::parser;
+
 use bit_vec::BitVec;
 
 mod ast;
 mod unique_id;
 mod asm;
+
+use asm::instruction;
 
 fn main() {
     let matches = clap_app!(
@@ -34,12 +42,18 @@ fn main() {
     println!("Hello, world!");
 
     println!("Encoded: {}", to_hex_string(encode()));
+
+    parser::run_parser();
+
+    println!("01: {}", "01".parse::<i32>().unwrap());
+    println!("0xFF: {}", i64::from_str_radix(&"0xFF"[2..], 16).unwrap());
+    println!("1: {}", "1".parse::<i32>().unwrap());
 }
 
 fn encode() -> Vec<u8> {
-    use asm::Instruction::*;
-    use asm::IndirectionMode::*;
-    use asm::D9;
+    use instruction::Instruction::*;
+    use instruction::IndirectionMode::*;
+    use instruction::D9;
 
     let mut bits = BitVec::with_capacity(500);
     let instructions = vec![
