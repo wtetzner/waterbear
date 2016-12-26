@@ -2,7 +2,7 @@
 use std;
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum EvaluationError {
     Failure(String),
     NameNotFound(String),
@@ -16,7 +16,7 @@ impl std::convert::From<std::num::ParseIntError> for EvaluationError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Expression {
     Name(String),
     Plus(Box<Expression>, Box<Expression>),

@@ -45,7 +45,7 @@ fn main() {
 
     parser::run_parser();
 
-    println!("01: {}", "01".parse::<i32>().unwrap());
+    println!("010: {}", i64::from_str_radix(&"010"[..], 8).unwrap());
     println!("0xFF: {}", i64::from_str_radix(&"0xFF"[2..], 16).unwrap());
     println!("1: {}", "1".parse::<i32>().unwrap());
 }

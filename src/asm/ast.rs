@@ -2,10 +2,7 @@
 use instruction;
 use instruction::{ToVal,B3,D9,A12};
 
-pub enum Instruction {
-    
-}
-
+#[derive(Debug)]
 pub enum Directive {
     Byte(Vec<u8>),
     Org(usize),
@@ -13,6 +10,7 @@ pub enum Directive {
     Include(String)
 }
 
+#[derive(Debug)]
 pub enum Statement<S3: ToVal<B3>,S8: ToVal<i8>,S9: ToVal<D9>,S12: ToVal<A12>,S16: ToVal<u16>> {
     Directive(Directive),
     Label(String),
