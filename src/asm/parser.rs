@@ -64,7 +64,15 @@ impl_rdp! {
         upper_byte = { [">"] ~ num_expression }
         lower_byte = { ["<"] ~ num_expression }
 
-        directive = @{ ["."] ~ name }
+        directive = _{ include_dir | byte_dir | byte_dir_str | word_dir | org_dir }
+        include_dir = { [".include"] ~ string }
+        byte_dir = { [".byte"] ~ num_expression ~ ([","] ~ num_expression)* }
+        byte_dir_str = { [".byte"] ~ string }
+        word_dir = { [".word"] ~ num_expression ~ ([","] ~ num_expression)* }
+        org_dir = { [".org"] ~ num_expression }
+
+        string = @{ ["\""] ~ ((["\\"] ~ any) | (!["\""] ~ any))* ~ ["\""] }
+
         label = { name ~ [":"] }
 
         name = @{ (['a'..'z'] | ['A'..'Z'] | ["_"] | ["."]) ~ (['a'..'z'] | ['A'..'Z'] | ["$"] | ["_"] | ["."] | ['0'..'9'])* }
@@ -201,6 +209,63 @@ fn to_instr<'a>(node: &Node<'a>) -> Result<Instruction<Expression,Expression,Exp
         (n,_) => Err(EvaluationError::Failure(format!("Invalid instruction: {}", n)))
     }
 }
+
+// include_dir = { [".include"] ~ string }
+// byte_dir = { [".byte"] ~ num_expression ~ ([","] ~ num_expression)* }
+// byte_dir_str = { [".byte"] ~ string }
+// word_dir = { [".word"] ~ num_expression ~ ([","] ~ num_expression)* }
+// org_dir = { [".org"] ~ num_expression }
+
+// string = @{ ["\""] ~ ((["\\"] ~ any) | (!["\""] ~ any))* ~ ["\""] }
+fn to_string<'a>(node: &Node<'a>) -> Vec<u8> {
+    let bytes = node.text[1..(node.text.len() - 1)].as_bytes();
+    let mut cleaned = Vec::new();
+    let mut index = 0;
+    loop {
+        if index >= bytes.len() {
+            break;
+        }
+        let current = bytes[index];
+        if current == 0x5C {
+            let next = bytes[index + 1];
+            match next {
+                // \a
+                0x61 => cleaned.push(0x07),
+
+                // \b
+                0x62 => cleaned.push(0x08),
+
+                // \f
+                0x66 => cleaned.push(0x0C),
+
+                // \n
+                0x6E => cleaned.push(0x0A),
+
+                // \r
+                0x72 => cleaned.push(0x0D),
+
+                // \t
+                0x74 => cleaned.push(0x09),
+
+                // \v
+                0x76 => cleaned.push(0x0B),
+
+                _ => cleaned.push(next)
+            }
+            index = index + 2;
+        } else {
+            cleaned.push(current);
+            index = index + 1;
+        }
+    }
+    cleaned
+}
+
+// fn to_directive<'a>(node: &Node<'a>) -> Result<Directive,EvaluationError> {
+//     match node.rule {
+//         Rule::include_dir => Directive::
+//     }
+// }
 
 fn to_statement<'a>(node: &Node<'a>) -> Result<Statement<Expression,Expression,Expression,Expression,Expression>,EvaluationError> {
     let num_children = node.children.len();
