@@ -3,6 +3,7 @@ use std;
 use bit_vec::BitVec;
 use asm::expression::{Expression,EvaluationError};
 use std::collections::HashMap;
+use asm::num;
 
 pub trait ToVal<T> {
     fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<T,EvaluationError>;
@@ -15,7 +16,7 @@ impl ToVal<i8> for i8 {
 impl ToVal<i8> for Expression {
     fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<i8,EvaluationError> {
         let value = self.eval(name_lookup)?;
-        Ok(value as i8)
+        Ok(num::to_i8(value)?)
     }
 }
 
@@ -106,8 +107,12 @@ pub struct B3 {
 impl B3 {
     pub fn new(value: i32) -> Option<B3> {
         if value < 8 && value >= 0 {
+            let result = match num::to_u8(value) {
+                Ok(ref val) => *val,
+                Err(_) => return None
+            };
             Some(B3 {
-                value: value as u8
+                value: result
             })
         } else {
             None
@@ -130,8 +135,12 @@ pub struct A12 {
 impl A12 {
     pub fn new(value: i32) -> Option<A12> {
         if value < 4096 && value >= 0 {
+            let result = match num::to_u16(value) {
+                Ok(ref val) => *val,
+                Err(_) => return None
+            };
             Some(A12 {
-                value: value as u16
+                value: result
             })
         } else {
             None
@@ -167,8 +176,12 @@ pub struct D9 {
 impl D9 {
     pub fn new(value: i32) -> Option<D9> {
         if value < 512 && value >= 0 {
+            let result = match num::to_u16(value) {
+                Ok(ref val) => *val,
+                Err(_) => return None
+            };
             Some(D9 {
-                value: value as u16
+                value: result
             })
         } else {
             None

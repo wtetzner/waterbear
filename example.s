@@ -1,14 +1,10 @@
+.byte "Some cool \nstuff"
 
+.byte $FF,$FB,$10
 
-	;;
-	;; tetris.s
-	;;
-	;; version 1.3
-	;;
-	;; by <marcus@idonex.se>
-	;; 
-	;; Need aslc86k v1.6+ to assemble this.
-	;;
+begin:
+  add #$FF
+  add #$FF
+  mul
+  sub #$3B
 
-add #$FF
-add #$FF

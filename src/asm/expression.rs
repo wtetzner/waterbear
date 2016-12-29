@@ -1,18 +1,34 @@
 
 use std;
 use std::collections::HashMap;
+use std::fmt;
+use asm;
 
 #[derive(Debug,Clone)]
 pub enum EvaluationError {
     Failure(String),
     NameNotFound(String),
     DivideByZero(String),
-    NumberError(String,std::num::ParseIntError)
+    NumberError(String,std::num::ParseIntError),
+    InvalidNumber(String),
+    Utf8Error(String)
+}
+
+impl std::convert::From<asm::num::NumberConversionError> for EvaluationError {
+    fn from(err: asm::num::NumberConversionError) -> EvaluationError {
+        EvaluationError::InvalidNumber(err.message())
+    }
 }
 
 impl std::convert::From<std::num::ParseIntError> for EvaluationError {
     fn from(err: std::num::ParseIntError) -> EvaluationError {
         EvaluationError::NumberError("Failed to parse number".to_string(), err)
+    }
+}
+
+impl std::convert::From<std::string::FromUtf8Error> for EvaluationError {
+    fn from(err: std::string::FromUtf8Error) -> EvaluationError {
+        EvaluationError::Utf8Error("Invalid UTF-8".to_string())
     }
 }
 
@@ -28,7 +44,101 @@ pub enum Expression {
     LowerByte(Box<Expression>)
 }
 
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Expression::Name(ref name) => write!(f, "{}", name),
+            &Expression::Plus(ref left, ref right) => {
+                let left_paren = left.complex();
+                let right_paren = right.complex();
+                if left_paren { write!(f, "(")?; }
+                write!(f, "{}", left)?;
+                if left_paren { write!(f, ")")?; }
+
+                write!(f, " + ")?;
+                
+                if right_paren { write!(f, "(")?; }
+                write!(f, "{}", right)?;
+                if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            &Expression::Minus(ref left, ref right) => {
+                let left_paren = left.complex();
+                let right_paren = right.complex();
+                if left_paren { write!(f, "(")?; }
+                write!(f, "{}", left)?;
+                if left_paren { write!(f, ")")?; }
+
+                write!(f, " - ")?;
+                
+                if right_paren { write!(f, "(")?; }
+                write!(f, "{}", right)?;
+                if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            &Expression::Times(ref left, ref right) => {
+                let left_paren = left.complex();
+                let right_paren = right.complex();
+                if left_paren { write!(f, "(")?; }
+                write!(f, "{}", left)?;
+                if left_paren { write!(f, ")")?; }
+
+                write!(f, " * ")?;
+                
+                if right_paren { write!(f, "(")?; }
+                write!(f, "{}", right)?;
+                if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            &Expression::Divide(ref left, ref right) => {
+                let left_paren = left.complex();
+                let right_paren = right.complex();
+                if left_paren { write!(f, "(")?; }
+                write!(f, "{}", left)?;
+                if left_paren { write!(f, ")")?; }
+
+                write!(f, " / ")?;
+                
+                if right_paren { write!(f, "(")?; }
+                write!(f, "{}", right)?;
+                if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            &Expression::Number(ref num) => write!(f, "{}", num),
+            &Expression::UpperByte(ref expr) => {
+                let paren = expr.complex();
+                write!(f, ">")?;
+                if paren { write!(f, "(")?; }
+                write!(f, "{}", expr)?;
+                if paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            &Expression::LowerByte(ref expr) => {
+                let paren = expr.complex();
+                write!(f, "<")?;
+                if paren { write!(f, "(")?; }
+                write!(f, "{}", expr)?;
+                if paren { write!(f, ")")?; }
+                write!(f, "")
+            }
+        }
+    }
+}
+
 impl Expression {
+    pub fn complex(&self) -> bool {
+        match self {
+            &Expression::Name(_) => false,
+            &Expression::Plus(_,_) => true,
+            &Expression::Minus(_,_) => true,
+            &Expression::Times(_,_) => true,
+            &Expression::Divide(_,_) => true,
+            &Expression::Number(_) => false,
+            &Expression::UpperByte(_) => true,
+            &Expression::LowerByte(_) => true
+        }
+    }
+
     pub fn eval(&self, name_lookup: &HashMap<String,i32>) -> Result<i32,EvaluationError> {
         match self {
             &Expression::Name(ref name) => match name_lookup.get(name) {

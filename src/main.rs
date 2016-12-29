@@ -35,6 +35,11 @@ fn main() {
             )
     ).get_matches();
 
+    if let Some(matches) = matches.subcommand_matches("assemble") {
+        let input_file = matches.value_of("INPUT").unwrap();
+        println!("input: {:?}", input_file);
+        parser::run_parser(input_file).expect("Failed to load file");
+    }
 
     let mut id_gen = unique_id::UniqueIdGenerator::new(0);
     println!("id: {:?}; id name: {}", ast::Ident::new(&mut id_gen, "fred".to_string()), ast::Ident::new(&mut id_gen, "fred".to_string()).to_string());
@@ -42,8 +47,6 @@ fn main() {
     println!("Hello, world!");
 
     println!("Encoded: {}", to_hex_string(encode()));
-
-    parser::run_parser();
 
     println!("010: {}", i64::from_str_radix(&"010"[..], 8).unwrap());
     println!("0xFF: {}", i64::from_str_radix(&"0xFF"[2..], 16).unwrap());
