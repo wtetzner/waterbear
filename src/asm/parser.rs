@@ -82,7 +82,8 @@ impl_rdp! {
         alias = { name ~ ["EQU"] ~ num_expression }
         variable = { name ~ ["="] ~ num_expression }
 
-        directive = { include_dir | byte_dir | byte_dir_str | word_dir | org_dir }
+        directive = { include_dir | byte_dir | byte_dir_str | word_dir | org_dir | cnop_dir }
+        cnop_dir = @{ [".cnop"] ~ ws* ~ num_expression ~ ws* ~ [","] ~ ws* ~ num_expression }
         include_dir = { [".include"] ~ string }
         byte_dir = { [".byte"] ~ num_expression ~ ([","] ~ num_expression)* }
         byte_dir_str = { [".byte"] ~ string }
@@ -440,7 +441,12 @@ fn to_directive<'a>(node: &Node<'a>) -> Result<Directive,EvaluationError> {
             let value = expr.eval(&HashMap::new())?;
             Ok(Directive::Org(num::to_usize(value)?))
         },
-        _ => unreachable!()
+        Rule::cnop_dir => {
+            let first = to_expr(&node.children[0])?;
+            let second = to_expr(&node.children[1])?;
+            Ok(Directive::Cnop(first, second))
+        }
+        _ => panic!(format!("Unknown directive: {}", node.text))
     }
 }
 

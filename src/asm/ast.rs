@@ -12,7 +12,8 @@ pub enum Directive {
     ByteString(Vec<u8>),
     Org(usize),
     Word(Vec<Expression>),
-    Include(String)
+    Include(String),
+    Cnop(Expression,Expression)
 }
 
 fn escape_string<'a>(bytes: &Vec<u8>) -> String {
@@ -76,6 +77,12 @@ fn escape_string<'a>(bytes: &Vec<u8>) -> String {
 impl fmt::Display for Directive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            &Directive::Cnop(ref exp1, ref exp2) => {
+                write!(f, ".cnop ")?;
+                write!(f, "{}", exp1)?;
+                write!(f, ", ")?;
+                write!(f, "{}", exp2)
+            },
             &Directive::Byte(ref vec) => {
                 write!(f, ".byte ")?;
                 let mut first = true;
@@ -90,7 +97,7 @@ impl fmt::Display for Directive {
                 write!(f, "")
             },
             &Directive::ByteString(ref vec) => {
-                write!(f, ".byte \"");
+                write!(f, ".byte \"")?;
                 write!(f, "{}\"", escape_string(vec))
             },
             &Directive::Org(ref num) => write!(f, ".org {}", num),
@@ -154,7 +161,7 @@ impl fmt::Display for Statements {
             } else {
                 write!(f, "\n")?;
             }
-            write!(f, "{}", st);
+            write!(f, "{}", st)?;
         }
         write!(f, "")
     }
