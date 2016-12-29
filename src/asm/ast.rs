@@ -117,7 +117,8 @@ pub enum Statement<S3: ToVal<B3>,S8: ToVal<i8>,S9: ToVal<D9>,S12: ToVal<A12>,S16
     Directive(Directive),
     Label(String),
     Instruction(instruction::Instruction<S3,S8,S9,S12,S16>),
-    Variable(String, Expression)
+    Variable(String, Expression),
+    Alias(String, Expression)
 }
 
 impl<S3: ToVal<B3> + Debug,S8: ToVal<i8> + Debug,S9: ToVal<D9> + Debug,S12: ToVal<A12> + Debug,S16: ToVal<u16> + Debug> fmt::Display for Statement<S3,S8,S9,S12,S16> {
@@ -132,6 +133,9 @@ impl<S3: ToVal<B3> + Debug,S8: ToVal<i8> + Debug,S9: ToVal<D9> + Debug,S12: ToVa
             &Statement::Instruction(ref inst) => write!(f, "  {:?}", inst),
             &Statement::Variable(ref name, ref expr) => {
                 write!(f, "{} = {}", name, expr)
+            },
+            &Statement::Alias(ref name, ref expr) => {
+                write!(f, "{} EQU {}", name, expr)
             }
         }
     }

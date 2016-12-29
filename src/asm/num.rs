@@ -26,9 +26,9 @@ pub fn to_u16(num: i32) -> Result<u16,NumberConversionError> {
 }
 
 pub fn to_usize(num: i32) -> Result<usize,NumberConversionError> {
-    if num >= (std::isize::MIN as i32) && num <= (std::isize::MAX as i32) {
+    if (num as isize) >= std::isize::MIN && (num as isize) <= std::isize::MAX {
         Ok(unsafe { mem::transmute::<isize, usize>(num as isize) })
-    } else if num >= 0 && num <= (std::usize::MAX as i32) {
+    } else if num >= 0 && (num as usize) <= std::usize::MAX {
         Ok(num as usize)
     } else {
         Err(NumberConversionError::Failure(format!("Invalid usize value: {}", num)))

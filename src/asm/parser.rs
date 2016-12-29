@@ -26,6 +26,16 @@ enum Args {
 }
 
 impl Args {
+    fn printed(&self) -> String {
+        match self {
+            &Args::Empty => "".to_string(),
+            &Args::One(ref arg) => format!("[{:?}]", arg),
+            &Args::Two(ref arg1, ref arg2) => format!("[{:?}, {:?}]", arg1, arg2),
+            &Args::Three(ref arg1, ref arg2, ref arg3) => format!("[{:?}, {:?}, {:?}]", arg1, arg2, arg3),
+            &Args::Many(ref args) => format!("{:?}", args)
+        }
+    }
+
     fn prepend(self, arg: Arg) -> Args {
         match self {
             Args::Empty => Args::One(arg),
@@ -47,7 +57,7 @@ impl Args {
 impl_rdp! {
     grammar! {
         statements = { whitespace* ~ statement* ~ whitespace* }
-        statement = _{ directive | label | instruction }
+        statement = _{ variable | alias | directive | label | instruction }
 
         num_expression = _{
             { ["("] ~ num_expression ~ [")"] | upper_byte | lower_byte | number | name }
@@ -68,6 +78,9 @@ impl_rdp! {
 
         upper_byte = { [">"] ~ num_expression }
         lower_byte = { ["<"] ~ num_expression }
+
+        alias = { name ~ ["EQU"] ~ num_expression }
+        variable = { name ~ ["="] ~ num_expression }
 
         directive = { include_dir | byte_dir | byte_dir_str | word_dir | org_dir }
         include_dir = { [".include"] ~ string }
@@ -205,147 +218,156 @@ fn to_instr<'a>(node: &Node<'a>) -> Result<Instruction<Expression,Expression,Exp
         ("add", Args::One(Arg::I8(i8))) => Ok(Instruction::Add_i8(i8)),
         ("add", Args::One(Arg::Mem(mem))) => Ok(Instruction::Add_d9(mem)),
         ("add", Args::One(Arg::Ri(ri))) => Ok(Instruction::Add_Ri(ri)),
-        ("add", args) => Err(EvaluationError::Failure("Invalid add instruction".to_string())),
+        ("add", args) => Err(EvaluationError::Failure(format!("Invalid add instruction; args: {}", args.printed()))),
 
         ("addc", Args::One(Arg::I8(i8))) => Ok(Instruction::Addc_i8(i8)),
         ("addc", Args::One(Arg::Mem(mem))) => Ok(Instruction::Addc_d9(mem)),
         ("addc", Args::One(Arg::Ri(ri))) => Ok(Instruction::Addc_Ri(ri)),
-        ("addc", args) => Err(EvaluationError::Failure("Invalid addc instruction".to_string())),
+        ("addc", args) => Err(EvaluationError::Failure(format!("Invalid addc instruction; args: {}", args.printed()))),
 
         ("sub", Args::One(Arg::I8(i8))) => Ok(Instruction::Sub_i8(i8)),
         ("sub", Args::One(Arg::Mem(mem))) => Ok(Instruction::Sub_d9(mem)),
         ("sub", Args::One(Arg::Ri(ri))) => Ok(Instruction::Sub_Ri(ri)),
-        ("sub", args) => Err(EvaluationError::Failure("Invalid sub instruction".to_string())),
+        ("sub", args) => Err(EvaluationError::Failure(format!("Invalid sub instruction; args: {}", args.printed()))),
 
         ("subc", Args::One(Arg::I8(i8))) => Ok(Instruction::Subc_i8(i8)),
         ("subc", Args::One(Arg::Mem(mem))) => Ok(Instruction::Subc_d9(mem)),
         ("subc", Args::One(Arg::Ri(ri))) => Ok(Instruction::Subc_Ri(ri)),
-        ("subc", args) => Err(EvaluationError::Failure("Invalid subc instruction".to_string())),
+        ("subc", args) => Err(EvaluationError::Failure(format!("Invalid subc instruction; args: {}", args.printed()))),
 
         ("inc", Args::One(Arg::Mem(mem))) => Ok(Instruction::Inc_d9(mem)),
         ("inc", Args::One(Arg::Ri(ri))) => Ok(Instruction::Inc_Ri(ri)),
-        ("inc", args) => Err(EvaluationError::Failure("Invalid inc instruction".to_string())),
+        ("inc", args) => Err(EvaluationError::Failure(format!("Invalid inc instruction; args: {}", args.printed()))),
 
         ("dec", Args::One(Arg::Mem(mem))) => Ok(Instruction::Dec_d9(mem)),
         ("dec", Args::One(Arg::Ri(ri))) => Ok(Instruction::Dec_Ri(ri)),
-        ("dec", args) => Err(EvaluationError::Failure("Invalid dec instruction".to_string())),
+        ("dec", args) => Err(EvaluationError::Failure(format!("Invalid dec instruction; args: {}", args.printed()))),
 
         ("mul", Args::Empty) => Ok(Instruction::Mul),
-        ("mul", args) => Err(EvaluationError::Failure("Invalid mul instruction".to_string())),
+        ("mul", args) => Err(EvaluationError::Failure(format!("Invalid mul instruction; args: {}", args.printed()))),
 
         ("div", Args::Empty) => Ok(Instruction::Div),
-        ("div", args) => Err(EvaluationError::Failure("Invalid div instruction".to_string())),
+        ("div", args) => Err(EvaluationError::Failure(format!("Invalid div instruction; args: {}", args.printed()))),
 
         ("and", Args::One(Arg::I8(i8))) => Ok(Instruction::And_i8(i8)),
         ("and", Args::One(Arg::Mem(mem))) => Ok(Instruction::And_d9(mem)),
         ("and", Args::One(Arg::Ri(ri))) => Ok(Instruction::And_Ri(ri)),
-        ("and", args) => Err(EvaluationError::Failure("Invalid and instruction".to_string())),
+        ("and", args) => Err(EvaluationError::Failure(format!("Invalid and instruction; args: {}", args.printed()))),
 
         ("or", Args::One(Arg::I8(i8))) => Ok(Instruction::Or_i8(i8)),
         ("or", Args::One(Arg::Mem(mem))) => Ok(Instruction::Or_d9(mem)),
         ("or", Args::One(Arg::Ri(ri))) => Ok(Instruction::Or_Ri(ri)),
-        ("or", args) => Err(EvaluationError::Failure("Invalid or instruction".to_string())),
+        ("or", args) => Err(EvaluationError::Failure(format!("Invalid or instruction; args: {}", args.printed()))),
 
         ("xor", Args::One(Arg::I8(i8))) => Ok(Instruction::Xor_i8(i8)),
         ("xor", Args::One(Arg::Mem(mem))) => Ok(Instruction::Xor_d9(mem)),
         ("xor", Args::One(Arg::Ri(ri))) => Ok(Instruction::Xor_Ri(ri)),
-        ("xor", args) => Err(EvaluationError::Failure("Invalid xor instruction".to_string())),
+        ("xor", args) => Err(EvaluationError::Failure(format!("Invalid xor instruction; args: {}", args.printed()))),
 
         ("rol", Args::Empty) => Ok(Instruction::Rol),
-        ("rol", args) => Err(EvaluationError::Failure("Invalid rol instruction".to_string())),
+        ("rol", args) => Err(EvaluationError::Failure(format!("Invalid rol instruction; args: {}", args.printed()))),
 
         ("rolc", Args::Empty) => Ok(Instruction::Rolc),
-        ("rolc", args) => Err(EvaluationError::Failure("Invalid rolc instruction".to_string())),
+        ("rolc", args) => Err(EvaluationError::Failure(format!("Invalid rolc instruction; args: {}", args.printed()))),
 
         ("ror", Args::Empty) => Ok(Instruction::Ror),
-        ("ror", args) => Err(EvaluationError::Failure("Invalid ror instruction".to_string())),
+        ("ror", args) => Err(EvaluationError::Failure(format!("Invalid ror instruction; args: {}", args.printed()))),
 
         ("rorc", Args::Empty) => Ok(Instruction::Rorc),
-        ("rorc", args) => Err(EvaluationError::Failure("Invalid rorc instruction".to_string())),
+        ("rorc", args) => Err(EvaluationError::Failure(format!("Invalid rorc instruction; args: {}", args.printed()))),
 
         ("ld", Args::One(Arg::Mem(mem))) => Ok(Instruction::Ld_d9(mem)),
         ("ld", Args::One(Arg::Ri(ri))) => Ok(Instruction::Ld_Ri(ri)),
-        ("ld", args) => Err(EvaluationError::Failure("Invalid ld instruction".to_string())),
+        ("ld", args) => Err(EvaluationError::Failure(format!("Invalid ld instruction; args: {}", args.printed()))),
 
         ("st", Args::One(Arg::Mem(mem))) => Ok(Instruction::St_d9(mem)),
         ("st", Args::One(Arg::Ri(ri))) => Ok(Instruction::St_Ri(ri)),
-        ("st", args) => Err(EvaluationError::Failure("Invalid st instruction".to_string())),
+        ("st", args) => Err(EvaluationError::Failure(format!("Invalid st instruction; args: {}", args.printed()))),
 
         ("mov", Args::Two(Arg::I8(i8), Arg::Mem(mem))) => Ok(Instruction::Mov_d9(i8, mem)),
         ("mov", Args::Two(Arg::I8(i8), Arg::Ri(ri))) => Ok(Instruction::Mov_Rj(i8, ri)),
-        ("mov", args) => Err(EvaluationError::Failure("Invalid mov instruction".to_string())),
+        ("mov", args) => Err(EvaluationError::Failure(format!("Invalid mov instruction; args: {}", args.printed()))),
 
         ("ldc", Args::Empty) => Ok(Instruction::Ldc),
-        ("ldc", args) => Err(EvaluationError::Failure("Invalid ldc instruction".to_string())),
+        ("ldc", args) => Err(EvaluationError::Failure(format!("Invalid ldc instruction; args: {}", args.printed()))),
 
         ("push", Args::One(Arg::Mem(mem))) => Ok(Instruction::Push(mem)),
-        ("push", args) => Err(EvaluationError::Failure("Invalid push instruction".to_string())),
+        ("push", args) => Err(EvaluationError::Failure(format!("Invalid push instruction; args: {}", args.printed()))),
 
         ("pop", Args::One(Arg::Mem(mem))) => Ok(Instruction::Pop(mem)),
-        ("pop", args) => Err(EvaluationError::Failure("Invalid pop instruction".to_string())),
+        ("pop", args) => Err(EvaluationError::Failure(format!("Invalid pop instruction; args: {}", args.printed()))),
 
         ("xch", Args::One(Arg::Mem(mem))) => Ok(Instruction::Xch_d9(mem)),
         ("xch", Args::One(Arg::Ri(ri))) => Ok(Instruction::Xch_Ri(ri)),
-        ("xch", args) => Err(EvaluationError::Failure("Invalid xch instruction".to_string())),
+        ("xch", args) => Err(EvaluationError::Failure(format!("Invalid xch instruction; args: {}", args.printed()))),
 
         ("jmp", Args::One(Arg::Mem(mem))) => Ok(Instruction::Jmp(mem)),
-        ("jmp", args) => Err(EvaluationError::Failure("Invalid jmp instruction".to_string())),
+        ("jmp", args) => Err(EvaluationError::Failure(format!("Invalid jmp instruction; args: {}", args.printed()))),
 
         ("jmpf", Args::One(Arg::Mem(mem))) => Ok(Instruction::Jmpf(mem)),
-        ("jmpf", args) => Err(EvaluationError::Failure("Invalid jmpf instruction".to_string())),
+        ("jmpf", args) => Err(EvaluationError::Failure(format!("Invalid jmpf instruction; args: {}", args.printed()))),
 
-        ("br", Args::One(Arg::I8(i8))) => Ok(Instruction::Br(i8)),
-        ("br", args) => Err(EvaluationError::Failure("Invalid br instruction".to_string())),
+        ("br", Args::One(Arg::Mem(i8))) => Ok(Instruction::Br(i8)),
+        ("br", args) => Err(EvaluationError::Failure(format!("Invalid br instruction; args: {}", args.printed()))),
 
         ("brf", Args::One(Arg::Mem(mem))) => Ok(Instruction::Brf(mem)),
-        ("brf", args) => Err(EvaluationError::Failure("Invalid brf instruction".to_string())),
+        ("brf", args) => Err(EvaluationError::Failure(format!("Invalid brf instruction; args: {}", args.printed()))),
 
-        ("bz", Args::One(Arg::I8(i8))) => Ok(Instruction::Bz(i8)),
-        ("bz", args) => Err(EvaluationError::Failure("Invalid bz instruction".to_string())),
+        ("bz", Args::One(Arg::Mem(i8))) => Ok(Instruction::Bz(i8)),
+        ("bz", args) => Err(EvaluationError::Failure(format!("Invalid bz instruction; args: {}", args.printed()))),
 
-        ("bnz", Args::One(Arg::I8(i8))) => Ok(Instruction::Bnz(i8)),
-        ("bnz", args) => Err(EvaluationError::Failure("Invalid bnz instruction".to_string())),
+        ("bnz", Args::One(Arg::Mem(i8))) => Ok(Instruction::Bnz(i8)),
+        ("bnz", args) => Err(EvaluationError::Failure(format!("Invalid bnz instruction; args: {}", args.printed()))),
 
-        ("dbnz", Args::Two(Arg::Mem(mem), Arg::I8(i8))) => Ok(Instruction::Dbnz_d9(mem, i8)),
-        ("dbnz", Args::Two(Arg::Ri(ri), Arg::I8(i8))) => Ok(Instruction::Dbnz_Ri(ri, i8)),
-        ("dbnz", args) => Err(EvaluationError::Failure("Invalid dbnz instruction".to_string())),
+        ("bp", Args::Three(Arg::Mem(d9), Arg::Mem(b3), Arg::Mem(r8))) => Ok(Instruction::Bp(d9, b3, r8)),
+        ("bp", args) => Err(EvaluationError::Failure(format!("Invalid bp instruction; args: {}", args.printed()))),
 
-        ("be", Args::Two(Arg::I8(i81), Arg::I8(i82))) => Ok(Instruction::Be_i8(i81, i82)),
-        ("be", Args::Two(Arg::Mem(mem), Arg::I8(i8))) => Ok(Instruction::Be_d9(mem, i8)),
-        ("be", Args::Three(Arg::Ri(ri), Arg::I8(i81), Arg::I8(i82))) => Ok(Instruction::Be_Rj(ri, i81, i82)),
-        ("be", args) => Err(EvaluationError::Failure("Invalid be instruction".to_string())),
+        ("bpc", Args::Three(Arg::Mem(d9), Arg::Mem(b3), Arg::Mem(r8))) => Ok(Instruction::Bpc(d9, b3, r8)),
+        ("bpc", args) => Err(EvaluationError::Failure(format!("Invalid bpc instruction; args: {}", args.printed()))),
 
-        ("bne", Args::Two(Arg::I8(i81), Arg::I8(i82))) => Ok(Instruction::Bne_i8(i81, i82)),
-        ("bne", Args::Two(Arg::Mem(mem), Arg::I8(i8))) => Ok(Instruction::Bne_d9(mem, i8)),
-        ("bne", Args::Three(Arg::Ri(ri), Arg::I8(i81), Arg::I8(i82))) => Ok(Instruction::Bne_Rj(ri, i81, i82)),
-        ("bne", args) => Err(EvaluationError::Failure("Invalid bne instruction".to_string())),
+        ("bn", Args::Three(Arg::Mem(d9), Arg::Mem(b3), Arg::Mem(r8))) => Ok(Instruction::Bn(d9, b3, r8)),
+        ("bn", args) => Err(EvaluationError::Failure(format!("Invalid bn instruction; args: {}", args.printed()))),
+
+        ("dbnz", Args::Two(Arg::Mem(mem), Arg::Mem(i8))) => Ok(Instruction::Dbnz_d9(mem, i8)),
+        ("dbnz", Args::Two(Arg::Ri(ri), Arg::Mem(i8))) => Ok(Instruction::Dbnz_Ri(ri, i8)),
+        ("dbnz", args) => Err(EvaluationError::Failure(format!("Invalid dbnz instruction; args: {}", args.printed()))),
+
+        ("be", Args::Two(Arg::I8(i81), Arg::Mem(i82))) => Ok(Instruction::Be_i8(i81, i82)),
+        ("be", Args::Two(Arg::Mem(mem), Arg::Mem(i8))) => Ok(Instruction::Be_d9(mem, i8)),
+        ("be", Args::Three(Arg::Ri(ri), Arg::I8(i81), Arg::Mem(i82))) => Ok(Instruction::Be_Rj(ri, i81, i82)),
+        ("be", args) => Err(EvaluationError::Failure(format!("Invalid be instruction; args: {}", args.printed()))),
+
+        ("bne", Args::Two(Arg::I8(i81), Arg::Mem(i82))) => Ok(Instruction::Bne_i8(i81, i82)),
+        ("bne", Args::Two(Arg::Mem(mem), Arg::Mem(i8))) => Ok(Instruction::Bne_d9(mem, i8)),
+        ("bne", Args::Three(Arg::Ri(ri), Arg::I8(i81), Arg::Mem(i82))) => Ok(Instruction::Bne_Rj(ri, i81, i82)),
+        ("bne", args) => Err(EvaluationError::Failure(format!("Invalid bne instruction; args: {}", args.printed()))),
 
         ("call", Args::One(Arg::Mem(mem))) => Ok(Instruction::Call(mem)),
-        ("call", args) => Err(EvaluationError::Failure("Invalid call instruction".to_string())),
+        ("call", args) => Err(EvaluationError::Failure(format!("Invalid call instruction; args: {}", args.printed()))),
 
         ("callf", Args::One(Arg::Mem(mem))) => Ok(Instruction::Callf(mem)),
-        ("callf", args) => Err(EvaluationError::Failure("Invalid callf instruction".to_string())),
+        ("callf", args) => Err(EvaluationError::Failure(format!("Invalid callf instruction; args: {}", args.printed()))),
 
         ("callr", Args::One(Arg::Mem(mem))) => Ok(Instruction::Callr(mem)),
-        ("callr", args) => Err(EvaluationError::Failure("Invalid callr instruction".to_string())),
+        ("callr", args) => Err(EvaluationError::Failure(format!("Invalid callr instruction; args: {}", args.printed()))),
 
         ("ret", Args::Empty) => Ok(Instruction::Ret),
-        ("ret", args) => Err(EvaluationError::Failure("Invalid ret instruction".to_string())),
+        ("ret", args) => Err(EvaluationError::Failure(format!("Invalid ret instruction; args: {}", args.printed()))),
 
         ("reti", Args::Empty) => Ok(Instruction::Reti),
-        ("reti", args) => Err(EvaluationError::Failure("Invalid reti instruction".to_string())),
+        ("reti", args) => Err(EvaluationError::Failure(format!("Invalid reti instruction; args: {}", args.printed()))),
 
         ("clr1", Args::Two(Arg::Mem(d9), Arg::Mem(b3))) => Ok(Instruction::Clr1(d9, b3)),
-        ("clr1", args) => Err(EvaluationError::Failure("Invalid clr1 instruction".to_string())),
+        ("clr1", args) => Err(EvaluationError::Failure(format!("Invalid clr1 instruction; args: {}", args.printed()))),
 
         ("set1", Args::Two(Arg::Mem(d9), Arg::Mem(b3))) => Ok(Instruction::Set1(d9, b3)),
-        ("set1", args) => Err(EvaluationError::Failure("Invalid set1 instruction".to_string())),
+        ("set1", args) => Err(EvaluationError::Failure(format!("Invalid set1 instruction; args: {}", args.printed()))),
 
         ("not1", Args::Two(Arg::Mem(d9), Arg::Mem(b3))) => Ok(Instruction::Not1(d9, b3)),
-        ("not1", args) => Err(EvaluationError::Failure("Invalid not1 instruction".to_string())),
+        ("not1", args) => Err(EvaluationError::Failure(format!("Invalid not1 instruction; args: {}", args.printed()))),
 
         ("nop", Args::Empty) => Ok(Instruction::Nop),
-        ("nop", args) => Err(EvaluationError::Failure("Invalid nop instruction".to_string())),
+        ("nop", args) => Err(EvaluationError::Failure(format!("Invalid nop instruction; args: {}", args.printed()))),
 
         (n,_) => Err(EvaluationError::Failure(format!("Invalid instruction: {}", n)))
     }
@@ -428,10 +450,8 @@ fn to_statement<'a>(node: &Node<'a>) -> Result<Statement<Expression,Expression,E
         Rule::instruction => Ok(Statement::Instruction(to_instr(node)?)),
         Rule::label => Ok(Statement::Label(node.text[..(node.text.len() - 1)].to_string())),
         Rule::directive => Ok(Statement::Directive(to_directive(&node.children[0])?)),
-        // Rule::directive => match node.text.to_lowercase().as_ref() {
-        //     ".byte" => Ok(Statement::Directive(Directive::Byte)),
-        //     ".org" => Ok(Statement::Directive(Directive::Org))
-        // },
+        Rule::variable => Ok(Statement::Variable(node.children[0].text.to_string(), to_expr(&node.children[1])?)),
+        Rule::alias => Ok(Statement::Alias(node.children[0].text.to_string(), to_expr(&node.children[1])?)),
         _ => panic!(format!("Failed to match rule {:?} in to_statement", node.rule))
     }
 }
