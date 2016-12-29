@@ -148,6 +148,7 @@ impl<S3: ToVal<B3> + Debug,S8: ToVal<i8> + Debug,S9: ToVal<D9> + Debug,S12: ToVa
     }
 }
 
+#[derive(Debug)]
 pub struct Statements {
     pub statements: Vec<Statement<Expression,Expression,Expression,Expression,Expression>>
 }

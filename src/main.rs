@@ -11,6 +11,8 @@ extern crate pest;
 use asm::parser;
 
 use bit_vec::BitVec;
+use std::fs::File;
+use std::io::Write;
 
 mod ast;
 mod unique_id;
@@ -32,13 +34,17 @@ fn main() {
              (version: "0.1.0")
              (author: "Walter Tetzner <walter@waltertetzner.net>")
              (@arg INPUT: +required "Sets the input file to compile")
+             (@arg OUTPUT: -o --output +required +takes_value "Output file")
             )
     ).get_matches();
 
     if let Some(matches) = matches.subcommand_matches("assemble") {
         let input_file = matches.value_of("INPUT").unwrap();
         println!("input: {:?}", input_file);
-        parser::run_parser(input_file).expect("Failed to load file");
+        let statements = parser::parse_file(input_file).expect("Failed to load file");
+        let bytes = asm::assemble(&statements).expect("Failed to assemble");
+        let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
+        outfile.write_all(&bytes).unwrap();
     }
 
     let mut id_gen = unique_id::UniqueIdGenerator::new(0);

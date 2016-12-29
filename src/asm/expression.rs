@@ -3,15 +3,23 @@ use std;
 use std::collections::HashMap;
 use std::fmt;
 use asm;
+use asm::num;
 
-#[derive(Debug,Clone)]
+#[derive(Debug)]
 pub enum EvaluationError {
     Failure(String),
     NameNotFound(String),
     DivideByZero(String),
     NumberError(String,std::num::ParseIntError),
     InvalidNumber(String),
-    Utf8Error(String)
+    Utf8Error(String),
+    FileLoadError(asm::parser::FileLoadError)
+}
+
+impl std::convert::From<asm::parser::FileLoadError> for EvaluationError {
+    fn from(err: asm::parser::FileLoadError) -> EvaluationError {
+        EvaluationError::FileLoadError(err)
+    }
 }
 
 impl std::convert::From<asm::num::NumberConversionError> for EvaluationError {
@@ -141,7 +149,7 @@ impl Expression {
 
     pub fn eval(&self, name_lookup: &HashMap<String,i32>) -> Result<i32,EvaluationError> {
         match self {
-            &Expression::Name(ref name) => match name_lookup.get(name) {
+            &Expression::Name(ref name) => match name_lookup.get(&name.to_lowercase()) {
                 Some(num) => Ok(*num),
                 None => Err(EvaluationError::NameNotFound(format!("Name '{}' not found", name)))
             },

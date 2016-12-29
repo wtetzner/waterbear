@@ -20,6 +20,13 @@ impl ToVal<i8> for Expression {
     }
 }
 
+impl ToVal<u8> for Expression {
+    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<u8,EvaluationError> {
+        let value = self.eval(name_lookup)?;
+        Ok(num::to_u8(value)?)
+    }
+}
+
 impl ToVal<B3> for B3 {
     fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<B3,EvaluationError> { Ok(*self) }
 }
@@ -322,7 +329,12 @@ pub enum Instruction<S3: ToVal<B3>,S8: ToVal<i8>,S9: ToVal<D9>,S12: ToVal<A12>,S
 }
 
 impl Instruction<B3,i8,D9,A12,u16> {
-    #[inline]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bits = BitVec::new();
+        self.encode(&mut bits);
+        bits.to_bytes()
+    }
+
     pub fn encode(&self, bits: &mut BitVec) {
         match self {
             &Instruction::Add_i8(i8) => { push_byte(bits, 0b10000001); push_signed_byte(bits, i8); },

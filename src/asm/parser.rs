@@ -434,7 +434,7 @@ fn to_directive<'a>(node: &Node<'a>) -> Result<Directive,EvaluationError> {
             for b in node.children.iter() {
                 bytes.push(to_expr(&b)?);
             }
-            Ok(Directive::Byte(bytes))
+            Ok(Directive::Word(bytes))
         },
         Rule::org_dir => {
             let expr = to_expr(&node.children[0])?;
@@ -516,6 +516,16 @@ pub fn load_file(path: &str) -> Result<String, FileLoadError> {
     file.read_to_end(&mut bytes)?;
 
     Ok(String::from_utf8(bytes)?)
+}
+
+pub fn parse_file(path: &str) -> Result<Statements, EvaluationError> {
+    let mut text = load_file(path)?;
+    replace_stars(&mut text);
+    let mut parser: Rdp<StringInput> = Rdp::new(StringInput::new(&text));
+    assert!(parser.statements());
+    // assert!(parser.end());
+    let (idx, node) = to_tree(&text, 0, parser.queue());
+    Ok(Statements { statements: to_statements(&node)? })
 }
 
 pub fn run_parser(path: &str) -> Result<(), FileLoadError> {
