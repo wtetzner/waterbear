@@ -547,8 +547,8 @@ pub fn run_parser(path: &str) -> Result<(), FileLoadError> {
 
     println!("to_tree");
     let (idx, node) = to_tree(&text, 0, parser.queue());
-    println!("tree: {:?}", node);
-    println!("results:\n{}", Statements { statements: to_statements(&node).expect("Failure") });
+    // println!("tree: {:?}", node);
+    // println!("results:\n{}", Statements { statements: to_statements(&node).expect("Failure") });
 
     // let result = parser.to_statements();
     // println!("result: {:?}", result);

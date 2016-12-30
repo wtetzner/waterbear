@@ -20,7 +20,6 @@ pub fn assemble(statements: &Statements) -> Result<Vec<u8>,EvaluationError> {
 
 fn generate_bytes(statements: &Statements, names: &HashMap<String,i32>, output: &mut Vec<u8>) -> Result<(),EvaluationError> {
     let mut pos: usize = 0;
-    println!("statements: {:?}", statements);
     for statement in statements.statements.iter() {
         println!("{} - {:?}", pos, statement);
         match statement {
@@ -58,7 +57,7 @@ fn generate_bytes(statements: &Statements, names: &HashMap<String,i32>, output: 
                         let mut mult = 0;
                         loop {
                             if pos < mult {
-                                //break;
+                                break;
                             }
                             mult = mult + multiple;
                         }
@@ -68,7 +67,8 @@ fn generate_bytes(statements: &Statements, names: &HashMap<String,i32>, output: 
             },
             &Statement::Label(ref name) => {},
             &Statement::Instruction(ref instr) => {
-                let bytes = instr.reduce(names)?.to_bytes();
+                let next_pos = pos + instr.size();
+                let bytes = instr.reduce(next_pos, names)?.to_bytes();
                 for b in bytes.iter() {
                     output[pos] = *b;
                     pos = pos + 1;
@@ -79,6 +79,15 @@ fn generate_bytes(statements: &Statements, names: &HashMap<String,i32>, output: 
         }
     }
     Ok(())
+}
+
+fn add_name(pos: i32, name: String, value: i32, names: &mut HashMap<String,i32>) -> Result<(), EvaluationError> {
+    if names.contains_key(&name) {
+        Err(EvaluationError::Failure(format!("{} - Name {} already exists at {}", pos, name, names.get(&name).unwrap())))
+    } else {
+        names.insert(name, value);
+        Ok(())
+    }
 }
 
 fn compute_names(statements: &Statements) -> Result<(usize, HashMap<String,i32>),EvaluationError> {
@@ -109,18 +118,21 @@ fn compute_names(statements: &Statements) -> Result<(usize, HashMap<String,i32>)
                 }
             },
             &Statement::Label(ref name) => {
-                names.insert(name.to_lowercase(), pos);
+                add_name(pos, name.to_lowercase(), pos, &mut names)?;
+                // names.insert(name.to_lowercase(), pos);
             },
             &Statement::Instruction(ref instr) => {
                 pos = pos + (instr.size() as i32);
             },
             &Statement::Variable(ref name, ref expr) => {
                 let value = expr.eval(&names)?;
-                names.insert(name.to_lowercase(), value);
+                add_name(pos, name.to_lowercase(), value, &mut names)?;
+                // names.insert(name.to_lowercase(), value);
             },
             &Statement::Alias(ref name, ref expr) => {
                 let value = expr.eval(&names)?;
-                names.insert(name.to_lowercase(), value);
+                add_name(pos, name.to_lowercase(), value, &mut names)?;
+                // names.insert(name.to_lowercase(), value);
             }
         }
         if max_pos < (pos as usize) {

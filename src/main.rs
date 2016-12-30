@@ -40,7 +40,6 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("assemble") {
         let input_file = matches.value_of("INPUT").unwrap();
-        println!("input: {:?}", input_file);
         let statements = parser::parse_file(input_file).expect("Failed to load file");
         let bytes = asm::assemble(&statements).expect("Failed to assemble");
         let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
