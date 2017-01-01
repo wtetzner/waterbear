@@ -14,7 +14,6 @@ pub fn assemble(statements: &Statements) -> Result<Vec<u8>,EvaluationError> {
     let (max_pos, names) = compute_names(statements)?;
     let mut output = vec![0; max_pos];
     generate_bytes(statements, &names, &mut output)?;
-    println!("names: {:?}, max_pos: {:?}", names, max_pos);
     Ok(output)
 }
 
@@ -119,7 +118,6 @@ fn compute_names(statements: &Statements) -> Result<(usize, HashMap<String,i32>)
             },
             &Statement::Label(ref name) => {
                 add_name(pos, name.to_lowercase(), pos, &mut names)?;
-                // names.insert(name.to_lowercase(), pos);
             },
             &Statement::Instruction(ref instr) => {
                 pos = pos + (instr.size() as i32);
@@ -127,12 +125,10 @@ fn compute_names(statements: &Statements) -> Result<(usize, HashMap<String,i32>)
             &Statement::Variable(ref name, ref expr) => {
                 let value = expr.eval(&names)?;
                 add_name(pos, name.to_lowercase(), value, &mut names)?;
-                // names.insert(name.to_lowercase(), value);
             },
             &Statement::Alias(ref name, ref expr) => {
                 let value = expr.eval(&names)?;
                 add_name(pos, name.to_lowercase(), value, &mut names)?;
-                // names.insert(name.to_lowercase(), value);
             }
         }
         if max_pos < (pos as usize) {

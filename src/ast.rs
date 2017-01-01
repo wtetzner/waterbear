@@ -15,6 +15,10 @@ impl Ident {
             stamp: unique_id_generator.next()
         }
     }
+
+    pub fn to_unique_string(&self) -> String {
+        format!("{}:{}", self.name, self.stamp.to_string())
+    }
 }
 
 impl ToString for Ident {
@@ -22,4 +26,6 @@ impl ToString for Ident {
         format!("{}", self.name)
     }
 }
+
+
 
