@@ -1,7 +1,7 @@
 
 use std::string::ToString;
 
-#[derive(Debug,Eq,Ord,PartialOrd,PartialEq)]
+#[derive(Debug,Eq,Ord,PartialOrd,PartialEq,Hash,Clone)]
 pub struct UniqueId {
     value: usize
 }

@@ -8,13 +8,15 @@ extern crate clap;
 #[macro_use]
 extern crate pest;
 
+extern crate hamt_rs;
+
 use asm::parser;
 
 use bit_vec::BitVec;
 use std::fs::File;
 use std::io::Write;
 
-mod ast;
+mod module;
 mod unique_id;
 mod asm;
 
@@ -43,7 +45,7 @@ fn main() {
     }
 
     let mut id_gen = unique_id::UniqueIdGenerator::new(0);
-    println!("id: {:?}; id name: {}", ast::Ident::new(&mut id_gen, "fred".to_string()), ast::Ident::new(&mut id_gen, "fred".to_string()).to_string());
+    println!("id: {:?}; id name: {}", module::Ident::new(&mut id_gen, "fred".to_string()), module::Ident::new(&mut id_gen, "fred".to_string()).to_string());
 
 }
 
