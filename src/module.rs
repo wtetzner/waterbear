@@ -2,6 +2,7 @@
 use unique_id::{UniqueId,UniqueIdGenerator};
 use std::string::ToString;
 use hamt_rs::HamtMap;
+use std::rc::Rc;
 
 #[derive(Debug,Eq,Hash,Clone)]
 pub struct Ident {
@@ -93,9 +94,49 @@ pub trait CoreSyntax {
     fn subst_kind(&self, subst: &Subst, kind: &Self::Kind) -> Self::Kind;
 }
 
+pub struct ModSyntax<Term,ValType,DefType,Kind,Core: CoreSyntax<Term=Term,ValType=ValType,DefType=DefType,Kind=Kind>> {
+    core: Core
+}
+
+impl<Term,ValType,DefType,Kind,Core: CoreSyntax<Term=Term,ValType=ValType,DefType=DefType,Kind=Kind>> ModSyntax<Term,ValType,DefType,Kind,Core> {
+    pub fn new(core: Core) -> ModSyntax<Term,ValType,DefType,Kind,Core> {
+        ModSyntax {
+            core: core
+        }
+    }
+
+    pub fn subst_typedecl(&self, decl: &TypeDecl<Kind,DefType>, subst: &Subst) -> TypeDecl<Kind,DefType> {
+        TypeDecl {
+            kind: Box::new(self.core.subst_kind(subst, &decl.kind)),
+            manifest: match &decl.manifest {
+                &None => None,
+                &Some(ref dty) => Some(Box::new(self.core.subst_deftype(subst, dty.clone())))
+            }
+        }
+    }
+
+    pub fn subst_modtype(&self, mty: &ModType<Kind,DefType,ValType>, subst: &Subst) -> ModType<Kind,DefType,ValType> {
+        match mty {
+            &ModType::Signature(ref specs) => ModType::Signature(specs.iter().map(|i| self.subst_sig_item(subst, i)).collect()),
+            &ModType::FunctorType(ref id, ref mty1, ref mty2) => ModType::FunctorType(
+                id.clone(),
+                Box::new(self.subst_modtype(mty1, subst)),
+                Box::new(self.subst_modtype(mty2, subst)))
+        }
+    }
+
+    fn subst_sig_item(&self, subst: &Subst, spec: &Specification<Kind,DefType,ValType>) -> Specification<Kind,DefType,ValType> {
+        match spec {
+            &Specification::Value(ref id, ref vty) => Specification::Value(id.clone(), Box::new(self.core.subst_valtype(subst, vty))),
+            &Specification::Type(ref id, ref decl) => Specification::Type(id.clone(), Box::new(self.subst_typedecl(decl, subst))),
+            &Specification::Module(ref id, ref mty) => Specification::Module(id.clone(), Box::new(self.subst_modtype(mty, subst)))
+        }
+    }
+}
+
 pub struct TypeDecl<Kind,DefType> {
     kind: Box<Kind>,
-    manifest: Box<DefType>
+    manifest: Option<Box<DefType>>
 }
 
 pub enum Specification<Kind,DefType,ValType> {
@@ -120,4 +161,17 @@ pub enum Definition<Term,Kind,DefType> {
     Module(Ident,Box<ModTerm<Term,Kind,DefType>>)
 }
 
+// pub struct Env<Term,ValType,DefType,Kind,Core: CoreSyntax<Term=Term,ValType=ValType,DefType=DefType,Kind=Kind>> {
+//     modsyn: Rc<ModSyntax<Term,ValType,DefType,Kind,Core>>,
+//     val_table: Rc<HamtMap<Ident,TypeDecl<Kind,DefType>>>,
+//     mod_table: Rc<HamtMap<Ident,ModType<Kind,DefType,ValType>>>,
+// }
+
+// impl<Term,ValType,DefType,Kind,Core: CoreSyntax<Term=Term,ValType=ValType,DefType=DefType,Kind=Kind>> Env<Term,ValType,DefType,Kind,Core> {
+//     pub fn empty(modsyn: ModSyntax<Term,ValType,DefType,Kind,Core>) -> Env<Term,ValType,DefType,Kind,Core> {
+//         Env {
+//             modsyn: modsyn
+//         }
+//     }
+// }
 
