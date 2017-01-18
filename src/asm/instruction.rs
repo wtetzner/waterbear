@@ -648,7 +648,7 @@ impl Instruction<Expression,Expression,Expression,Expression,Expression> {
             &Instruction::Jmp(ref a12) => {
                 let value = a12.eval(name_lookup)? as usize;
                 let bottom_bits = value & 0b0000111111111111;
-                let top_bits = value & 0b1111000000000000;
+                let top_bits = pos & 0b1111000000000000;
                 let final_value = bottom_bits | top_bits;
                 if final_value != value {
                     return Err(EvaluationError::InvalidNumber(format!("Top 4 bits of {} don't match the top 4 bits of pos: {}", value, pos)))
