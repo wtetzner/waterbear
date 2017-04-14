@@ -33,8 +33,7 @@ fn main() {
             (@arg verbose: -v ... "Sets the level of logging verbosity")
             (@subcommand assemble =>
              (about: "Assembler for the Dreamcast VMU")
-             (version: "0.1.0")
-             (author: "Walter Tetzner <walter@waltertetzner.net>")
+             // (author: "Walter Tetzner <walter@waltertetzner.net>")
              (@arg INPUT: +required "Sets the input file to compile")
              (@arg OUTPUT: -o --output +required +takes_value "Output file")
             )
@@ -46,7 +45,6 @@ fn main() {
 
     let mut id_gen = unique_id::UniqueIdGenerator::new(0);
     println!("id: {:?}; id name: {}", module::Ident::new(&mut id_gen, "fred".to_string()), module::Ident::new(&mut id_gen, "fred".to_string()).to_string());
-
 }
 
 fn assemble(matches: &clap::ArgMatches) {
