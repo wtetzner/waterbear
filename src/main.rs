@@ -20,6 +20,7 @@ mod unique_id;
 mod asm;
 
 use asm::instruction;
+use asm::expression::EvaluationError;
 
 fn main() {
     let matches = clap_app!(
@@ -39,18 +40,26 @@ fn main() {
     ).get_matches();
 
     if let Some(matches) = matches.subcommand_matches("assemble") {
-        assemble(matches);
+        let input_file = matches.value_of("INPUT").unwrap();
+        match assemble(matches) {
+            Ok(_) => {}
+            Err(ref err) => {
+                println!("Failed to assemble {}:", input_file);
+                println!("{}", err.to_string());
+            }
+        }
     }
 
     let mut id_gen = unique_id::UniqueIdGenerator::new(0);
     println!("id: {:?}; id name: {}", module::Ident::new(&mut id_gen, "fred".to_string()), module::Ident::new(&mut id_gen, "fred".to_string()).to_string());
 }
 
-fn assemble(matches: &clap::ArgMatches) {
+fn assemble(matches: &clap::ArgMatches) -> Result<(),EvaluationError> {
     let input_file = matches.value_of("INPUT").unwrap();
-    let statements = parser::parse_file(input_file).expect("Failed to load file");
-    let bytes = asm::assemble(&statements).expect("Failed to assemble");
+    let statements = parser::parse_file(input_file)?;
+    let bytes = asm::assemble(&statements)?;
     let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
     outfile.write_all(&bytes).unwrap();
+    Ok(())
 }
 

@@ -480,6 +480,15 @@ pub enum FileLoadError {
     Utf8Error(std::string::FromUtf8Error)
 }
 
+impl FileLoadError {
+    pub fn to_string(&self) -> String {
+        match self {
+            &FileLoadError::FileLoadFailure(ref err) => format!("Failed to load file: {}", err),
+            &FileLoadError::Utf8Error(ref err) => format!("{}", err)
+        }
+    }
+}
+
 impl std::convert::From<std::io::Error> for FileLoadError {
     fn from(error: std::io::Error) -> FileLoadError {
         FileLoadError::FileLoadFailure(error)

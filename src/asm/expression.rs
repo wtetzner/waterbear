@@ -15,6 +15,20 @@ pub enum EvaluationError {
     FileLoadError(asm::parser::FileLoadError)
 }
 
+impl EvaluationError {
+    pub fn to_string(&self) -> String {
+        match self {
+            &EvaluationError::Failure(ref msg) => msg.clone(),
+            &EvaluationError::NameNotFound(ref msg) => msg.clone(),
+            &EvaluationError::DivideByZero(ref msg) => msg.clone(),
+            &EvaluationError::NumberError(ref msg, ref err) => format!("{}: {}", msg, err),
+            &EvaluationError::InvalidNumber(ref msg) => msg.clone(),
+            &EvaluationError::Utf8Error(ref msg) => msg.clone(),
+            &EvaluationError::FileLoadError(ref err) => err.to_string()
+        }
+    }
+}
+
 impl std::convert::From<asm::parser::FileLoadError> for EvaluationError {
     fn from(err: asm::parser::FileLoadError) -> EvaluationError {
         EvaluationError::FileLoadError(err)
