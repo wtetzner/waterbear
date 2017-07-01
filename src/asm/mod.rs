@@ -6,7 +6,7 @@ pub mod expression;
 pub mod num;
 
 use asm::ast::{Statements,Statement,Directive};
-use asm::expression::{Expression,EvaluationError};
+use asm::expression::EvaluationError;
 use instruction::ToVal;
 use std::collections::HashMap;
 
@@ -64,7 +64,7 @@ fn generate_bytes(statements: &Statements, names: &HashMap<String,i32>, output: 
                     }
                 }
             },
-            &Statement::Label(ref name) => {},
+            &Statement::Label(_) => {},
             &Statement::Instruction(ref instr) => {
                 let next_pos = pos + instr.size();
                 let bytes = instr.reduce(next_pos, names)?.to_bytes();
@@ -73,8 +73,8 @@ fn generate_bytes(statements: &Statements, names: &HashMap<String,i32>, output: 
                     pos = pos + 1;
                 }
             },
-            &Statement::Variable(ref name, ref expr) => {},
-            &Statement::Alias(ref name, ref expr) => {}
+            &Statement::Variable(_, _) => {},
+            &Statement::Alias(_, _) => {}
         }
     }
     Ok(())

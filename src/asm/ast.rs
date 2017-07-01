@@ -4,7 +4,6 @@ use instruction::{ToVal,B3,D9,A12};
 use asm::expression::Expression;
 use std::fmt;
 use std::fmt::Debug;
-use std;
 
 #[derive(Debug)]
 pub enum Directive {

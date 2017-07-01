@@ -3,7 +3,6 @@ use std;
 use std::collections::HashMap;
 use std::fmt;
 use asm;
-use asm::num;
 
 #[derive(Debug)]
 pub enum EvaluationError {
@@ -35,7 +34,7 @@ impl std::convert::From<std::num::ParseIntError> for EvaluationError {
 }
 
 impl std::convert::From<std::string::FromUtf8Error> for EvaluationError {
-    fn from(err: std::string::FromUtf8Error) -> EvaluationError {
+    fn from(_: std::string::FromUtf8Error) -> EvaluationError {
         EvaluationError::Utf8Error("Invalid UTF-8".to_string())
     }
 }

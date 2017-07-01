@@ -10,7 +10,7 @@ pub trait ToVal<T> {
 }
 
 impl ToVal<i8> for i8 {
-    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<i8,EvaluationError> { Ok(*self) }
+    fn to(&self, _: &HashMap<String,i32>) -> Result<i8,EvaluationError> { Ok(*self) }
 }
 
 impl ToVal<i8> for Expression {
@@ -28,7 +28,7 @@ impl ToVal<u8> for Expression {
 }
 
 impl ToVal<B3> for B3 {
-    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<B3,EvaluationError> { Ok(*self) }
+    fn to(&self, _: &HashMap<String,i32>) -> Result<B3,EvaluationError> { Ok(*self) }
 }
 
 impl ToVal<B3> for Expression {
@@ -42,7 +42,7 @@ impl ToVal<B3> for Expression {
 }
 
 impl ToVal<D9> for D9 {
-    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<D9,EvaluationError> { Ok(*self) }
+    fn to(&self, _: &HashMap<String,i32>) -> Result<D9,EvaluationError> { Ok(*self) }
 }
 
 impl ToVal<D9> for Expression {
@@ -56,7 +56,7 @@ impl ToVal<D9> for Expression {
 }
 
 impl ToVal<A12> for A12 {
-    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<A12,EvaluationError> { Ok(*self) }
+    fn to(&self, _: &HashMap<String,i32>) -> Result<A12,EvaluationError> { Ok(*self) }
 }
 
 impl ToVal<A12> for Expression {
@@ -70,7 +70,7 @@ impl ToVal<A12> for Expression {
 }
 
 impl ToVal<u16> for u16 {
-    fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<u16,EvaluationError> { Ok(*self) }
+    fn to(&self, _: &HashMap<String,i32>) -> Result<u16,EvaluationError> { Ok(*self) }
 }
 
 impl ToVal<u16> for Expression {
@@ -156,22 +156,6 @@ impl A12 {
 
     pub fn at(&self, pos: u8) -> bool {
         bit_from_word(self.value, pos)
-    }
-
-    pub fn push_bits(&self, bits: &mut BitVec) {
-        let word = self.value;
-        bits.push(bit_from_word(word, 11));
-        bits.push(bit_from_word(word, 10));
-        bits.push(bit_from_word(word, 9));
-        bits.push(bit_from_word(word, 8));
-        bits.push(bit_from_word(word, 7));
-        bits.push(bit_from_word(word, 6));
-        bits.push(bit_from_word(word, 5));
-        bits.push(bit_from_word(word, 4));
-        bits.push(bit_from_word(word, 3));
-        bits.push(bit_from_word(word, 2));
-        bits.push(bit_from_word(word, 1));
-        bits.push(bit_from_word(word, 0));
     }
 }
 

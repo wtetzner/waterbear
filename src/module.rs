@@ -1,8 +1,9 @@
 
+#![allow(dead_code)]
+
 use unique_id::{UniqueId,UniqueIdGenerator};
 use std::string::ToString;
 use hamt_rs::HamtMap;
-use std::rc::Rc;
 
 #[derive(Debug,Eq,Hash,Clone)]
 pub struct Ident {

@@ -35,23 +35,6 @@ impl Args {
             &Args::Many(ref args) => format!("{:?}", args)
         }
     }
-
-    fn prepend(self, arg: Arg) -> Args {
-        match self {
-            Args::Empty => Args::One(arg),
-            Args::One(arg1) => Args::Two(arg, arg1),
-            Args::Two(arg1, arg2) => Args::Three(arg, arg1, arg2),
-            Args::Three(arg1, arg2, arg3) => Args::Many(vec![arg, arg1, arg2, arg3]),
-            Args::Many(vec) => {
-                let mut result = Vec::with_capacity(vec.len() + 1);
-                result.push(arg);
-                for a in vec {
-                    result.push(a);
-                }
-                Args::Many(result)
-            }
-        }
-    }
 }
 
 impl_rdp! {
@@ -451,7 +434,6 @@ fn to_directive<'a>(node: &Node<'a>) -> Result<Directive,EvaluationError> {
 }
 
 fn to_statement<'a>(node: &Node<'a>) -> Result<Statement<Expression,Expression,Expression,Expression,Expression>,EvaluationError> {
-    let num_children = node.children.len();
     match node.rule {
         Rule::instruction => Ok(Statement::Instruction(to_instr(node)?)),
         Rule::label => Ok(Statement::Label(node.text[..(node.text.len() - 1)].to_string())),
@@ -524,36 +506,8 @@ pub fn parse_file(path: &str) -> Result<Statements, EvaluationError> {
     let mut parser: Rdp<StringInput> = Rdp::new(StringInput::new(&text));
     assert!(parser.statements());
     // assert!(parser.end());
-    let (idx, node) = to_tree(&text, 0, parser.queue());
+    let (_, node) = to_tree(&text, 0, parser.queue());
     Ok(Statements { statements: to_statements(&node)? })
 }
 
-pub fn run_parser(path: &str) -> Result<(), FileLoadError> {
-    // let mut text = "  ;;; cool stuff in comment  \r\n* stuff\nadd #($FF + 3 * 2)\n add #$45".to_string();
-    let mut text = load_file(path)?;
-    replace_stars(&mut text);
-    println!("text: {}", text);
-    // let text = "; fred is cool\nx".to_string();
-    // let text = "add #$FF add #$FF".to_string();
-    // let text = include_str!("../../example.s").trim().to_string() + "\n";
-    let mut parser: Rdp<StringInput> = Rdp::new(StringInput::new(&text));
-
-    // assert!(parser.instruction());
-    assert!(parser.statements());
-    // assert!(parser.comment());
-    // assert!(parser.end());
-
-    println!("queue: {:?}", parser.queue());
-
-    println!("to_tree");
-    let (idx, node) = to_tree(&text, 0, parser.queue());
-    // println!("tree: {:?}", node);
-    // println!("results:\n{}", Statements { statements: to_statements(&node).expect("Failure") });
-
-    // let result = parser.to_statements();
-    // println!("result: {:?}", result);
-
-    // assert_eq!(result, 44);
-    Ok(())
-}
 

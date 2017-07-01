@@ -12,7 +12,6 @@ extern crate hamt_rs;
 
 use asm::parser;
 
-use bit_vec::BitVec;
 use std::fs::File;
 use std::io::Write;
 
