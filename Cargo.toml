@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 
 [dependencies]
+unicode-segmentation = "1.2.0"
 bit-vec = "*"
 clap = "^2.0"
 pest = "0.4"

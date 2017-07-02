@@ -5,6 +5,23 @@ use unique_id::{UniqueId,UniqueIdGenerator};
 use std::string::ToString;
 use hamt_rs::HamtMap;
 
+#[derive(Debug,Eq,PartialEq,Hash,Clone)]
+pub struct NamespaceName {
+    name: String
+}
+
+#[derive(Debug,Eq,PartialEq,Hash,Clone)]
+pub struct ModuleName {
+    name: String
+}
+
+#[derive(Debug,Eq,PartialEq,Hash,Clone)]
+pub struct SignatureName {
+    name: String
+}
+
+
+
 #[derive(Debug,Eq,Hash,Clone)]
 pub struct Ident {
     name: String,

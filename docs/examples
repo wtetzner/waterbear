@@ -1,12 +1,13 @@
 
 module org.bovinegenius.wombat/Main
 
-main :: () -> ()
+main : () -> ()
 main() {
-  let x:  = 
+  let x: u8 = sum(4, 5);
 }
 
-sum :: (int, int) -> int
+// Add two unsigned 8-bit ints
+sum : (u8, u8) -> u8
 sum(left, right) = left + right
 
 
