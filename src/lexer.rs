@@ -137,10 +137,6 @@ impl<'a> Input<'a> {
 #[derive(Debug)]
 pub enum LexerError {
     UnexpectedCharacter(String)
-    // FailedToReadFile(std::io::Error),
-    // UnknownSectionName(String),
-    // UnexpectedEndOfInput(String),
-    // UnknownOpcode(String)
 }
 
 impl LexerError {

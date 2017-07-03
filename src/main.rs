@@ -24,6 +24,8 @@ use asm::expression::EvaluationError;
 use location::{Filenames,FileID,Location,Span};
 use lexer::LexerError;
 
+use std::io::Read;
+
 fn main() {
     let matches = clap_app!(
         wombat =>
@@ -70,10 +72,41 @@ fn main() {
     println!("id: {:?}; id name: {}", module::Ident::new(&mut id_gen, "fred".to_string()), module::Ident::new(&mut id_gen, "fred".to_string()).to_string());
 }
 
-fn build(matches: &clap::ArgMatches) -> Result<(),LexerError> {
+pub enum BuildError {
+    FileError(String),
+    LexerError(String)
+}
+
+impl BuildError {
+    pub fn to_string(&self) -> String {
+        match self {
+            &BuildError::FileError(ref msg) => msg.clone(),
+            &BuildError::LexerError(ref msg) => msg.clone()
+        }
+    }
+}
+
+impl std::convert::From<LexerError> for BuildError {
+    fn from(error: LexerError) -> BuildError {
+        BuildError::FileError(error.to_string())
+    }
+}
+
+impl std::convert::From<std::io::Error> for BuildError {
+    fn from(error: std::io::Error) -> BuildError {
+        BuildError::FileError(format!("{}", error))
+    }
+}
+
+fn build(matches: &clap::ArgMatches) -> Result<(),BuildError> {
     let input_file = matches.value_of("INPUT").unwrap();
     let mut filenames = Filenames::with_capacity(1);
-    let tokens = lexer::lex(&mut filenames, input_file.to_string(), "{{\r\n}}  ([,;:-]) -> => = > >= < <= ! != + / *  {{\n}} what and stuff".to_string())?;
+
+    let mut file = File::open(input_file.to_string())?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+
+    let tokens = lexer::lex(&mut filenames, input_file.to_string(), text)?;
     // println!("tokens: {:?}", tokens);
     for token in tokens.iter() {
         println!("{}", token.to_string(&filenames));
