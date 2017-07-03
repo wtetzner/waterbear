@@ -76,14 +76,15 @@ fn main() {
 fn build(matches: &clap::ArgMatches) -> Result<(),LexerError> {
     let input_file = matches.value_of("INPUT").unwrap();
     let mut filenames = Filenames::with_capacity(1);
-    let tokens = lexer::lex(&mut filenames, input_file.to_string(), "{{\r\n}}     {{\n}}".to_string())?;
+    let tokens = lexer::lex(&mut filenames, input_file.to_string(), "{{\r\n}}  ([,;:-]) -> => = > >= < <= ! != + / *  {{\n}}".to_string())?;
     // println!("tokens: {:?}", tokens);
     for token in tokens.iter() {
         println!("{}", token.to_string(&filenames));
     }
     // let statements = parser::parse_file(input_file)?;
     // let bytes = asm::assemble(&statements)?;
-    let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
+
+    //let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
     // outfile.write_all(&bytes).unwrap();
     Ok(())
 }

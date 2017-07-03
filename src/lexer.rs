@@ -32,6 +32,7 @@ pub enum TokenValue {
     Minus,
     ForwardSlash,
     Asterisk,
+    Bang,
     Identifier(String)
 }
 
@@ -153,14 +154,13 @@ pub fn lex(filenames: &mut Filenames, filename: String, string: String) -> Resul
     let mut input = Input::new(filenames.intern(filename), &string);
     loop {
         skip_whitespace(&mut input);
-        let mut token = read_token(&mut input)?;
+        let token = read_token(&mut input)?;
         if token.is_some() {
             results.push(token.unwrap());
         } else {
             return Ok(results)
         }
     }
-    Ok(results)
 }
 
 macro_rules! token {
@@ -178,6 +178,61 @@ fn read_token<'a>(input: &mut Input<'a>) -> Result<Option<Token>,LexerError> {
         match next.unwrap() {
             "{" => token(start, input, TokenValue::OpenBrace),
             "}" => token(start, input, TokenValue::CloseBrace),
+            "(" => token(start, input, TokenValue::OpenParen),
+            ")" => token(start, input, TokenValue::CloseParen),
+            "[" => token(start, input, TokenValue::OpenBracket),
+            "]" => token(start, input, TokenValue::CloseBracket),
+            "," => token(start, input, TokenValue::Comma),
+            ";" => token(start, input, TokenValue::Semicolon),
+            ":" => token(start, input, TokenValue::Colon),
+            "-" => {
+                let peeked = input.peek();
+                if peeked == Some(">") {
+                    input.next();
+                    token(start, input, TokenValue::RightThinArrow)
+                } else {
+                    token(start, input, TokenValue::Minus)
+                }
+            },
+            "=" => {
+                let peeked = input.peek();
+                if peeked == Some(">") {
+                    input.next();
+                    token(start, input, TokenValue::RightFatArrow)
+                } else {
+                    token(start, input, TokenValue::Equals)
+                }
+            },
+            "!" => {
+                let peeked = input.peek();
+                if peeked == Some("=") {
+                    input.next();
+                    token(start, input, TokenValue::NotEqual)
+                } else {
+                    token(start, input, TokenValue::Bang)
+                }
+            },
+            ">" => {
+                let peeked = input.peek();
+                if peeked == Some("=") {
+                    input.next();
+                    token(start, input, TokenValue::GreaterEqual)
+                } else {
+                    token(start, input, TokenValue::Greater)
+                }
+            },
+            "<" => {
+                let peeked = input.peek();
+                if peeked == Some("=") {
+                    input.next();
+                    token(start, input, TokenValue::LessThanEqual)
+                } else {
+                    token(start, input, TokenValue::LessThan)
+                }
+            },
+            "+" => token(start, input, TokenValue::Plus),
+            "/" => token(start, input, TokenValue::ForwardSlash),
+            "*" => token(start, input, TokenValue::Asterisk),
             chr => Err(LexerError::UnexpectedCharacter(format!("Unexpected character: {}", chr)))
         }
     } else {
