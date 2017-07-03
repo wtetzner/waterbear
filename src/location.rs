@@ -62,6 +62,13 @@ impl Location {
     pub fn column(&self) -> usize {
         self.column
     }
+
+    pub fn to_string(&self, filenames: &Filenames) -> String {
+        format!("{}:{}:{}",
+                self.filename(filenames).unwrap_or("<unknown>"),
+                self.line(),
+                self.column())
+    }
 }
 
 #[derive(Debug,Eq,PartialEq,Clone)]

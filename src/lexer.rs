@@ -11,6 +11,14 @@ pub struct Token {
     span: Span
 }
 
+#[derive(Debug,Eq,PartialEq,Clone,Copy)]
+pub enum NumberBase {
+    Hexadecimal,
+    Octal,
+    Binary,
+    Decimal
+}
+
 #[derive(Debug,Eq,PartialEq,Clone)]
 pub enum TokenValue {
     OpenBrace,
@@ -35,7 +43,8 @@ pub enum TokenValue {
     ForwardSlash,
     Asterisk,
     Bang,
-    Identifier(String)
+    Identifier(String),
+    Number { base: NumberBase, literal: String }
 }
 
 impl Token {
@@ -104,7 +113,7 @@ impl<'a> Input<'a> {
         if self.pos < self.chars.len() {
             let value = self.chars[self.pos];
             self.pos = self.pos + 1;
-            if value == "\r\n" || value == "\n" {
+            if is_newline(value) {
                 self.line = self.line + 1;
                 self.column = 0;
             } else {
@@ -135,15 +144,22 @@ impl<'a> Input<'a> {
 }
 
 #[derive(Debug)]
-pub enum LexerError {
-    UnexpectedCharacter(String)
-}
+pub struct LexerError(Location,String);
 
 impl LexerError {
-    pub fn to_string(&self) -> String {
-        match self {
-            &LexerError::UnexpectedCharacter(ref msg) => msg.clone()
-        }
+    pub fn to_string(&self, filenames: &Filenames) -> String {
+        let &LexerError(loc, ref msg) = self;
+        format!("{} {}", loc.to_string(filenames), msg)
+    }
+
+    pub fn location(&self) -> Location {
+        let &LexerError(loc, _) = self;
+        loc
+    }
+
+    pub fn message(&self) -> &str {
+        let &LexerError(_, ref msg) = self;
+        msg
     }
 }
 
@@ -231,12 +247,177 @@ fn read_token<'a>(input: &mut Input<'a>) -> Result<Option<Token>,LexerError> {
             "+" => token(start, input, TokenValue::Plus),
             "/" => token(start, input, TokenValue::ForwardSlash),
             "*" => token(start, input, TokenValue::Asterisk),
+            "0" => {
+                let second = input.peek();
+                match second {
+                    Some("x") => read_hex(input, start, "0"),
+                    Some("b") => read_binary(input, start, "0"),
+                    Some("o") => read_octal(input, start, "0"),
+                    _ => read_decimal(input, start, "0")
+                }
+            },
+            chr if is_digit(chr) => read_decimal(input, start, chr),
             chr if is_ident_start(chr) => read_identifier(input, start, chr),
-            chr => Err(LexerError::UnexpectedCharacter(format!("Unexpected character: {}", chr)))
+            chr => Err(LexerError(start, format!("Unexpected character: {}", chr)))
         }
     } else {
         Ok(None)
     }
+}
+
+fn read_binary_digit<'a>(input: &mut Input<'a>) -> Option<&'a str> {
+    let next = input.peek();
+    if next.is_some() {
+        if is_binary_digit(next.unwrap()) {
+            input.next();
+            Some(next.unwrap())
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn read_binary<'a>(input: &mut Input<'a>, start: Location, first: &str) -> Result<Option<Token>,LexerError> {
+    let mut literal = String::new();
+    literal.push_str(first);
+    literal.push_str(input.next().unwrap());
+    loop {
+        let peeked = read_binary_digit(input);
+        if peeked.is_some() {
+            literal.push_str(peeked.unwrap());
+        } else {
+            let value = TokenValue::Number {
+                base: NumberBase::Binary,
+                literal: literal
+            };
+            return Ok(Some(Token::new(start, input.location(), value)))
+        }
+    }
+}
+
+fn read_octal_digit<'a>(input: &mut Input<'a>) -> Option<&'a str> {
+    let next = input.peek();
+    if next.is_some() {
+        if is_octal_digit(next.unwrap()) {
+            input.next();
+            Some(next.unwrap())
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn read_octal<'a>(input: &mut Input<'a>, start: Location, first: &str) -> Result<Option<Token>,LexerError> {
+    let mut literal = String::new();
+    literal.push_str(first);
+    literal.push_str(input.next().unwrap());
+    loop {
+        let peeked = read_octal_digit(input);
+        if peeked.is_some() {
+            literal.push_str(peeked.unwrap());
+        } else {
+            let value = TokenValue::Number {
+                base: NumberBase::Octal,
+                literal: literal
+            };
+            return Ok(Some(Token::new(start, input.location(), value)))
+        }
+    }
+}
+
+fn read_hex_digit<'a>(input: &mut Input<'a>) -> Option<&'a str> {
+    let next = input.peek();
+    if next.is_some() {
+        if is_hex_digit(next.unwrap()) {
+            input.next();
+            Some(next.unwrap())
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn read_hex<'a>(input: &mut Input<'a>, start: Location, first: &str) -> Result<Option<Token>,LexerError> {
+    let mut literal = String::new();
+    literal.push_str(first);
+    literal.push_str(input.next().unwrap());
+    loop {
+        let peeked = read_hex_digit(input);
+        if peeked.is_some() {
+            literal.push_str(peeked.unwrap());
+        } else {
+            let value = TokenValue::Number {
+                base: NumberBase::Hexadecimal,
+                literal: literal
+            };
+            return Ok(Some(Token::new(start, input.location(), value)))
+        }
+    }
+}
+
+fn read_digit<'a>(input: &mut Input<'a>) -> Option<&'a str> {
+    let next = input.peek();
+    if next.is_some() {
+        if is_digit(next.unwrap()) {
+            input.next();
+            Some(next.unwrap())
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn read_decimal<'a>(input: &mut Input<'a>, start: Location, first: &str) -> Result<Option<Token>,LexerError> {
+    let mut literal = String::new();
+    literal.push_str(first);
+    loop {
+        let peeked = read_digit(input);
+        if peeked.is_some() {
+            literal.push_str(peeked.unwrap());
+        } else {
+            let value = TokenValue::Number {
+                base: NumberBase::Decimal,
+                literal: literal
+            };
+            return Ok(Some(Token::new(start, input.location(), value)))
+        }
+    }
+}
+
+fn is_binary_digit(string: &str) -> bool {
+    lazy_static! {
+        static ref REGEX: Regex = Regex::new(r"^[01]$").unwrap();
+    }
+    REGEX.is_match(string)
+}
+
+fn is_octal_digit(string: &str) -> bool {
+    lazy_static! {
+        static ref REGEX: Regex = Regex::new(r"^[0-7]$").unwrap();
+    }
+    REGEX.is_match(string)
+}
+
+fn is_hex_digit(string: &str) -> bool {
+    lazy_static! {
+        static ref REGEX: Regex = Regex::new(r"^[0-9A-Fa-f]$").unwrap();
+    }
+    REGEX.is_match(string)
+}
+
+fn is_digit(string: &str) -> bool {
+    lazy_static! {
+        static ref REGEX: Regex = Regex::new(r"^[0-9]$").unwrap();
+    }
+    REGEX.is_match(string)
 }
 
 fn is_ident_start(string: &str) -> bool {
@@ -248,7 +429,7 @@ fn is_ident_start(string: &str) -> bool {
 
 fn is_ident_chr(string: &str) -> bool {
     lazy_static! {
-        static ref REGEX: Regex = Regex::new(r"^[a-zA-Z_?!.-]$").unwrap();
+        static ref REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_?!.-]$").unwrap();
     }
     REGEX.is_match(string)
 }
@@ -282,21 +463,59 @@ fn read_identifier<'a>(input: &mut Input<'a>, start: Location, first: &str) -> R
 }
 
 #[inline]
-fn is_whitespace(s: &str) -> bool {
-    s == "\r" || s == "\n" || s == "\r\n" || s == "\t" || s == " "
+fn is_newline(s: &str) -> bool {
+    s == "\r\n" || s == "\n"
 }
 
-fn skip_whitespace<'a>(input: &mut Input<'a>) {
+#[inline]
+fn is_whitespace(s: &str) -> bool {
+    is_newline(s) || s == "\r" || s == "\t" || s == " "
+}
+
+fn skip_whitespace<'a>(input: &mut Input<'a>) -> bool {
+    let start = input.location();
+    while skip_whitespace_chunk(input) {}
+    start != input.location()
+}
+
+fn skip_whitespace_chunk<'a>(input: &mut Input<'a>) -> bool {
+    let ws = skip_whitespace_chars(input);
+    let comment = skip_comment(input);
+    return ws || comment;
+}
+
+fn skip_whitespace_chars<'a>(input: &mut Input<'a>) -> bool {
+    let start = input.location();
     loop {
         let peeked = input.peek();
         if peeked.is_some() {
             if is_whitespace(peeked.unwrap()) {
                 input.next();
             } else {
-                return;
+                return start != input.location();
             }
         } else {
-            return;
+            return start != input.location();
         }
+    }
+}
+
+fn skip_comment<'a>(input: &mut Input<'a>) -> bool {
+    if input.peek() == Some("/") && input.peek_at(1) == Some("/") {
+        input.next();
+        input.next();
+        loop {
+            let peeked = input.peek();
+            if !peeked.is_some() {
+                return true;
+            } else if is_newline(peeked.unwrap()) {
+                input.next();
+                return true;
+            } else {
+                input.next();
+            }
+        }
+    } else {
+        return false;
     }
 }
