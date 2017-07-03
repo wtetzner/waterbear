@@ -9,4 +9,5 @@ bit-vec = "*"
 clap = "^2.0"
 pest = "0.4"
 hamt-rs = "*"
-
+regex = "*"
+lazy_static = "*"

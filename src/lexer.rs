@@ -3,6 +3,8 @@ use location::{Filenames,FileID,Location,Span};
 use unicode_segmentation::UnicodeSegmentation;
 use std;
 
+use regex::Regex;
+
 #[derive(Debug,Eq,PartialEq,Clone)]
 pub struct Token {
     value: TokenValue,
@@ -233,10 +235,53 @@ fn read_token<'a>(input: &mut Input<'a>) -> Result<Option<Token>,LexerError> {
             "+" => token(start, input, TokenValue::Plus),
             "/" => token(start, input, TokenValue::ForwardSlash),
             "*" => token(start, input, TokenValue::Asterisk),
+            chr if is_ident_start(chr) => read_identifier(input, start, chr),
             chr => Err(LexerError::UnexpectedCharacter(format!("Unexpected character: {}", chr)))
         }
     } else {
         Ok(None)
+    }
+}
+
+fn is_ident_start(string: &str) -> bool {
+    lazy_static! {
+        static ref REGEX: Regex = Regex::new(r"^[a-zA-Z]$").unwrap();
+    }
+    REGEX.is_match(string)
+}
+
+fn is_ident_chr(string: &str) -> bool {
+    lazy_static! {
+        static ref REGEX: Regex = Regex::new(r"^[a-zA-Z_?!.-]$").unwrap();
+    }
+    REGEX.is_match(string)
+}
+
+fn read_ident_chr<'a>(input: &mut Input<'a>) -> Option<&'a str> {
+    let next = input.peek();
+    if next.is_some() {
+        if is_ident_chr(next.unwrap()) {
+            input.next();
+            Some(next.unwrap())
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn read_identifier<'a>(input: &mut Input<'a>, start: Location, first: &str) -> Result<Option<Token>,LexerError> {
+    let mut identifier = String::new();
+    identifier.push_str(first);
+
+    loop {
+        let chr = read_ident_chr(input);
+        if chr.is_some() {
+            identifier.push_str(chr.unwrap());
+        } else {
+            return Ok(Some(Token::new(start, input.location(), TokenValue::Identifier(identifier))));
+        }
     }
 }
 

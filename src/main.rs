@@ -1,15 +1,12 @@
 #![recursion_limit = "500"]
 
+#[macro_use] extern crate clap;
+#[macro_use] extern crate pest;
+#[macro_use] extern crate lazy_static;
 extern crate bit_vec;
-
-#[macro_use]
-extern crate clap;
-
-#[macro_use]
-extern crate pest;
-
 extern crate hamt_rs;
 extern crate unicode_segmentation;
+extern crate regex;
 
 use asm::parser;
 
@@ -76,7 +73,7 @@ fn main() {
 fn build(matches: &clap::ArgMatches) -> Result<(),LexerError> {
     let input_file = matches.value_of("INPUT").unwrap();
     let mut filenames = Filenames::with_capacity(1);
-    let tokens = lexer::lex(&mut filenames, input_file.to_string(), "{{\r\n}}  ([,;:-]) -> => = > >= < <= ! != + / *  {{\n}}".to_string())?;
+    let tokens = lexer::lex(&mut filenames, input_file.to_string(), "{{\r\n}}  ([,;:-]) -> => = > >= < <= ! != + / *  {{\n}} what and stuff".to_string())?;
     // println!("tokens: {:?}", tokens);
     for token in tokens.iter() {
         println!("{}", token.to_string(&filenames));
