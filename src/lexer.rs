@@ -143,7 +143,7 @@ impl<'a> Input<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct LexerError(Location,String);
 
 impl LexerError {

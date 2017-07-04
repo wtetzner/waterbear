@@ -8,8 +8,6 @@ extern crate hamt_rs;
 extern crate unicode_segmentation;
 extern crate regex;
 
-use asm::parser;
-
 use std::fs::File;
 use std::io::Write;
 
@@ -18,6 +16,8 @@ mod unique_id;
 mod asm;
 mod location;
 mod lexer;
+mod ast;
+mod parser;
 
 use asm::instruction;
 use asm::expression::EvaluationError;
@@ -107,6 +107,7 @@ fn build(matches: &clap::ArgMatches, filenames: &mut Filenames) -> Result<(),Bui
     file.read_to_string(&mut text)?;
 
     let tokens = lexer::lex(filenames, input_file.to_string(), text)?;
+
     // println!("tokens: {:?}", tokens);
     for token in tokens.iter() {
         println!("{}", token.to_string(&filenames));
@@ -121,8 +122,7 @@ fn build(matches: &clap::ArgMatches, filenames: &mut Filenames) -> Result<(),Bui
 
 fn assemble(matches: &clap::ArgMatches) -> Result<(),EvaluationError> {
     let input_file = matches.value_of("INPUT").unwrap();
-    let statements = parser::parse_file(input_file)?;
-    let bytes = asm::assemble(&statements)?;
+    let bytes = asm::assemble_file(&input_file)?;
     let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
     outfile.write_all(&bytes).unwrap();
     Ok(())

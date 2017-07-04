@@ -10,6 +10,11 @@ use asm::expression::EvaluationError;
 use instruction::ToVal;
 use std::collections::HashMap;
 
+pub fn assemble_file(filename: &str) -> Result<Vec<u8>,EvaluationError> {
+    let statements = parser::parse_file(filename)?;
+    assemble(&statements)
+}
+
 pub fn assemble(statements: &Statements) -> Result<Vec<u8>,EvaluationError> {
     let (max_pos, names) = compute_names(statements)?;
     let mut output = vec![0; max_pos];
