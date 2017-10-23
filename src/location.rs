@@ -1,35 +1,5 @@
 
-#[derive(Debug,Clone)]
-pub struct Filenames {
-    names: Vec<String>
-}
-
-#[derive(Debug,Eq,PartialEq,Hash,Clone,Copy)]
-pub struct FileID {
-    id: usize
-}
-
-impl Filenames {
-    pub fn with_capacity(capacity: usize) -> Filenames {
-        Filenames {
-            names: Vec::with_capacity(capacity)
-        }
-    }
-
-    pub fn intern(&mut self, string: String) -> FileID {
-        match self.names.binary_search(&string) {
-            Ok(index) => FileID { id: index },
-            Err(_) => {
-                self.names.push(string);
-                FileID { id: self.names.len() - 1 }
-            }
-        }
-    }
-
-    pub fn get(&self, id: FileID) -> Option<&str> {
-        self.names.get(id.id).map(|v| v.as_ref())
-    }
-}
+interner!(Filenames, FileID);
 
 #[derive(Debug,Eq,PartialEq,Clone,Copy)]
 pub struct Location {

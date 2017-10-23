@@ -6,8 +6,7 @@ authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 [dependencies]
 unicode-segmentation = "1.2.0"
 bit-vec = "*"
-clap = "^2.0"
+clap = "2.26.2"
 pest = "0.4"
-hamt-rs = "*"
 regex = "*"
 lazy_static = "*"
