@@ -1,9 +1,9 @@
 
 use std;
 use bit_vec::BitVec;
-use asm::expression::{Expression,EvaluationError};
+use expression::{Expression,EvaluationError};
 use std::collections::HashMap;
-use asm::num;
+use num;
 
 pub trait ToVal<T> {
     fn to(&self, name_lookup: &HashMap<String,i32>) -> Result<T,EvaluationError>;
@@ -919,9 +919,9 @@ fn bit_from_word(input: u16, pos: u8) -> bool {
 #[cfg(test)]
 mod Test {
     use bit_vec::BitVec;
-    use asm::instruction::Instruction::*;
-    use asm::instruction::IndirectionMode::*;
-    use asm::instruction::*;
+    use instruction::Instruction::*;
+    use instruction::IndirectionMode::*;
+    use instruction::*;
 
     #[test]
     fn test_count_with_encoding() {

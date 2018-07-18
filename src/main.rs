@@ -1,23 +1,13 @@
-#![recursion_limit = "500"]
+extern crate wombat_vmu_asm;
 
-extern crate bit_vec;
 #[macro_use]
 extern crate clap;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate pest;
-extern crate regex;
-extern crate unicode_segmentation;
 
 use std::fs::File;
 use std::io::Write;
 
-#[macro_use]
-mod asm;
-
-use asm::instruction;
-use asm::expression::EvaluationError;
+use wombat_vmu_asm::instruction;
+use wombat_vmu_asm::expression::EvaluationError;
 
 use std::io::Read;
 
@@ -67,7 +57,7 @@ fn main() {
 
 fn assemble(matches: &clap::ArgMatches) -> Result<(), EvaluationError> {
     let input_file = matches.value_of("INPUT").unwrap();
-    let bytes = asm::assemble_file(&input_file)?;
+    let bytes = wombat_vmu_asm::assemble_file(&input_file)?;
     let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
     outfile.write_all(&bytes).unwrap();
     Ok(())

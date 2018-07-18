@@ -1,13 +1,13 @@
 
 use pest::{StringInput, Token, Parser, Input};
-use asm::ast::*;
-use asm::instruction::*;
-use asm::expression::*;
+use ast::*;
+use instruction::*;
+use expression::*;
 use std;
 use std::fs::File;
 use std::io::Read;
 use std::collections::HashMap;
-use asm::num;
+use num;
 
 #[derive(Debug,Clone)]
 enum Arg {

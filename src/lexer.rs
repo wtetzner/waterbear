@@ -1,5 +1,5 @@
 
 
-use asm::input;
+use input;
 
 

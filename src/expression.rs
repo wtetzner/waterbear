@@ -2,7 +2,8 @@
 use std;
 use std::collections::HashMap;
 use std::fmt;
-use asm;
+use parser;
+use num;
 
 #[derive(Debug)]
 pub enum EvaluationError {
@@ -12,7 +13,7 @@ pub enum EvaluationError {
     NumberError(String,std::num::ParseIntError),
     InvalidNumber(String),
     Utf8Error(String),
-    FileLoadError(asm::parser::FileLoadError)
+    FileLoadError(parser::FileLoadError)
 }
 
 impl EvaluationError {
@@ -29,14 +30,14 @@ impl EvaluationError {
     }
 }
 
-impl std::convert::From<asm::parser::FileLoadError> for EvaluationError {
-    fn from(err: asm::parser::FileLoadError) -> EvaluationError {
+impl std::convert::From<parser::FileLoadError> for EvaluationError {
+    fn from(err: parser::FileLoadError) -> EvaluationError {
         EvaluationError::FileLoadError(err)
     }
 }
 
-impl std::convert::From<asm::num::NumberConversionError> for EvaluationError {
-    fn from(err: asm::num::NumberConversionError) -> EvaluationError {
+impl std::convert::From<num::NumberConversionError> for EvaluationError {
+    fn from(err: num::NumberConversionError) -> EvaluationError {
         EvaluationError::InvalidNumber(err.message())
     }
 }

@@ -61,7 +61,7 @@ impl Deref for Input {
 
 #[cfg(test)]
 mod tests {
-    use asm::lexer::Input;
+    use input::Input;
     #[test]
     fn test_update() {
         let mut input = Input::new("<unknown>".to_owned(), "some cool\n input \r\n and \n stuff".to_owned());

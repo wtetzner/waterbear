@@ -1,12 +1,8 @@
+#![recursion_limit = "500"]
 
 extern crate bit_vec;
 #[macro_use]
-extern crate clap;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate pest;
-extern crate regex;
 extern crate unicode_segmentation;
 
 pub mod instruction;
@@ -14,10 +10,11 @@ pub mod parser;
 pub mod ast;
 pub mod expression;
 pub mod num;
+pub mod input;
 pub mod lexer;
 
-use asm::ast::{Statements,Statement,Directive};
-use asm::expression::EvaluationError;
+use ast::{Statements,Statement,Directive};
+use expression::EvaluationError;
 use instruction::ToVal;
 use std::collections::HashMap;
 

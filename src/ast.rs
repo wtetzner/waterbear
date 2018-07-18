@@ -1,7 +1,7 @@
 
 use instruction;
 use instruction::{ToVal,B3,D9,A12};
-use asm::expression::Expression;
+use expression::Expression;
 use std::fmt;
 use std::fmt::Debug;
 

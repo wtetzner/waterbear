@@ -1,5 +1,6 @@
 [package]
-name = "wombat"
+name = "wombat-vmu-asm"
+description = "Assembler for the Dreamcast VMU"
 version = "0.1.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 
@@ -9,12 +10,11 @@ bit-vec = "*"
 clap = "2.26.2"
 pest = "0.4"
 regex = "*"
-lazy_static = "*"
 
 [lib]
-name = "wombat-asm"
+name = "wombat_vmu_asm"
 path = "src/asm.rs"
 
 [[bin]]
-name = "wombat-asm"
+name = "wombat-vmu-asm"
 path = "src/main.rs"
