@@ -11,12 +11,16 @@ use wombat_vmu_asm::expression::EvaluationError;
 
 use std::io::Read;
 
+const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
+const NAME: &'static str = env!("CARGO_PKG_NAME");
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 fn main() {
     let matches = clap_app!(
         wombat =>
-            (version: "0.1.0")
-            (author: "Walter Tetzner <walter@waltertetzner.net>")
-            (about: "Compiler for the Wombat (Dreamcast VMU) programming language")
+            (name: NAME)
+            (version: VERSION)
+            (about: DESCRIPTION)
             // (@arg CONFIG: -c --config +takes_value "Sets a custom config file")
             // (@arg INPUT: +required "Sets the input file to use")
             (@arg verbose: -v ... "Sets the level of logging verbosity")
