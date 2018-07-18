@@ -1,9 +1,20 @@
 
+extern crate bit_vec;
+#[macro_use]
+extern crate clap;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate pest;
+extern crate regex;
+extern crate unicode_segmentation;
+
 pub mod instruction;
 pub mod parser;
 pub mod ast;
 pub mod expression;
 pub mod num;
+pub mod lexer;
 
 use asm::ast::{Statements,Statement,Directive};
 use asm::expression::EvaluationError;

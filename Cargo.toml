@@ -10,3 +10,11 @@ clap = "2.26.2"
 pest = "0.4"
 regex = "*"
 lazy_static = "*"
+
+[lib]
+name = "wombat-asm"
+path = "src/asm.rs"
+
+[[bin]]
+name = "wombat-asm"
+path = "src/main.rs"
