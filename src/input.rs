@@ -1,6 +1,7 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 use std::ops::Deref;
+use regex::Regex;
 
 #[derive(Debug)]
 struct Input {
@@ -24,6 +25,30 @@ impl Input {
 
     pub fn as_str(&self) -> &str {
         &self.text[self.pos..]
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
+    pub fn column(&self) -> usize {
+        self.column
+    }
+
+    pub fn skip_whitespace(&mut self) {
+        lazy_static! {
+            static ref RE: Regex = Regex::new(r"\s+").unwrap();
+        }
+        let mut skipped: usize = 0;
+        match RE.captures_iter(&self.text[self.pos..]).next() {
+            Some(cap) => skipped += cap[0].len(),
+            None => ()
+        }
+        self.update(skipped);
     }
 
     /// Update the position information by advancing the current
@@ -62,6 +87,7 @@ impl Deref for Input {
 #[cfg(test)]
 mod tests {
     use input::Input;
+
     #[test]
     fn test_update() {
         let mut input = Input::new("<unknown>".to_owned(), "some cool\n input \r\n and \n stuff".to_owned());
@@ -80,5 +106,15 @@ mod tests {
         assert!(input.line == 4);
         assert!(input.column == 6);
         assert!("" == &*input);
+    }
+
+    #[test]
+    fn test_skip_whitespace() {
+        let mut input = Input::new("<unknown>".to_owned(), "   \n \r\n \r  \t some stuff".to_owned());
+        input.skip_whitespace();
+        assert!(input.pos == 13);
+        assert!(input.line == 3);
+        assert!(input.column == 6);
+        assert!("some stuff" == &*input);
     }
 }

@@ -4,6 +4,10 @@ extern crate bit_vec;
 #[macro_use]
 extern crate pest;
 extern crate unicode_segmentation;
+extern crate unicode_categories;
+extern crate regex;
+#[macro_use]
+extern crate lazy_static;
 
 pub mod instruction;
 pub mod parser;
