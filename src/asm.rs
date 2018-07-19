@@ -16,6 +16,8 @@ pub mod expression;
 pub mod num;
 pub mod input;
 pub mod lexer;
+pub mod location;
+pub mod files;
 
 use ast::{Statements,Statement,Directive};
 use expression::EvaluationError;

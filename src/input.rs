@@ -2,18 +2,20 @@
 use unicode_segmentation::UnicodeSegmentation;
 use std::ops::Deref;
 use regex::Regex;
+use files::FileID;
+use location::Location;
 
-#[derive(Debug)]
-struct Input {
-    name: String,
-    text: String,
+#[derive(Debug,Clone)]
+pub struct Input<'b> {
+    name: FileID,
+    text: &'b str,
     pos: usize,
     line: usize,
     column: usize
 }
 
-impl Input {
-    pub fn new(name: String, text: String) -> Input {
+impl<'b> Input<'b> {
+    pub fn new<'y>(name: FileID, text: &'y str) -> Input<'y> {
         Input {
             name: name,
             text: text,
@@ -23,12 +25,28 @@ impl Input {
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub fn peek(&self) -> Option<&str> {
+        UnicodeSegmentation::graphemes(&self.text[self.pos..], true).next()
+    }
+
+    pub fn eof(&self) -> bool {
+        self.pos >= self.text.len()
+    }
+
+    pub fn location(&self) -> Location {
+        Location::new(self.name, self.pos, self.line, self.column)
+    }
+
+    pub fn as_str(&self) -> &'b str {
         &self.text[self.pos..]
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn starts_with(&self, text: &str) -> bool {
+        self.as_str().starts_with(text)
+    }
+
+    pub fn name(&self) -> FileID {
+        self.name
     }
 
     pub fn line(&self) -> usize {
@@ -39,7 +57,7 @@ impl Input {
         self.column
     }
 
-    pub fn skip_whitespace(&mut self) {
+    pub fn skip_whitespace(&self) -> Input<'b> {
         lazy_static! {
             static ref RE: Regex = Regex::new(r"\s+").unwrap();
         }
@@ -48,35 +66,37 @@ impl Input {
             Some(cap) => skipped += cap[0].len(),
             None => ()
         }
-        self.update(skipped);
+        self.update(skipped)
     }
 
     /// Update the position information by advancing the current
     /// position by `num_bytes` bytes.
-    pub fn update(&mut self, num_bytes: usize) {
-        let start = self.pos;
-        let mut graphemes = UnicodeSegmentation::graphemes(&self.text[self.pos..], true);
+    pub fn update(&self, num_bytes: usize) -> Input<'b> {
+        let mut input = self.clone();
+        let start = input.pos;
+        let mut graphemes = UnicodeSegmentation::graphemes(&input.text[input.pos..], true);
         loop {
             match graphemes.next() {
                 Some(text) => {
-                    if (self.pos - start) + text.len() > num_bytes {
+                    if (input.pos - start) + text.len() > num_bytes {
                         break;
                     }
-                    self.pos += text.len();
+                    input.pos += text.len();
                     if text == "\r\n" || text == "\n" {
-                        self.line += 1;
-                        self.column = 0;
+                        input.line += 1;
+                        input.column = 0;
                     } else {
-                        self.column += 1;
+                        input.column += 1;
                     }
                 },
                 None => break
             }
         }
+        input
     }
 }
 
-impl Deref for Input {
+impl<'b> Deref for Input<'b> {
     type Target = str;
 
     fn deref(&self) -> &str {
@@ -87,11 +107,12 @@ impl Deref for Input {
 #[cfg(test)]
 mod tests {
     use input::Input;
+    use files::FileID;
 
     #[test]
     fn test_update() {
-        let mut input = Input::new("<unknown>".to_owned(), "some cool\n input \r\n and \n stuff".to_owned());
-        input.update(20);
+        let input = Input::new(FileID::new(43), "some cool\n input \r\n and \n stuff");
+        let input = input.update(20);
         assert!(input.pos == 20);
         assert!(input.line == 3);
         assert!(input.column == 1);
@@ -100,8 +121,8 @@ mod tests {
 
     #[test]
     fn test_update_past_end() {
-        let mut input = Input::new("<unknown>".to_owned(), "some cool\n input \r\n and \n stuff".to_owned());
-        input.update(33);
+        let input = Input::new(FileID::new(43), "some cool\n input \r\n and \n stuff");
+        let input = input.update(33);
         assert!(input.pos == 31);
         assert!(input.line == 4);
         assert!(input.column == 6);
@@ -110,8 +131,8 @@ mod tests {
 
     #[test]
     fn test_skip_whitespace() {
-        let mut input = Input::new("<unknown>".to_owned(), "   \n \r\n \r  \t some stuff".to_owned());
-        input.skip_whitespace();
+        let input = Input::new(FileID::new(43), "   \n \r\n \r  \t some stuff");
+        let input = input.skip_whitespace();
         assert!(input.pos == 13);
         assert!(input.line == 3);
         assert!(input.column == 6);
