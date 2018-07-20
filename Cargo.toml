@@ -1,5 +1,5 @@
 [package]
-name = "wombat-vmu-asm"
+name = "waterbear"
 description = "Assembler for the Dreamcast VMU"
 version = "0.1.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
@@ -14,9 +14,9 @@ pest = "0.4"
 regex = "*"
 
 [lib]
-name = "wombat_vmu_asm"
+name = "waterbear"
 path = "src/asm.rs"
 
 [[bin]]
-name = "wombat-vmu-asm"
+name = "waterbear"
 path = "src/main.rs"

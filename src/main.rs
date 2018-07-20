@@ -1,4 +1,4 @@
-extern crate wombat_vmu_asm;
+extern crate waterbear;
 
 #[macro_use]
 extern crate clap;
@@ -6,8 +6,8 @@ extern crate clap;
 use std::fs::File;
 use std::io::Write;
 
-use wombat_vmu_asm::instruction;
-use wombat_vmu_asm::expression::EvaluationError;
+use waterbear::instruction;
+use waterbear::expression::EvaluationError;
 
 use std::io::Read;
 
@@ -17,7 +17,7 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     let matches = clap_app!(
-        wombat =>
+        waterbear =>
             (name: NAME)
             (version: VERSION)
             (about: DESCRIPTION)
@@ -61,7 +61,7 @@ fn main() {
 
 fn assemble(matches: &clap::ArgMatches) -> Result<(), EvaluationError> {
     let input_file = matches.value_of("INPUT").unwrap();
-    let bytes = wombat_vmu_asm::assemble_file(&input_file)?;
+    let bytes = waterbear::assemble_file(&input_file)?;
     let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
     outfile.write_all(&bytes).unwrap();
     Ok(())
