@@ -25,8 +25,17 @@ impl<'b> Input<'b> {
         }
     }
 
+    pub fn start_of_line(&self) -> bool {
+        self.pos == 0
+            || (self.pos > 0 && self.text.as_bytes()[self.pos - 1] == b'\n')
+    }
+
     pub fn peek(&self) -> Option<&str> {
         UnicodeSegmentation::graphemes(&self.text[self.pos..], true).next()
+    }
+
+    pub fn len(&self) -> usize {
+        self.text.len()
     }
 
     pub fn eof(&self) -> bool {
@@ -57,9 +66,13 @@ impl<'b> Input<'b> {
         self.column
     }
 
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
+
     pub fn skip_whitespace(&self) -> Input<'b> {
         lazy_static! {
-            static ref RE: Regex = Regex::new(r"\s+").unwrap();
+            static ref RE: Regex = Regex::new(r"^\s+").unwrap();
         }
         let mut skipped: usize = 0;
         match RE.captures_iter(&self.text[self.pos..]).next() {

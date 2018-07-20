@@ -80,17 +80,6 @@ fn clean_str(string: &str) -> String {
     String::from_utf8(result).unwrap()
 }
 
-fn read_one<'a>(input: &Input<'a>, create: fn(&str) -> TokenType) -> Option<(Input<'a>,Token)> {
-    match input.peek() {
-        Some(txt) => {
-            let new_input = input.update(txt.len());
-            let span = Span::new(input.location(), new_input.location());
-            Some((new_input, Token::new(create(txt), span)))
-        },
-        None => None
-    }
-}
-
 struct Matcher {
     regex: Regex,
     convert: fn(&str) -> TokenType
@@ -130,32 +119,108 @@ fn to_indr_mode(text: &str) -> TokenType {
     }
 }
 
+fn end_of_line(pos: usize, text: &str) -> bool {
+    (pos < text.len() && text.as_bytes()[pos] == b'\n')
+        || (pos < text.len() - 1 && text.as_bytes()[pos] == b'\r'
+            && text.as_bytes()[pos + 1] == b'\n')
+        || pos >= text.len()
+}
+
+fn skip_to_eol<'a>(input: &Input<'a>) -> Input<'a> {
+    let mut skipped = 0;
+    let text = input.as_str();
+    while !end_of_line(skipped, text) {
+        skipped = skipped + 1
+    }
+    input.update(skipped)
+}
+
+fn skip_star_comment<'a>(input: &Input<'a>) -> Input<'a> {
+    let text = input.as_str();
+    if text.len() > 0 && input.start_of_line() && text.as_bytes()[0] == b'*' {
+        return skip_to_eol(input);
+    }
+    input.clone()
+}
+
+fn skip_comment<'a>(input: &Input<'a>) -> Input<'a> {
+    let text = input.as_str();
+    if text.len() > 0 && text.as_bytes()[0] == b';' {
+        return skip_to_eol(input);
+    }
+    input.clone()
+}
+
+fn skip_whitespace_and_comments<'a>(input: &Input<'a>) -> Input<'a> {
+    let mut first = true;
+    let mut last_pos = 0;
+    let mut current = input.clone();
+    while current.pos() > last_pos || first {
+        if first {
+            first = false;
+        }
+        last_pos = current.pos();
+        let mut new_input = current.skip_whitespace();
+        new_input = skip_star_comment(&new_input);
+        new_input = skip_comment(&new_input);
+        current = new_input;
+    }
+    current
+}
+
+fn to_hex_num(text: &str) -> TokenType {
+    let num = u32::from_str_radix(&text[1..], 16).unwrap();
+    TokenType::Number(num)
+}
+
+fn to_bin_num(text: &str) -> TokenType {
+    let num = u32::from_str_radix(&text[1..], 2).unwrap();
+    TokenType::Number(num)
+}
+
+fn to_dec_num(text: &str) -> TokenType {
+    let num = u32::from_str_radix(text, 10).unwrap();
+    TokenType::Number(num)
+}
+
 fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
     lazy_static! {
-        static ref MATCHERS: Vec<Matcher> = vec![
-            Matcher::new(r"\(", |_| TokenType::LeftParen),
-            Matcher::new(r"\)", |_| TokenType::RightParen),
-            Matcher::new("#",   |_| TokenType::Hash),
-            Matcher::new(",",   |_| TokenType::Comma),
-            Matcher::new(":",   |_| TokenType::Colon),
-            Matcher::new("=",   |_| TokenType::Equals),
-            Matcher::new(r"\+", |_| TokenType::Plus),
-            Matcher::new(r"\*", |_| TokenType::Times),
-            Matcher::new("-",   |_| TokenType::Minus),
-            Matcher::new("/",   |_| TokenType::Divide),
-            Matcher::new(">",   |_| TokenType::UpperByte),
-            Matcher::new("<",   |_| TokenType::LowerByte),
-            Matcher::new(r#""(\\.|[^"\\])*""#, |text| TokenType::String(clean_str(text))),
-            Matcher::new(r"@[rR][0123]", |text| to_indr_mode(text))
-                
-        ];
+        static ref MATCHERS: Vec<Matcher> = {
+            let ident = "[a-zA-Z_][a-zA-Z0-9_]*";
+            let directive_ident = ".".to_owned() + ident;
+            let hex_num = "\\$[a-fA-F0-9]+";
+            let bin_num = "%[01]+";
+            let dec_num = "[0-9]+";
+            vec![
+                Matcher::new(r"\(", |_| TokenType::LeftParen),
+                Matcher::new(r"\)", |_| TokenType::RightParen),
+                Matcher::new("#",   |_| TokenType::Hash),
+                Matcher::new(",",   |_| TokenType::Comma),
+                Matcher::new(":",   |_| TokenType::Colon),
+                Matcher::new("=",   |_| TokenType::Equals),
+                Matcher::new(r"\+", |_| TokenType::Plus),
+                Matcher::new(r"\*", |_| TokenType::Times),
+                Matcher::new("-",   |_| TokenType::Minus),
+                Matcher::new("/",   |_| TokenType::Divide),
+                Matcher::new(">",   |_| TokenType::UpperByte),
+                Matcher::new("<",   |_| TokenType::LowerByte),
+                Matcher::new(r#""(\\.|[^"\\])*""#, |text| TokenType::String(clean_str(text))),
+                Matcher::new("@[rR][0123]", |text| to_indr_mode(text)),
+                Matcher::new(ident, |text| TokenType::Name(text.to_owned())),
+                Matcher::new(directive_ident.as_str(), |text| TokenType::Name(text.to_owned())),
+                Matcher::new(hex_num, |text| to_hex_num(text)),
+                Matcher::new(bin_num, |text| to_bin_num(text)),
+                Matcher::new(dec_num, |text| to_dec_num(text))
+            ]
+        };
     }
+    let input = skip_whitespace_and_comments(input);
     if input.eof() {
         let span = Span::new(input.location(), input.location());
         Some((input.clone(), Token::new(TokenType::EOF, span)))
     } else {
         for matcher in MATCHERS.iter() {
-            match matcher.do_match(input) {
+            match matcher.do_match(&input) {
                 None => (),
                 matched => return matched
             }
@@ -180,12 +245,6 @@ pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
         Ok(results)
     }
 }
-
-pub fn lex(files: &mut SourceFiles, filename: &str) -> Vec<Token> {
-    vec![]
-}
-
-
 
 #[cfg(test)]
 mod tests {
@@ -245,6 +304,25 @@ mod tests {
                 e => panic!("Unexpected error: {:?}", e)
             }
         }
+    }
+
+    #[test]
+    fn test_end_of_line() {
+        let text = "@R3@R0,+:!-\nfoo";
+        assert!(!lexer::end_of_line(10, text));
+        assert!(lexer::end_of_line(11, text));
+        assert!(!lexer::end_of_line(12, text));
+        assert!(lexer::end_of_line(15, text));
+        assert!(lexer::end_of_line(25, text));
+    }
+
+    #[test]
+    fn test_skip_comment() {
+        let file = FileID::new(7);
+        let text = ";fred is cool\nbob";
+        let input = Input::new(file, text);
+        let new_input = lexer::skip_comment(&input);
+        assert_eq!("\nbob", new_input.as_str());
     }
 }
 
