@@ -2,7 +2,7 @@
 use std::fmt;
 use files::FileID;
 
-#[derive(Debug)]
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub struct Location {
     file: FileID,
     pos: usize,
@@ -32,7 +32,7 @@ impl fmt::Display for Location {
     }    
 }
 
-#[derive(Debug)]
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub struct Span {
     start: Location,
     end: Location
