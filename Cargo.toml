@@ -8,10 +8,11 @@ authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 lazy_static = "1.0"
 unicode-segmentation = "1.2.0"
 unicode_categories = "*"
-bit-vec = "*"
 clap = "*"
-pest = "0.4"
 regex = "*"
+
+# custom derives
+instruction-derive = { path = "instruction-derive" }
 
 [lib]
 name = "waterbear"

@@ -64,3 +64,7 @@ impl fmt::Display for Span {
         }
     }    
 }
+
+pub trait Positioned {
+    fn span(&self) -> Span;
+}

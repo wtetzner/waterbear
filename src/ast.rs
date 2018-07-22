@@ -1,18 +1,111 @@
 
-use instruction;
-use instruction::{ToVal,B3,D9,A12};
-use expression::Expression;
+use instruction::{Instruction, IndirectionMode};
+use expression::Expr;
 use std::fmt;
-use std::fmt::Debug;
+use location::Span;
 
 #[derive(Debug)]
 pub enum Directive {
-    Byte(Vec<Expression>),
-    ByteString(Vec<u8>),
-    Org(usize),
-    Word(Vec<Expression>),
-    Include(String),
-    Cnop(Expression,Expression)
+    Byte(Span, Vec<Expr>),
+    ByteString(Span, Vec<u8>),
+    Org(Span, usize),
+    Word(Span, Vec<Expr>),
+    Include(Span, String),
+    Cnop(Span, Expr,Expr)
+}
+
+impl fmt::Display for Directive {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Directive::Cnop(_, exp1, exp2) => {
+                write!(f, ".cnop ")?;
+                write!(f, "{}", exp1)?;
+                write!(f, ", ")?;
+                write!(f, "{}", exp2)
+            },
+            Directive::Byte(_, vec) => {
+                write!(f, ".byte ")?;
+                let mut first = true;
+                for b in vec {
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "{}", b)?;
+                }
+                write!(f, "")
+            },
+            Directive::ByteString(_, vec) => {
+                write!(f, ".byte \"")?;
+                write!(f, "{}\"", escape_string(vec))
+            },
+            Directive::Org(_, num) => write!(f, ".org {}", num),
+            Directive::Word(_, vec) => {
+                write!(f, ".word ")?;
+                let mut first = true;
+                for b in vec {
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "{}", b)?;
+                }
+                write!(f, "")
+            },
+            Directive::Include(_, path) => write!(f, ".include \"{}\"", path)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Statement {
+    Directive(Span, Directive),
+    Label(Span, String),
+    Instruction(Span, Instruction<Expr,IndirectionMode>),
+    Variable(Span, String, Expr),
+    Alias(Span, String, Expr)
+}
+
+impl fmt::Display for Statement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Statement::Directive(_, dir) => {
+                write!(f, "{}", dir)
+            },
+            Statement::Label(_, text) => {
+                write!(f, "{}:", text)
+            },
+            Statement::Instruction(_, inst) => write!(f, "  {:?}", inst),
+            Statement::Variable(_, name, expr) => {
+                write!(f, "{} = {}", name, expr)
+            },
+            Statement::Alias(_, name, expr) => {
+                write!(f, "{} EQU {}", name, expr)
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Statements {
+    pub statements: Vec<Statement>
+}
+
+impl fmt::Display for Statements {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut first = true;
+        for st in self.statements.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, "\n")?;
+            }
+            write!(f, "{}", st)?;
+        }
+        write!(f, "")
+    }
 }
 
 fn escape_string<'a>(bytes: &Vec<u8>) -> String {
@@ -71,98 +164,4 @@ fn escape_string<'a>(bytes: &Vec<u8>) -> String {
         index = index + 1;
     }
     String::from_utf8(escaped).unwrap()
-}
-
-impl fmt::Display for Directive {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Directive::Cnop(ref exp1, ref exp2) => {
-                write!(f, ".cnop ")?;
-                write!(f, "{}", exp1)?;
-                write!(f, ", ")?;
-                write!(f, "{}", exp2)
-            },
-            &Directive::Byte(ref vec) => {
-                write!(f, ".byte ")?;
-                let mut first = true;
-                for b in vec {
-                    if first {
-                        first = false;
-                    } else {
-                        write!(f, ",")?;
-                    }
-                    write!(f, "{}", b)?;
-                }
-                write!(f, "")
-            },
-            &Directive::ByteString(ref vec) => {
-                write!(f, ".byte \"")?;
-                write!(f, "{}\"", escape_string(vec))
-            },
-            &Directive::Org(ref num) => write!(f, ".org {}", num),
-            &Directive::Word(ref vec) => {
-                write!(f, ".word ")?;
-                let mut first = true;
-                for b in vec {
-                    if first {
-                        first = false;
-                    } else {
-                        write!(f, ",")?;
-                    }
-                    write!(f, "{}", b)?;
-                }
-                write!(f, "")
-            },
-            &Directive::Include(ref path) => write!(f, ".include \"{}\"", path)
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Statement<S3: ToVal<B3>,S8: ToVal<i8>,S9: ToVal<D9>,S12: ToVal<A12>,S16: ToVal<u16>> {
-    Directive(Directive),
-    Label(String),
-    Instruction(instruction::Instruction<S3,S8,S9,S12,S16>),
-    Variable(String, Expression),
-    Alias(String, Expression)
-}
-
-impl<S3: ToVal<B3> + Debug,S8: ToVal<i8> + Debug,S9: ToVal<D9> + Debug,S12: ToVal<A12> + Debug,S16: ToVal<u16> + Debug> fmt::Display for Statement<S3,S8,S9,S12,S16> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Statement::Directive(ref dir) => {
-                write!(f, "{}", dir)
-            },
-            &Statement::Label(ref text) => {
-                write!(f, "{}:", text)
-            },
-            &Statement::Instruction(ref inst) => write!(f, "  {:?}", inst),
-            &Statement::Variable(ref name, ref expr) => {
-                write!(f, "{} = {}", name, expr)
-            },
-            &Statement::Alias(ref name, ref expr) => {
-                write!(f, "{} EQU {}", name, expr)
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Statements {
-    pub statements: Vec<Statement<Expression,Expression,Expression,Expression,Expression>>
-}
-
-impl fmt::Display for Statements {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut first = true;
-        for st in self.statements.iter() {
-            if first {
-                first = false;
-            } else {
-                write!(f, "\n")?;
-            }
-            write!(f, "{}", st)?;
-        }
-        write!(f, "")
-    }
 }

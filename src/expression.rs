@@ -1,76 +1,76 @@
 
-use std;
 use std::collections::HashMap;
 use std::fmt;
-use parser;
-use num;
+use location::{Positioned, Span};
 
 #[derive(Debug)]
 pub enum EvaluationError {
-    Failure(String),
     NameNotFound(String),
     DivideByZero(String),
-    NumberError(String,std::num::ParseIntError),
-    InvalidNumber(String),
-    Utf8Error(String),
-    FileLoadError(parser::FileLoadError)
+    
 }
 
 impl EvaluationError {
     pub fn to_string(&self) -> String {
         match self {
-            &EvaluationError::Failure(ref msg) => msg.clone(),
-            &EvaluationError::NameNotFound(ref msg) => msg.clone(),
-            &EvaluationError::DivideByZero(ref msg) => msg.clone(),
-            &EvaluationError::NumberError(ref msg, ref err) => format!("{}: {}", msg, err),
-            &EvaluationError::InvalidNumber(ref msg) => msg.clone(),
-            &EvaluationError::Utf8Error(ref msg) => msg.clone(),
-            &EvaluationError::FileLoadError(ref err) => err.to_string()
+            EvaluationError::NameNotFound(msg) => msg.clone(),
+            EvaluationError::DivideByZero(msg) => msg.clone()
         }
     }
 }
 
-impl std::convert::From<parser::FileLoadError> for EvaluationError {
-    fn from(err: parser::FileLoadError) -> EvaluationError {
-        EvaluationError::FileLoadError(err)
-    }
-}
-
-impl std::convert::From<num::NumberConversionError> for EvaluationError {
-    fn from(err: num::NumberConversionError) -> EvaluationError {
-        EvaluationError::InvalidNumber(err.message())
-    }
-}
-
-impl std::convert::From<std::num::ParseIntError> for EvaluationError {
-    fn from(err: std::num::ParseIntError) -> EvaluationError {
-        EvaluationError::NumberError("Failed to parse number".to_string(), err)
-    }
-}
-
-impl std::convert::From<std::string::FromUtf8Error> for EvaluationError {
-    fn from(_: std::string::FromUtf8Error) -> EvaluationError {
-        EvaluationError::Utf8Error("Invalid UTF-8".to_string())
-    }
-}
-
 #[derive(Debug,Clone)]
-pub enum Expression {
-    Name(String),
-    Plus(Box<Expression>, Box<Expression>),
-    Minus(Box<Expression>, Box<Expression>),
-    Times(Box<Expression>, Box<Expression>),
-    Divide(Box<Expression>, Box<Expression>),
-    Number(i32),
-    UpperByte(Box<Expression>),
-    LowerByte(Box<Expression>)
+pub enum Expr {
+    Name(Span, String),
+    Plus(Box<Expr>, Box<Expr>),
+    Minus(Box<Expr>, Box<Expr>),
+    Times(Box<Expr>, Box<Expr>),
+    Divide(Box<Expr>, Box<Expr>),
+    Number(Span, i32),
+    UpperByte(Span, Box<Expr>),
+    LowerByte(Span, Box<Expr>)
 }
 
-impl fmt::Display for Expression {
+impl Positioned for Expr {
+    fn span(&self) -> Span {
+        match self {
+            Expr::Name(span, _) => span.clone(),
+            Expr::Plus(expr1, expr2) => {
+                Span::new(
+                    expr1.span().start().clone(),
+                    expr2.span().end().clone()
+                )
+            },
+            Expr::Minus(expr1, expr2) => {
+                Span::new(
+                    expr1.span().start().clone(),
+                    expr2.span().end().clone()
+                )
+            },
+            Expr::Times(expr1, expr2) => {
+                Span::new(
+                    expr1.span().start().clone(),
+                    expr2.span().end().clone()
+                )
+            },
+            Expr::Divide(expr1, expr2) => {
+                Span::new(
+                    expr1.span().start().clone(),
+                    expr2.span().end().clone()
+                )
+            },
+            Expr::Number(span, _) => span.clone(),
+            Expr::UpperByte(span, _) => span.clone(),
+            Expr::LowerByte(span, _) => span.clone()
+        }
+    }
+}
+
+impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Expression::Name(ref name) => write!(f, "{}", name),
-            &Expression::Plus(ref left, ref right) => {
+            Expr::Name(_, name) => write!(f, "{}", name),
+            Expr::Plus(left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -84,7 +84,7 @@ impl fmt::Display for Expression {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            &Expression::Minus(ref left, ref right) => {
+            Expr::Minus(left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -98,7 +98,7 @@ impl fmt::Display for Expression {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            &Expression::Times(ref left, ref right) => {
+            Expr::Times(left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -112,7 +112,7 @@ impl fmt::Display for Expression {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            &Expression::Divide(ref left, ref right) => {
+            Expr::Divide(left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -126,8 +126,8 @@ impl fmt::Display for Expression {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            &Expression::Number(ref num) => write!(f, "{}", num),
-            &Expression::UpperByte(ref expr) => {
+            Expr::Number(_, num) => write!(f, "{}", num),
+            Expr::UpperByte(_, expr) => {
                 let paren = expr.complex();
                 write!(f, ">")?;
                 if paren { write!(f, "(")?; }
@@ -135,7 +135,7 @@ impl fmt::Display for Expression {
                 if paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            &Expression::LowerByte(ref expr) => {
+            Expr::LowerByte(_, expr) => {
                 let paren = expr.complex();
                 write!(f, "<")?;
                 if paren { write!(f, "(")?; }
@@ -147,30 +147,31 @@ impl fmt::Display for Expression {
     }
 }
 
-impl Expression {
+impl Expr {
     pub fn complex(&self) -> bool {
         match self {
-            &Expression::Name(_) => false,
-            &Expression::Plus(_,_) => true,
-            &Expression::Minus(_,_) => true,
-            &Expression::Times(_,_) => true,
-            &Expression::Divide(_,_) => true,
-            &Expression::Number(_) => false,
-            &Expression::UpperByte(_) => true,
-            &Expression::LowerByte(_) => true
+            Expr::Name(_,_) => false,
+            Expr::Plus(_,_) => true,
+            Expr::Minus(_,_) => true,
+            Expr::Times(_,_) => true,
+            Expr::Divide(_,_) => true,
+            Expr::Number(_,_) => false,
+            Expr::UpperByte(_,_) => true,
+            Expr::LowerByte(_,_) => true
         }
     }
 
     pub fn eval(&self, name_lookup: &HashMap<String,i32>) -> Result<i32,EvaluationError> {
         match self {
-            &Expression::Name(ref name) => match name_lookup.get(&name.to_lowercase()) {
-                Some(num) => Ok(*num),
-                None => Err(EvaluationError::NameNotFound(format!("Name '{}' not found", name)))
-            },
-            &Expression::Plus(ref left, ref right) => Ok(left.eval(name_lookup)? + right.eval(name_lookup)?),
-            &Expression::Minus(ref left, ref right) => Ok(left.eval(name_lookup)? - right.eval(name_lookup)?),
-            &Expression::Times(ref left, ref right) => Ok(left.eval(name_lookup)? * right.eval(name_lookup)?),
-            &Expression::Divide(ref left, ref right) => {
+            Expr::Name(_, name) =>
+                match name_lookup.get(&name.to_lowercase()) {
+                    Some(num) => Ok(*num),
+                    None => Err(EvaluationError::NameNotFound(format!("Name '{}' not found", name)))
+                },
+            Expr::Plus(left, right) => Ok(left.eval(name_lookup)? + right.eval(name_lookup)?),
+            Expr::Minus(left, right) => Ok(left.eval(name_lookup)? - right.eval(name_lookup)?),
+            Expr::Times(left, right) => Ok(left.eval(name_lookup)? * right.eval(name_lookup)?),
+            Expr::Divide(left, right) => {
                 let left_val = left.eval(name_lookup)?;
                 let right_val = right.eval(name_lookup)?;
                 if right_val == 0 {
@@ -179,15 +180,16 @@ impl Expression {
                     Ok(left_val / right_val)
                 }
             },
-            &Expression::Number(num) => Ok(num as i32),
-            &Expression::UpperByte(ref expr) => {
+            Expr::Number(_, num) => Ok(*num),
+            Expr::UpperByte(_, expr) => {
                 let value = expr.eval(name_lookup)?;
                 Ok((value >> 8) & 0xFF)
             }
-            &Expression::LowerByte(ref expr) => {
+            Expr::LowerByte(_, expr) => {
                 let value = expr.eval(name_lookup)?;
                 Ok(value & 0xFF)
             }
         }
     }
 }
+

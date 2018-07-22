@@ -1,8 +1,5 @@
 
-use input;
 use location::Span;
-use std::io;
-use files::SourceFiles;
 use input::Input;
 use regex::Regex;
 use location::Location;
@@ -15,7 +12,7 @@ pub enum TokenType {
     Comma,
     Colon,
     Name(String),
-    Number(u32),
+    Number(i32),
     Equals,
     Plus,
     Times,
@@ -169,17 +166,17 @@ fn skip_whitespace_and_comments<'a>(input: &Input<'a>) -> Input<'a> {
 }
 
 fn to_hex_num(text: &str) -> TokenType {
-    let num = u32::from_str_radix(&text[1..], 16).unwrap();
+    let num = i32::from_str_radix(&text[1..], 16).unwrap();
     TokenType::Number(num)
 }
 
 fn to_bin_num(text: &str) -> TokenType {
-    let num = u32::from_str_radix(&text[1..], 2).unwrap();
+    let num = i32::from_str_radix(&text[1..], 2).unwrap();
     TokenType::Number(num)
 }
 
 fn to_dec_num(text: &str) -> TokenType {
-    let num = u32::from_str_radix(text, 10).unwrap();
+    let num = i32::from_str_radix(text, 10).unwrap();
     TokenType::Number(num)
 }
 
@@ -189,7 +186,7 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
             let ident = "[a-zA-Z_][a-zA-Z0-9_]*";
             let directive_ident = ".".to_owned() + ident;
             let hex_num = "\\$[a-fA-F0-9]+";
-            let bin_num = "%[01]+";
+            let bin_num = "%-?[01]+";
             let dec_num = "[0-9]+";
             vec![
                 Matcher::new(r"\(", |_| TokenType::LeftParen),

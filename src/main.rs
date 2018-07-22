@@ -60,9 +60,9 @@ fn main() {
 }
 
 fn assemble(matches: &clap::ArgMatches) -> Result<(), EvaluationError> {
-    let input_file = matches.value_of("INPUT").unwrap();
-    let bytes = waterbear::assemble_file(&input_file)?;
-    let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
-    outfile.write_all(&bytes).unwrap();
+    // let input_file = matches.value_of("INPUT").unwrap();
+    // let bytes = waterbear::assemble_file(&input_file)?;
+    // let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
+    // outfile.write_all(&bytes).unwrap();
     Ok(())
 }
