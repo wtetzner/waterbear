@@ -8,27 +8,38 @@ use location::{Positioned,Span};
 pub enum EncodingError {
     NumOutOfRange {
         span: Span,
-        bits: u32,
+        bits: usize,
         value: i32
     },
     SignedNumOutOfRange {
         span: Span,
-        bits: u32,
+        bits: usize,
         value: i32
     },
     InvalidAddress {
         span: Span,
         value: i32
     },
+    AddrBitsDontMatch {
+        span: Span,
+        pos: usize,
+        value: i32,
+        pos_top: u8,
+        value_top: u8
+    },
     EvalError(EvaluationError)
 }
 
 impl EncodingError {
-    pub fn out_of_range(span: Span, bits: u32, value: i32) -> EncodingError {
+    pub fn mismatch_top_bits(span: Span, pos: usize, value: i32, pos_top: u8, value_top: u8) -> EncodingError {
+        EncodingError::AddrBitsDontMatch { span, pos, value, pos_top, value_top }
+    }
+
+    pub fn out_of_range(span: Span, bits: usize, value: i32) -> EncodingError {
         EncodingError::NumOutOfRange { span, bits, value }
     }
 
-    pub fn signed_out_of_range(span: Span, bits: u32, value: i32) -> EncodingError {
+    pub fn signed_out_of_range(span: Span, bits: usize, value: i32) -> EncodingError {
         EncodingError::SignedNumOutOfRange { span, bits, value }
     }
 
@@ -65,18 +76,18 @@ impl IndirectionMode {
 #[allow(non_camel_case_types)]
 #[derive(Debug,Instruction)]
 pub enum Instruction<Ex,IM> {
-    #[instr(add(bits="10000001 [a7][a6][a5][a4][a3][a2][a1][a0]"))]
+    #[instr(bits="10000001 [a7][a6][a5][a4][a3][a2][a1][a0]")]
     Add_i8(Ex),
-    #[instr(add(bits="1000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"))]
+    #[instr(bits="1000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]")]
     Add_d9(Ex),
-    #[instr(add(bits="100001[a1][a0]"))]
+    #[instr(bits="100001[a1][a0]")]
     Add_Ri(IM),
 
-    #[instr(addc(bits="10010001 [a7][a6][a5][a4][a3][a2][a1][a0]"))]
+    #[instr(bits="10010001 [a7][a6][a5][a4][a3][a2][a1][a0]")]
     Addc_i8(Ex),
-    #[instr(addc(bits="1001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"))]
+    #[instr(bits="1001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]")]
     Addc_d9(Ex),
-    #[instr(addc(bits="100101[a1][a0]"))]
+    #[instr(bits="100101[a1][a0]")]
     Addc_Ri(IM),
 
     Sub_i8(Ex),
@@ -272,6 +283,24 @@ fn rel8(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
     }
 }
 
+fn eval12(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
+    let addr = eval16(expr, env)?;
+    let val_top = (addr as usize) & 0b1111000000000000;
+    let pos_top = pos & 0b1111000000000000;
+    let value = addr & 0b0000111111111111;
+    if val_top != pos_top {
+        return Err(EncodingError::mismatch_top_bits(
+            expr.span(),
+            pos,
+            value,
+            ((pos_top >> 12) & 0xFF) as u8,
+            ((val_top >> 12) & 0xFF) as u8
+        ));
+    } else {
+        Ok(value)
+    }
+}
+
 fn rel16(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
     let address = expr.eval(env)?;
     if address >= 0 && address <= 65535 {
@@ -290,8 +319,8 @@ type EvalResult = EncResult<Instruction<i32,u8>>;
 
 impl Instruction<Expr,IndirectionMode> {
     pub fn eval(&self, pos: usize, env: &Env) -> EvalResult {
+        use instruction::Instruction::*;
         let val = match self {
-            use Instruction::*;
             Add_i8(imm) => Add_i8(eval8(imm, env)?),
             Add_d9(dir) => Add_d9(eval9(dir, env)?),
             Add_Ri(ind) => Add_Ri(ind.index()),
@@ -352,39 +381,68 @@ impl Instruction<Expr,IndirectionMode> {
             Xch_d9(dir) => Xch_d9(eval9(dir, env)?),
             Xch_Ri(ind) => Xch_Ri(ind.index()),
 
-            Jmp(Ex),
-            Jmpf(Ex),
+            Jmp(abs) => Jmp(eval12(abs, pos, env)?),
+            Jmpf(abs) => Jmpf(eval16(abs, env)?),
 
-            Br(Ex),
-            Brf(Ex),
-            Bz(Ex),
-            Bnz(Ex),
-            Bp(Ex, Ex, Ex),
-            Bpc(Ex, Ex, Ex),
-            Bn(Ex, Ex, Ex),
-            Dbnz_d9(Ex, Ex),
-            Dbnz_Ri(IM, Ex),
-            Be_i8(Ex, Ex),
-            Be_d9(Ex, Ex),
-            Be_Rj(IM, Ex, Ex),
-            Bne_i8(Ex, Ex),
-            Bne_d9(Ex, Ex),
-            Bne_Rj(IM, Ex, Ex),
+            Br(rel) => Br(rel8(rel, pos, env)?),
+            Brf(rel) => Brf(rel16(rel, pos, env)?),
+            Bz(rel) => Bz(rel8(rel, pos, env)?),
+            Bnz(rel) => Bnz(rel8(rel, pos, env)?),
+            Bp(dir, b3, rel) => Bp(
+                eval9(dir, env)?,
+                eval3(dir, env)?,
+                rel8(rel, pos, env)?
+            ),
+            Bpc(dir, b3, rel) => Bpc(
+                eval9(dir, env)?,
+                eval3(dir, env)?,
+                rel8(rel, pos, env)?
+            ),
+            Bn(dir, b3, rel) => Bn(
+                eval9(dir, env)?,
+                eval3(dir, env)?,
+                rel8(rel, pos, env)?
+            ),
+            Dbnz_d9(dir, rel) => Dbnz_d9(
+                eval9(dir, env)?,
+                rel8(rel, pos, env)?
+            ),
+            Dbnz_Ri(ind, rel) => Dbnz_Ri(ind.index(), rel8(rel, pos, env)?),
+            Be_i8(imm, rel) => Be_i8(eval8(imm, env)?, rel8(rel, pos, env)?),
+            Be_d9(dir, rel) => Be_d9(eval9(dir, env)?, rel8(rel, pos, env)?),
+            Be_Rj(ind, imm, rel) => Be_Rj(
+                ind.index(),
+                eval8(imm, env)?,
+                rel8(rel, pos, env)?
+            ),
+            Bne_i8(imm, rel) => Bne_i8(
+                eval8(imm, env)?,
+                rel8(rel, pos, env)?
+            ),
+            Bne_d9(dir, rel) => Bne_d9(
+                eval9(dir, env)?,
+                rel8(rel, pos, env)?
+            ),
+            Bne_Rj(ind, imm, rel) => Bne_Rj(
+                ind.index(),
+                eval8(imm, env)?,
+                rel8(rel, pos, env)?
+            ),
 
-            Call(Ex),
-            Callf(Ex),
-            Callr(Ex),
+            Call(a12) => Call(eval12(a12, pos, env)?),
+            Callf(a16) => Callf(eval16(a16, env)?),
+            Callr(r16) => Callr(rel16(r16, pos, env)?),
 
             Ret => Ret,
             Reti => Reti,
 
-            Clr1(Ex, Ex),
-            Set1(Ex, Ex),
-            Not1(Ex, Ex),
+            Clr1(dir, b3) => Clr1(eval9(dir, env)?, eval3(b3, env)?),
+            Set1(dir, b3) => Set1(eval9(dir, env)?, eval3(b3, env)?),
+            Not1(dir, b3) => Not1(eval9(dir, env)?, eval3(b3, env)?),
 
             Nop => Nop
         };
-        val
+        Ok(val)
     }
     // pub fn encode(&self, pos: u32, env: &Env) -> EncResult<Vec<u8>> {
     //     self.to_bytes();

@@ -6,8 +6,7 @@ use location::{Positioned, Span};
 #[derive(Debug)]
 pub enum EvaluationError {
     NameNotFound(String),
-    DivideByZero(String),
-    
+    DivideByZero(String)
 }
 
 impl EvaluationError {

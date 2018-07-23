@@ -2,9 +2,11 @@ extern crate waterbear;
 
 #[macro_use]
 extern crate clap;
+extern crate ansi_term;
 
 use std::fs::File;
 use std::io::Write;
+use std::string::ToString;
 
 use waterbear::instruction;
 use waterbear::expression::EvaluationError;
@@ -16,6 +18,10 @@ const NAME: &'static str = env!("CARGO_PKG_NAME");
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
+    // We have to explicitly enable ANSI term support on Windows
+    #[cfg(windows)]
+    ansi_term::enable_ansi_support();
+
     let matches = clap_app!(
         waterbear =>
             (name: NAME)
@@ -57,6 +63,14 @@ fn main() {
     //         }
     //     }
     // }
+    use ansi_term::Colour::Red;
+    use ansi_term::Colour::Green;
+    use ansi_term::Style;;
+    println!("[{}] {} is {} cool",
+             Green.paint("OK"),
+             Style::new().bold().paint("Fred"),
+             Red.paint("very")
+    );
 }
 
 fn assemble(matches: &clap::ArgMatches) -> Result<(), EvaluationError> {

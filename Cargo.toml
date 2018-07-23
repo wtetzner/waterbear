@@ -10,6 +10,7 @@ unicode-segmentation = "1.2.0"
 unicode_categories = "*"
 clap = "*"
 regex = "*"
+ansi_term = "0.11"
 
 # custom derives
 instruction-derive = { path = "instruction-derive" }
