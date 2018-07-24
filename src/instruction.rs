@@ -76,169 +76,165 @@ impl IndirectionMode {
 #[allow(non_camel_case_types)]
 #[derive(Debug,Instruction)]
 pub enum Instruction<Ex,IM> {
-    #[instr(bits="10000001 [a7][a6][a5][a4][a3][a2][a1][a0]")]
+    #[instr="10000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Add_i8(Ex),
-    #[instr(bits="1000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]")]
+    #[instr="1000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Add_d9(Ex),
-    #[instr(bits="100001[a1][a0]")]
+    #[instr="100001[a1][a0]"]
     Add_Ri(IM),
 
-    #[instr(bits="10010001 [a7][a6][a5][a4][a3][a2][a1][a0]")]
+    #[instr="10010001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Addc_i8(Ex),
-    #[instr(bits="1001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]")]
+    #[instr="1001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Addc_d9(Ex),
-    #[instr(bits="100101[a1][a0]")]
+    #[instr="100101[a1][a0]"]
     Addc_Ri(IM),
 
+    #[instr="10100001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Sub_i8(Ex),
+    #[instr="1010001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Sub_d9(Ex),
+    #[instr="101001[a1][a0]"]
     Sub_Ri(IM),
 
+    #[instr="10110001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Subc_i8(Ex),
+    #[instr="1011001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Subc_d9(Ex),
+    #[instr="101101[a1][a0]"]
     Subc_Ri(IM),
 
+    #[instr="0110001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Inc_d9(Ex),
+    #[instr="011001[a1][a0]"]
     Inc_Ri(IM),
 
+    #[instr="0111001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Dec_d9(Ex),
+    #[instr="011101[a1][a0]"]
     Dec_Ri(IM),
 
+    #[instr="00110000"]
     Mul,
+    #[instr="01000000"]
     Div,
 
+    #[instr="11100001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     And_i8(Ex),
+    #[instr="1110001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     And_d9(Ex),
+    #[instr="111001[a1][a0]"]
     And_Ri(IM),
 
+    #[instr="11010001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Or_i8(Ex),
+    #[instr="1101001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Or_d9(Ex),
+    #[instr="110101[a1][a0]"]
     Or_Ri(IM),
 
+    #[instr="11110001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Xor_i8(Ex),
+    #[instr="1111001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Xor_d9(Ex),
+    #[instr="111101[a1][a0]"]
     Xor_Ri(IM),
 
+    #[instr="11100000"]
     Rol,
+    #[instr="11110000"]
     Rolc,
 
+    #[instr="11000000"]
     Ror,
+    #[instr="11010000"]
     Rorc,
 
+    #[instr="0000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Ld_d9(Ex),
+    #[instr="000001[a1][a0]"]
     Ld_Ri(IM),
 
+    #[instr="0001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     St_d9(Ex),
+    #[instr="000101[a1][a0]"]
     St_Ri(IM),
 
+    #[instr="0010001[b8] [b7][b6][b5][b4][b3][b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Mov_d9(Ex, Ex),
+    #[instr="001001[b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Mov_Rj(Ex, IM),
 
+    #[instr="11000001"]
     Ldc,
 
+    #[instr="0110000[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Push(Ex),
+    #[instr="0111000[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Pop(Ex),
 
+    #[instr="1100001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Xch_d9(Ex),
+    #[instr="110001[a1][a0]"]
     Xch_Ri(IM),
 
+    #[instr="001[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Jmp(Ex),
+    #[instr="00100001 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Jmpf(Ex),
 
+    #[instr="00000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Br(Ex),
+    #[instr="00010001 [a7][a6][a5][a4][a3][a2][a1][a0] [a15][a14][a13][a12][a11][a10][a9][a8]"]
     Brf(Ex),
+    #[instr="10000000 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Bz(Ex),
+    #[instr="10010000 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Bnz(Ex),
+    #[instr="011[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bp(Ex, Ex, Ex),
+    #[instr="010[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bpc(Ex, Ex, Ex),
+    #[instr="100[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bn(Ex, Ex, Ex),
+    #[instr="0101001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Dbnz_d9(Ex, Ex),
+    #[instr="010101[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Dbnz_Ri(IM, Ex),
+    #[instr="00110001 [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Be_i8(Ex, Ex),
+    #[instr="0011001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Be_d9(Ex, Ex),
+    #[instr="001101[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Be_Rj(IM, Ex, Ex),
+    #[instr="01000001 [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Bne_i8(Ex, Ex),
+    #[instr="0100001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Bne_d9(Ex, Ex),
+    #[instr="010001[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bne_Rj(IM, Ex, Ex),
 
+    #[instr="000[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Call(Ex),
+    #[instr="00100000 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Callf(Ex),
+    #[instr="00010000 [a7][a6][a5][a4][a3][a2][a1][a0] [a15][a14][a13][a12][a11][a10][a9][a8]"]
     Callr(Ex),
 
+    #[instr="10100000"]
     Ret,
+    #[instr="10110000"]
     Reti,
 
+    #[instr="110[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Clr1(Ex, Ex),
+    #[instr="111[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Set1(Ex, Ex),
+    #[instr="101[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Not1(Ex, Ex),
 
+    #[instr="00000000"]
     Nop
-}
-
-struct Bits {
-    current: usize,
-    bytes: Vec<u8>
-}
-
-fn bit_at(data: i32, bit: usize) -> bool {
-    ((data >> bit) & 0x1) != 0
-}
-
-fn set_bit(bytes: &mut [u8], bit: usize, value: bool) {
-    let mask = 1 << (bit % 8);
-    if value {
-        
-    }
-}
-
-// bits!(1, 0, 1, 1, 0, d@1, d@9)
-impl Bits {
-    fn new() -> Bits {
-        Bits {
-            current: 0,
-            bytes: vec![]
-        }
-    }
-
-    fn push(&mut self, value: i32, bits: usize) {
-        {
-            #[derive(Debug)]
-            struct Foo {}
-
-            println!("foo: {:?}", Foo {});
-        }
-        {
-            #[derive(Debug)]
-            struct Foo { x: usize }
-
-            println!("foo: {:?}", Foo { x: 0 });
-        }
-        // if bits == 0 {
-        //     return;
-        // }
-        // let mut free = (self.bytes.len() * 8) - self.current;
-        // let mut remaining_bits = bits;
-        
-        // let mut data = value;
-        // while remaining_bits > 0 {
-        //     if free == 0 {
-        //         self.bytes.push(0u8);
-        //         free = free + 8;
-        //     }
-            
-        // }
-
-        // while free < bits {
-        //     self.bytes.push(0u8);
-        //     free = free + 8;
-        // }
-        // let mut byte = self.bytes[self.bytes.len() - 1];
-        
-    }
-
-    fn render(self) -> Vec<u8> {
-        self.bytes
-    }
 }
 
 type EncResult<T> = Result<T,EncodingError>;
@@ -550,8 +546,15 @@ impl Instruction<Expr,IndirectionMode> {
 
 #[cfg(test)]
 mod Test {
+    use instruction::Instruction;
 
     #[test]
-    fn test_bit_at() {
+    fn test_encode() {
+        test(Instruction::Add_i8(0xf3), vec![0x81, 0xf3], "Add_i8");
+        test(Instruction::Add_d9(0x1F4), vec![0x83, 0xf4], "Add_d9");
+    }
+
+    fn test(instr: Instruction<i32,u8>, bytes: Vec<u8>, message: &str) {
+        assert_eq!(instr.encode(), bytes, "{}", message);
     }
 }

@@ -11,7 +11,7 @@ extern crate lazy_static;
 extern crate regex;
 
 use proc_macro::TokenStream;
-use syn::{VariantData, MetaItem, NestedMetaItem, Lit};
+use syn::{VariantData, Variant, MetaItem, Lit};
 use regex::Regex;
 
 #[proc_macro_derive(Instruction, attributes(instr))]
@@ -25,8 +25,8 @@ pub fn instruction(input: TokenStream) -> TokenStream {
     // Build the impl
     let gen = expand_instr(&ast);
 
-    // let toks: TokenStream = gen.parse().unwrap();
-    // println!("toks: {}", toks);
+    let toks: TokenStream = gen.parse().unwrap();
+    println!("toks: {}", toks);
     
     // Return the generated impl
     // gen.parse().unwrap()
@@ -38,55 +38,61 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
         syn::Body::Struct(_) => panic!("#[derive(Instruction)] can only be used with enums"),
         syn::Body::Enum(ref data) => {
             let name = &ast.ident;
-            let fields: Vec<quote::Tokens> = data.iter().for_each(|varient| {
-                let vname = &varient.ident;
-                let ty = &varient.data;
+            let fields: Vec<quote::Tokens> = data.iter().map(|variant| {
+                let vname = &variant.ident;
+                let ty = &variant.data;
                 let names = names(ty);
-                let attr = varient.attrs.iter()
-                    .filter(|attr| attr.name() == "instr")
-                    .next()
-                    .expect(&format!("No bit pattern on variant: {}", vname));
-                println!("attr.value: {:?}", attr.value);
-                match attr.value {
-                    MetaItem::List(ref ident, ref nested)
-                        if *ident == syn::Ident::new("instr") => {
-                            nested.iter().for_each(|item| {
-                                match item {
-                                    NestedMetaItem::MetaItem(MetaItem::NameValue(ref bits_name, ref pat))
-                                        if *bits_name == syn::Ident::new("bits") => {
-                                            if let Lit::Str(ref text,_) = pat {
-                                                
-                                                quote! {
-                                                    #name::#vname (#(#names),*) => vec![
-                                                        
-                                                    ]
-                                                }
-                                            } else {
-                                                panic!("bit pattern should be a String");
-                                            }
-                                        },
-                                    _ => panic!("Expected bit pattern on attr: {:?}", attr)
-                                }
-                            });
-                            println!("val: {:?}", nested);
-                        },
-                    _ => panic!("instr attr is invalid: {:?}", attr)
+                let bit_pattern = extract_bit_pattern(variant);
+                let ranges = parse_bit_pattern(&bit_pattern);
+                let byte_tokens: Vec<quote::Tokens> = ranges.iter().map(|byte| byte_to_tokens(&byte)).collect();
+                if names.len() > 0 {
+                    quote! {
+                        #name::#vname (#(#names),*) => vec![
+                            #(#byte_tokens),*
+                        ]
+                    }
+                } else {
+                    quote! {
+                        #name::#vname => vec![
+                            #(#byte_tokens),*
+                        ]
+                    }
                 }
             }).collect();
 
-            let num_fields = fields.len();
+            let size_fields: Vec<quote::Tokens> = data.iter().map(|variant| {
+                let vname = &variant.ident;
+                let ty = &variant.data;
+                let names = names(ty);
+                let bit_pattern = extract_bit_pattern(variant);
+                let ranges = parse_bit_pattern(&bit_pattern);
+                let size: usize = ranges.len();
+                if names.len() > 0 {
+                    quote! {
+                        #name::#vname (#(#names),*) => #size
+                    }
+                } else {
+                    quote! {
+                        #name::#vname => #size
+                    }
+                }
+            }).collect();
 
             quote! {
                 impl<Ex,IM> #name<Ex,IM> {
                     #[inline]
                     pub fn size(&self) -> usize {
-                        0
+                        match self {
+                            #(#size_fields),*
+                        }
                     }
                 }
 
                 impl #name<i32,u8> {
                     pub fn encode(&self) -> Vec<u8> {
-                        vec![]
+                        match self {
+                            #(#fields),*
+                        }
                     }
                 }
             }
@@ -235,39 +241,46 @@ fn bits_to_range(bits: &[Bit]) -> Vec<BitRange> {
     results
 }
 
-fn make_mask(num_bits: usize) -> u8 {
-    let mut val: u8 = 0;
+fn make_mask(num_bits: usize) -> u32 {
+    let mut val: u32 = 0;
     for idx in 0..num_bits {
         val = val | (1 << idx)
     }
+    val
 }
 
-fn byte_to_tokens(name: syn::Ident, vname: syn::Ident, ranges: &[BitRange]) -> quote::Tokens {
+//  1 1 1 1 1 1 1 1
+// ^
+//          1 1 1 1
+
+fn byte_to_tokens(ranges: &[BitRange]) -> quote::Tokens {
     let mut toks: Vec<quote::Tokens> = vec![];
-    let pos = 8;
+    let mut pos = 8;
     for range in ranges.iter() {
         match range {
             BitRange::Literal(bits, size) => {
                 let val = bits << (pos - size);
-                toks.push(quote! { #val });
+                toks.push(quote! { #val as u8 });
                 pos = pos - size;
             },
-            BitRange::Ref { name: ref name, high: high, low: low } => {
-                let ident = syn::Ident::new(name);
+            BitRange::Ref { ref name, high, low } => {
+                let ident = syn::Ident::new(name.as_str());
                 let size = (1 + high) - low;
-                let mut mask = make_mask(size) << (high - size);
-                let shift = pos - size;
-                toks.push(quote! {
-                    ((#mask & #ident) >> #low) << #shift
-                });
+                if size == 8 {
+                    toks.push(quote! { *#ident as u8 })
+                } else {
+                    let mut mask: u32 = make_mask(size) << ((high + 1) - size);
+                    let shift: u32 = (pos - size) as u32;
+                    toks.push(quote! {
+                        (((#mask & (*#ident as u32)) >> #low) << #shift) as u8
+                    });
+                }
                 pos = pos - size;
             }
         }
     }
     quote! {
-        #name::#vname (#(#names),*) => vec![
-            #(#names)|*
-        ]
+        #(#toks)|*
     }
 }
 
@@ -315,6 +328,23 @@ fn names(variant: &VariantData) -> Vec<syn::Ident> {
     }
     idents
 }
+
+fn extract_bit_pattern(variant: &Variant) -> String {
+    let attr = variant.attrs.iter()
+        .filter(|attr| attr.name() == "instr")
+        .next()
+        .expect(&format!("No instr attribute with bit pattern on variant: {}", variant.ident));
+    match attr.value {
+        MetaItem::NameValue(_, ref value) => {
+            return match value {
+                Lit::Str(pattern, _) => pattern.clone(),
+                _ => panic!("Expected string for bit pattern, found: {:?}", attr)
+            };
+        },
+        _ => panic!("Invalid instr attribute: {:?}", attr)
+    };
+}
+
 
 #[cfg(test)]
 mod tests {
