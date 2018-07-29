@@ -26,10 +26,9 @@ pub fn instruction(input: TokenStream) -> TokenStream {
     let gen = expand_instr(&ast);
 
     let toks: TokenStream = gen.parse().unwrap();
-    println!("toks: {}", toks);
+    // println!("toks: {}", toks);
     
     // Return the generated impl
-    // gen.parse().unwrap()
     gen.parse().unwrap()
 }
 
@@ -168,7 +167,7 @@ fn chunk_to_range(chunk: &[Bit]) -> BitRange {
     assert!(!chunk.is_empty());
     if chunk[0].is_literal() {
         let mut value: u8 = 0;
-        for (idx, bit) in chunk.iter().enumerate() {
+        for (idx, bit) in chunk.iter().rev().enumerate() {
             if let Bit::Literal(data) = bit {
                 value = value | (data << idx);
             } else {
@@ -259,20 +258,29 @@ fn byte_to_tokens(ranges: &[BitRange]) -> quote::Tokens {
     for range in ranges.iter() {
         match range {
             BitRange::Literal(bits, size) => {
-                let val = bits << (pos - size);
-                toks.push(quote! { #val as u8 });
+                let val: u8 = bits << (pos - size);
+                toks.push(quote! { #val });
                 pos = pos - size;
             },
             BitRange::Ref { ref name, high, low } => {
                 let ident = syn::Ident::new(name.as_str());
                 let size = (1 + high) - low;
-                if size == 8 {
-                    toks.push(quote! { *#ident as u8 })
-                } else {
-                    let mut mask: u32 = make_mask(size) << ((high + 1) - size);
-                    let shift: u32 = (pos - size) as u32;
+                let mut mask: u32 = make_mask(size) << ((high + 1) - size);
+                let lshift: i32 = (pos as i32) - (size as i32);
+                let shift_amount = (*low as i32) - lshift;
+                if shift_amount == 0 {
                     toks.push(quote! {
-                        (((#mask & (*#ident as u32)) >> #low) << #shift) as u8
+                        (#mask & (*#ident as u32)) as u8
+                    })
+                } else if shift_amount > 0 {
+                    let shift = shift_amount as usize;
+                    toks.push(quote! {
+                        ((#mask & (*#ident as u32)) >> #shift) as u8
+                    });
+                } else {
+                    let shift = shift_amount.abs() as usize;
+                    toks.push(quote! {
+                        ((#mask & (*#ident as u32)) << #shift) as u8
                     });
                 }
                 pos = pos - size;
