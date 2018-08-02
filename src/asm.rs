@@ -21,89 +21,127 @@ use ast::{Statements};
 use expression::{EvaluationError};
 use std::collections::HashMap;
 use location::{Span, Positioned};
-use env::Env;
+use env::{Env,Names};
+use instruction::{EncodingError};
 
 // pub fn assemble_file(filename: &str) -> Result<Vec<u8>,EvaluationError> {
 //     let statements = parser::parse_file(filename)?;
 //     assemble(&statements)
 // }
 
-// pub fn assemble(statements: &Statements) -> Result<Vec<u8>,EvaluationError> {
-//     let (max_pos, names) = compute_names(statements)?;
-//     let mut output = vec![0; max_pos];
-//     generate_bytes(statements, &names, &mut output)?;
-//     Ok(output)
-// }
+pub fn assemble(statements: &Statements) -> Result<Vec<u8>,AssemblyError> {
+    let (max_pos, names) = compute_names(statements)?;
+    let mut output = vec![0; max_pos];
+    generate_bytes(statements, &names, &mut output)?;
+    Ok(output)
+}
 
-// fn generate_bytes(statements: &Statements, names: &HashMap<String,i32>, output: &mut Vec<u8>) -> Result<(),EvaluationError> {
-//     let mut pos: usize = 0;
-//     for statement in statements.statements.iter() {
-//         println!("{} - {:?}", pos, statement);
-//         match statement {
-//             &Statement::Directive(ref dir) => {
-//                 match dir {
-//                     &Directive::Byte(ref bytes) => {
-//                         for expr in bytes.iter() {
-//                             let b: u8 = expr.to(names)?;
-//                             output[pos] = b;
-//                             pos = pos + 1;
-//                         }
-//                     },
-//                     &Directive::ByteString(ref bytes) => {
-//                         for b in bytes.iter() {
-//                             output[pos] = *b;
-//                             pos = pos + 1;
-//                         }
-//                     },
-//                     &Directive::Org(ref location) => {
-//                         pos = *location;
-//                     },
-//                     &Directive::Word(ref words) => {
-//                         for expr in words.iter() {
-//                             let w: u16 = expr.to(names)?;;
-//                             output[pos] = (w & 0xFF) as u8;
-//                             pos = pos + 1;
-//                             output[pos] = ((w >> 8) & 0xFF) as u8;
-//                             pos = pos + 1;
-//                         }
-//                     },
-//                     &Directive::Include(_) => panic!("There should be no .include directives left at this point".to_string()),
-//                     &Directive::Cnop(ref add, ref multiple) => {
-//                         let add = add.eval(&names)? as usize;
-//                         let multiple = multiple.eval(&names)? as usize;
-//                         let mut mult = 0;
-//                         loop {
-//                             if pos < mult {
-//                                 break;
-//                             }
-//                             mult = mult + multiple;
-//                         }
-//                         pos = mult + add;
-//                     }
-//                 }
-//             },
-//             &Statement::Label(_) => {},
-//             &Statement::Instruction(ref instr) => {
-//                 let next_pos = pos + instr.size();
-//                 let bytes = instr.reduce(next_pos, names)?.to_bytes();
-//                 for b in bytes.iter() {
-//                     output[pos] = *b;
-//                     pos = pos + 1;
-//                 }
-//             },
-//             &Statement::Variable(_, _) => {},
-//             &Statement::Alias(_, _) => {}
-//         }
-//     }
-//     Ok(())
-// }
+fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) -> Result<(),AssemblyError> {
+    let mut pos: usize = 0;
+    let mut current_global = "".to_owned();
+    for statement in statements.statements.iter() {
+        println!("{} - {:?}", pos, statement);
+        use ast::Statement::*;
+        match statement {
+            Directive(_, dir) => {
+                use ast::Directive::*;
+                match dir {
+                    Byte(_, bytes) => {
+                        let env = names.as_env("Name", &current_global);
+                        for expr in bytes.iter() {
+                            let b: u8 = (expr.eval(&env)? | 0xFF) as u8;
+                            output[pos] = b;
+                            pos = pos + 1;
+                        }
+                    },
+                    ByteString(_, bytes) => {
+                        for b in bytes.iter() {
+                            output[pos] = *b;
+                            pos = pos + 1;
+                        }
+                    },
+                    Org(span, location) => {
+                        if *location > 0xFFFF {
+                            return Err(AssemblyError::InvalidCodeLocation(span.clone(), *location as i32))
+                        }
+                        pos = *location;
+                    },
+                    Word(_, words) => {
+                        let env = names.as_env("Name", &current_global);
+                        for expr in words.iter() {
+                            let w: u16 = (expr.eval(&env)? | 0xFFFF) as u16;
+                            output[pos] = (w & 0xFF) as u8;
+                            pos = pos + 1;
+                            output[pos] = ((w >> 8) & 0xFF) as u8;
+                            pos = pos + 1;
+                        }
+                    },
+                    Include(_, _) => panic!("There should be no .include directives left at this point".to_string()),
+                    Cnop(_, _add, _multiple) => {
+                        pos += dir.size(pos as i32)? as usize;
+                    }
+                }
+            },
+            Label(_, name) => {
+                if !name.starts_with(".") {
+                    current_global = name.clone();
+                }
+            },
+            Instruction(_, instr) => {
+                let next_pos = pos + instr.size();
+                let bytes = instr.eval(next_pos, &current_global, &names)?.encode();
+                for b in bytes.iter() {
+                    output[pos] = *b;
+                    pos = pos + 1;
+                }
+            },
+            Variable(_, _, _) | Alias(_, _, _) => {}
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub enum AssemblyError {
     NameNotFound(Span,String),
     DivideByZero(Span,String),
     MustBeLiteralNumber(Span),
-    NameAlreadyExists(Span,Span,String)
+    NameAlreadyExists(Span,Span,String),
+    InvalidCodeLocation(Span,i32),
+    NumOutOfRange {
+        span: Span,
+        bits: usize,
+        value: i32
+    },
+    SignedNumOutOfRange {
+        span: Span,
+        bits: usize,
+        value: i32
+    },
+    InvalidAddress {
+        span: Span,
+        value: i32
+    },
+    AddrBitsDontMatch {
+        span: Span,
+        pos: usize,
+        value: i32,
+        pos_top: u8,
+        value_top: u8
+    }
+}
+
+impl From<EncodingError> for AssemblyError {
+    fn from(error: EncodingError) -> Self {
+        use instruction::EncodingError::*;
+        match error {
+            NumOutOfRange { span, bits, value } => AssemblyError::NumOutOfRange { span, bits, value },
+            SignedNumOutOfRange { span, bits, value } => AssemblyError::SignedNumOutOfRange { span, bits, value },
+            InvalidAddress { span, value } => AssemblyError::InvalidAddress { span, value },
+            AddrBitsDontMatch { span, pos, value, pos_top, value_top } => AssemblyError::AddrBitsDontMatch { span, pos, value, pos_top, value_top },
+            EvalError(eval) => AssemblyError::from(eval)
+        }
+    }
 }
 
 impl From<EvaluationError> for AssemblyError {
@@ -117,7 +155,11 @@ impl From<EvaluationError> for AssemblyError {
     }
 }
 
-fn add_name(name: String, value: NameValue, names: &mut HashMap<String,NameValue>) -> Result<(), AssemblyError> {
+fn add_name(
+    name: String,
+    value: NameValue,
+    names: &mut HashMap<String,NameValue>
+) -> Result<(), AssemblyError> {
     if names.contains_key(&name) {
         Err(AssemblyError::NameAlreadyExists(value.span.clone(), names[&name].span.clone(), name.clone()))
     } else {
@@ -133,11 +175,92 @@ struct NameValue {
 }
 
 #[derive(Debug)]
-struct Names {
+struct NamesBuilder {
     globals: HashMap<String,NameValue>,
-    locals: HashMap<String,HashMap<String,NameValue>>,
-    variables: HashMap<String,NameValue>
+    locals: HashMap<String,HashMap<String,NameValue>>
 }
+
+fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError> {
+    let mut globals = HashMap::new();
+    let mut locals = HashMap::new();
+    let mut local = HashMap::new();
+    let mut current_global = "".to_owned();
+    let mut pos: i32 = 0;
+    let mut max_pos = 0;
+    for statement in statements.statements.iter() {
+        use ast::Statement::*;
+        match statement {
+            Directive(_, dir) => {
+                pos += dir.size(pos)?
+            },
+            Label(_, name) => {
+                if name.starts_with(".") {
+                    let val = NameValue { span: statement.span(), value: pos };
+                    add_name(name.to_lowercase(), val, &mut local)?;
+                } else {
+                    let val = NameValue { span: statement.span(), value: pos };
+                    add_name(name.to_lowercase(), val, &mut globals)?;
+                    locals.insert(current_global.clone(), local);
+                    local = HashMap::new();
+                    current_global = name.to_lowercase();
+                }
+            },
+            Instruction(_, instr) => {
+                pos += instr.size() as i32;
+            },
+            Variable(_, _name, _expr) | Alias(_, _name, _expr) => {}
+        }
+    }
+    if !locals.contains_key(&current_global) {
+        locals.insert(current_global.clone(), local);
+    }
+    Ok(NamesBuilder { globals, locals })
+}
+
+fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError> {
+    let labels = compute_labels(statements)?;
+    let mut globals = labels.globals;
+    let locals = labels.locals;
+    let mut pos: i32 = 0;
+    let mut max_pos = 0;
+    for statement in statements.statements.iter() {
+        use ast::Statement::*;
+        match statement {
+            Directive(_, dir) => {
+                pos += dir.size(pos)?
+            },
+            Label(_, name) => (),
+            Instruction(_, instr) => {
+                pos += instr.size() as i32;
+            },
+            Variable(_, name, expr) | Alias(_, name, expr) => {
+                let val = {
+                    let env = MapEnv::new("Name", &globals);
+                    NameValue { span: statement.span(), value: expr.eval(&env)? }
+                };
+                add_name(name.to_lowercase(), val, &mut globals)?;
+            }
+        }
+        if pos > max_pos {
+            max_pos = pos;
+        }
+    }
+    let mut new_globals = HashMap::new();
+    for key in globals.keys() {
+        new_globals.insert(key.to_owned(), globals[key].value);
+    }
+    let mut new_locals = HashMap::new();
+    for key in locals.keys() {
+        let mut new_local = HashMap::new();
+        for lkey in locals[key].keys() {
+            new_local.insert(lkey.to_owned(), locals[key][lkey].value);
+        }
+        new_locals.insert(key.to_owned(), new_local);
+    }
+    Ok(((max_pos + 1) as usize, Names { globals: new_globals, locals: new_locals }))
+}
+
+// Env stuff
 
 pub struct MapEnv<'a,'b> {
     name: &'a str,
@@ -185,94 +308,3 @@ impl<'a,'b,'c> Env<i32> for LabelEnv<'a,'b,'c> {
         }
     }
 }
-
-fn compute_names(statements: &Statements) -> Result<Names,AssemblyError> {
-    let mut globals = HashMap::new();
-    let mut locals = HashMap::new();
-    let mut local = HashMap::new();
-    let mut variables = HashMap::new();
-    let mut current_global = "".to_owned();
-    let mut pos: i32 = 0;
-    for statement in statements.statements.iter() {
-        use ast::Statement::*;
-        match statement {
-            Directive(_, dir) => {
-                pos += dir.size(pos)?
-            },
-            Label(_, name) => {
-                if name.starts_with(".") {
-                    let val = NameValue { span: statement.span(), value: pos };
-                    add_name(name.to_lowercase(), val, &mut local)?;
-                } else {
-                    let val = NameValue { span: statement.span(), value: pos };
-                    add_name(name.to_lowercase(), val, &mut globals)?;
-                    locals.insert(current_global.clone(), local);
-                    local = HashMap::new();
-                    current_global = name.to_lowercase();
-                }
-            },
-            Instruction(_, instr) => {
-                pos += instr.size() as i32;
-            },
-            Variable(_, name, expr) | Alias(_, name, expr) => {
-                let env = MapEnv::new("Variable/Alias name", &variables);
-                let val = NameValue { span: statement.span(), value: expr.eval(&env)? };
-                add_name(name.to_lowercase(), val, &mut local)?;
-            }
-        }
-    }
-    if !locals.contains_key(&current_global) {
-        locals.insert(current_global.clone(), local);
-    }
-    Ok(Names { globals, locals, variables })
-}
-
-// fn compute_names(statements: &Statements) -> Result<(usize, HashMap<String,i32>),EvaluationError> {
-//     let mut names = HashMap::new();
-//     let mut max_pos: usize = 0;
-//     let mut pos: i32 = 0;
-//     for statement in statements.statements.iter() {
-//         match statement {
-//             &Statement::Directive(ref dir) => {
-//                 match dir {
-//                     &Directive::Byte(ref bytes) => pos = pos + (bytes.len() as i32),
-//                     &Directive::ByteString(ref bytes) => pos = pos + (bytes.len() as i32),
-//                     &Directive::Org(ref location) => pos = *location as i32,
-//                     &Directive::Word(ref words) => pos = pos + ((words.len() * 2) as i32),
-//                     &Directive::Include(_) => panic!("There should be no .include directives left at this point".to_string()),
-//                     &Directive::Cnop(ref add, ref multiple) => {
-//                         let add = add.eval(&names)?;
-//                         let multiple = multiple.eval(&names)?;
-//                         let mut mult = 0;
-//                         loop {
-//                             if pos < mult {
-//                                 break;
-//                             }
-//                             mult = mult + multiple;
-//                         }
-//                         pos = mult + add;
-//                     }
-//                 }
-//             },
-//             &Statement::Label(ref name) => {
-//                 add_name(pos, name.to_lowercase(), pos, &mut names)?;
-//             },
-//             &Statement::Instruction(ref instr) => {
-//                 pos = pos + (instr.size() as i32);
-//             },
-//             &Statement::Variable(ref name, ref expr) => {
-//                 let value = expr.eval(&names)?;
-//                 add_name(pos, name.to_lowercase(), value, &mut names)?;
-//             },
-//             &Statement::Alias(ref name, ref expr) => {
-//                 let value = expr.eval(&names)?;
-//                 add_name(pos, name.to_lowercase(), value, &mut names)?;
-//             }
-//         }
-//         if max_pos < (pos as usize) {
-//             max_pos = pos as usize;
-//         }
-//     }
-//     Ok((max_pos, names))
-// }
-

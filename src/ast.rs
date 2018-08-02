@@ -41,10 +41,10 @@ impl Directive {
         match self {
             Byte(_, bytes) => Ok(bytes.len() as i32),
             ByteString(_, bytes) => Ok(bytes.len() as i32),
-            Org(_, location) => Ok(*location as i32),
+            Org(_, location) => Ok((*location as i32) - pos),
             Word(_, words) => Ok((words.len() * 2) as i32),
             Include(_,_) => Ok(0),
-            Cnop(_, add, multiple) => Ok(Directive::eval_cnop(pos, add, multiple)?)
+            Cnop(_, add, multiple) => Ok(Directive::eval_cnop(pos, add, multiple)? - pos)
         }
     }
 }

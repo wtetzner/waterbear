@@ -2,7 +2,7 @@
 use expression::{Expr,EvaluationError};
 use std::collections::HashMap;
 use location::{Positioned,Span};
-use env::Env;
+use env::{Names,Env};
 
 #[derive(Debug)]
 pub enum EncodingError {
@@ -313,44 +313,47 @@ fn rel16<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
 type EvalResult = EncResult<Instruction<i32,u8>>;
 
 impl Instruction<Expr,IndirectionMode> {
-    pub fn eval<E: Env<i32>>(&self, pos: usize, env: &E) -> EvalResult {
+    pub fn eval(&self, pos: usize, label: &str, names: &Names) -> EvalResult {
         use instruction::Instruction::*;
+        let nenv = names.as_env("Name", label);
+        let venv = names.as_env("Variable", label);
+        let lenv = names.as_env("Label", label);
         let val = match self {
-            Add_i8(imm) => Add_i8(eval8(imm, env)?),
-            Add_d9(dir) => Add_d9(eval9(dir, env)?),
+            Add_i8(imm) => Add_i8(eval8(imm, &nenv)?),
+            Add_d9(dir) => Add_d9(eval9(dir, &venv)?),
             Add_Ri(ind) => Add_Ri(ind.index()),
 
-            Addc_i8(imm) => Addc_i8(eval8(imm, env)?),
-            Addc_d9(dir) => Addc_d9(eval9(dir, env)?),
+            Addc_i8(imm) => Addc_i8(eval8(imm, &nenv)?),
+            Addc_d9(dir) => Addc_d9(eval9(dir, &venv)?),
             Addc_Ri(ind) => Addc_Ri(ind.index()),
 
-            Sub_i8(imm) => Sub_i8(eval8(imm, env)?),
-            Sub_d9(dir) => Sub_d9(eval9(dir, env)?),
+            Sub_i8(imm) => Sub_i8(eval8(imm, &nenv)?),
+            Sub_d9(dir) => Sub_d9(eval9(dir, &venv)?),
             Sub_Ri(ind) => Sub_Ri(ind.index()),
 
-            Subc_i8(imm) => Subc_i8(eval8(imm, env)?),
-            Subc_d9(dir) => Subc_d9(eval9(dir, env)?),
+            Subc_i8(imm) => Subc_i8(eval8(imm, &nenv)?),
+            Subc_d9(dir) => Subc_d9(eval9(dir, &venv)?),
             Subc_Ri(ind) => Subc_Ri(ind.index()),
 
-            Inc_d9(dir) => Inc_d9(eval9(dir, env)?),
+            Inc_d9(dir) => Inc_d9(eval9(dir, &venv)?),
             Inc_Ri(ind) => Inc_Ri(ind.index()),
 
-            Dec_d9(dir) => Dec_d9(eval9(dir, env)?),
+            Dec_d9(dir) => Dec_d9(eval9(dir, &venv)?),
             Dec_Ri(ind) => Dec_Ri(ind.index()),
 
             Mul => Mul,
             Div => Div,
 
-            And_i8(imm) => And_i8(eval8(imm, env)?),
-            And_d9(dir) => And_d9(eval9(dir, env)?),
+            And_i8(imm) => And_i8(eval8(imm, &nenv)?),
+            And_d9(dir) => And_d9(eval9(dir, &venv)?),
             And_Ri(ind) => And_Ri(ind.index()),
 
-            Or_i8(imm) => Or_i8(eval8(imm, env)?),
-            Or_d9(dir) => Or_d9(eval9(dir, env)?),
+            Or_i8(imm) => Or_i8(eval8(imm, &nenv)?),
+            Or_d9(dir) => Or_d9(eval9(dir, &venv)?),
             Or_Ri(ind) => Or_Ri(ind.index()),
 
-            Xor_i8(imm) => Xor_i8(eval8(imm, env)?),
-            Xor_d9(dir) => Xor_d9(eval9(dir, env)?),
+            Xor_i8(imm) => Xor_i8(eval8(imm, &nenv)?),
+            Xor_d9(dir) => Xor_d9(eval9(dir, &venv)?),
             Xor_Ri(ind) => Xor_Ri(ind.index()),
 
             Rol => Rol,
@@ -359,188 +362,86 @@ impl Instruction<Expr,IndirectionMode> {
             Ror => Ror,
             Rorc => Rorc,
 
-            Ld_d9(dir) => Ld_d9(eval9(dir, env)?),
+            Ld_d9(dir) => Ld_d9(eval9(dir, &venv)?),
             Ld_Ri(ind) => Ld_Ri(ind.index()),
 
-            St_d9(dir) => St_d9(eval9(dir, env)?),
+            St_d9(dir) => St_d9(eval9(dir, &venv)?),
             St_Ri(ind) => St_Ri(ind.index()),
 
-            Mov_d9(imm, dir) => Mov_d9(eval8(imm, env)?, eval9(dir, env)?),
-            Mov_Rj(imm, ind) => Mov_Rj(eval8(imm, env)?, ind.index()),
+            Mov_d9(imm, dir) => Mov_d9(eval8(imm, &nenv)?, eval9(dir, &venv)?),
+            Mov_Rj(imm, ind) => Mov_Rj(eval8(imm, &nenv)?, ind.index()),
 
             Ldc => Ldc,
 
-            Push(dir) => Push(eval9(dir, env)?),
-            Pop(dir) => Pop(eval9(dir, env)?),
+            Push(dir) => Push(eval9(dir, &venv)?),
+            Pop(dir) => Pop(eval9(dir, &venv)?),
 
-            Xch_d9(dir) => Xch_d9(eval9(dir, env)?),
+            Xch_d9(dir) => Xch_d9(eval9(dir, &venv)?),
             Xch_Ri(ind) => Xch_Ri(ind.index()),
 
-            Jmp(abs) => Jmp(eval12(abs, pos, env)?),
-            Jmpf(abs) => Jmpf(eval16(abs, env)?),
+            Jmp(abs) => Jmp(eval12(abs, pos, &lenv)?),
+            Jmpf(abs) => Jmpf(eval16(abs, &lenv)?),
 
-            Br(rel) => Br(rel8(rel, pos, env)?),
-            Brf(rel) => Brf(rel16(rel, pos, env)?),
-            Bz(rel) => Bz(rel8(rel, pos, env)?),
-            Bnz(rel) => Bnz(rel8(rel, pos, env)?),
+            Br(rel) => Br(rel8(rel, pos, &lenv)?),
+            Brf(rel) => Brf(rel16(rel, pos, &lenv)?),
+            Bz(rel) => Bz(rel8(rel, pos, &lenv)?),
+            Bnz(rel) => Bnz(rel8(rel, pos, &lenv)?),
             Bp(dir, b3, rel) => Bp(
-                eval9(dir, env)?,
-                eval3(b3, env)?,
-                rel8(rel, pos, env)?
+                eval9(dir, &venv)?,
+                eval3(b3, &nenv)?,
+                rel8(rel, pos, &lenv)?
             ),
             Bpc(dir, b3, rel) => Bpc(
-                eval9(dir, env)?,
-                eval3(b3, env)?,
-                rel8(rel, pos, env)?
+                eval9(dir, &venv)?,
+                eval3(b3, &nenv)?,
+                rel8(rel, pos, &lenv)?
             ),
             Bn(dir, b3, rel) => Bn(
-                eval9(dir, env)?,
-                eval3(b3, env)?,
-                rel8(rel, pos, env)?
+                eval9(dir, &venv)?,
+                eval3(b3, &nenv)?,
+                rel8(rel, pos, &lenv)?
             ),
             Dbnz_d9(dir, rel) => Dbnz_d9(
-                eval9(dir, env)?,
-                rel8(rel, pos, env)?
+                eval9(dir, &venv)?,
+                rel8(rel, pos, &lenv)?
             ),
-            Dbnz_Ri(ind, rel) => Dbnz_Ri(ind.index(), rel8(rel, pos, env)?),
-            Be_i8(imm, rel) => Be_i8(eval8(imm, env)?, rel8(rel, pos, env)?),
-            Be_d9(dir, rel) => Be_d9(eval9(dir, env)?, rel8(rel, pos, env)?),
+            Dbnz_Ri(ind, rel) => Dbnz_Ri(ind.index(), rel8(rel, pos, &lenv)?),
+            Be_i8(imm, rel) => Be_i8(eval8(imm, &nenv)?, rel8(rel, pos, &lenv)?),
+            Be_d9(dir, rel) => Be_d9(eval9(dir, &venv)?, rel8(rel, pos, &lenv)?),
             Be_Rj(ind, imm, rel) => Be_Rj(
                 ind.index(),
-                eval8(imm, env)?,
-                rel8(rel, pos, env)?
+                eval8(imm, &nenv)?,
+                rel8(rel, pos, &lenv)?
             ),
             Bne_i8(imm, rel) => Bne_i8(
-                eval8(imm, env)?,
-                rel8(rel, pos, env)?
+                eval8(imm, &nenv)?,
+                rel8(rel, pos, &lenv)?
             ),
             Bne_d9(dir, rel) => Bne_d9(
-                eval9(dir, env)?,
-                rel8(rel, pos, env)?
+                eval9(dir, &venv)?,
+                rel8(rel, pos, &lenv)?
             ),
             Bne_Rj(ind, imm, rel) => Bne_Rj(
                 ind.index(),
-                eval8(imm, env)?,
-                rel8(rel, pos, env)?
+                eval8(imm, &nenv)?,
+                rel8(rel, pos, &lenv)?
             ),
 
-            Call(a12) => Call(eval12(a12, pos, env)?),
-            Callf(a16) => Callf(eval16(a16, env)?),
-            Callr(r16) => Callr(rel16(r16, pos, env)?),
+            Call(a12) => Call(eval12(a12, pos, &lenv)?),
+            Callf(a16) => Callf(eval16(a16, &lenv)?),
+            Callr(r16) => Callr(rel16(r16, pos, &lenv)?),
 
             Ret => Ret,
             Reti => Reti,
 
-            Clr1(dir, b3) => Clr1(eval9(dir, env)?, eval3(b3, env)?),
-            Set1(dir, b3) => Set1(eval9(dir, env)?, eval3(b3, env)?),
-            Not1(dir, b3) => Not1(eval9(dir, env)?, eval3(b3, env)?),
+            Clr1(dir, b3) => Clr1(eval9(dir, &venv)?, eval3(b3, &nenv)?),
+            Set1(dir, b3) => Set1(eval9(dir, &venv)?, eval3(b3, &nenv)?),
+            Not1(dir, b3) => Not1(eval9(dir, &venv)?, eval3(b3, &nenv)?),
 
             Nop => Nop
         };
         Ok(val)
     }
-    // pub fn encode(&self, pos: u32, env: &Env) -> EncResult<Vec<u8>> {
-    //     self.to_bytes();
-    //     Ok(vec![])
-    // }
-
-    // /// The size in bytes of the instruction
-    // #[inline]
-    // pub fn size(&self) -> usize {
-    //     match self {
-    //         Instruction::Add_i8(_) => 2,
-    //         Instruction::Add_d9(_) => 2,
-    //         Instruction::Add_Ri(_) => 1,
-
-    //         Instruction::Addc_i8(_) => 2,
-    //         Instruction::Addc_d9(_) => 2,
-    //         Instruction::Addc_Ri(_) => 1,
-
-    //         Instruction::Sub_i8(_) => 2,
-    //         Instruction::Sub_d9(_) => 2,
-    //         Instruction::Sub_Ri(_) => 1,
-
-    //         Instruction::Subc_i8(_) => 2,
-    //         Instruction::Subc_d9(_) => 2,
-    //         Instruction::Subc_Ri(_) => 1,
-
-    //         Instruction::Inc_d9(_) => 2,
-    //         Instruction::Inc_Ri(_) => 1,
-
-    //         Instruction::Dec_d9(_) => 2,
-    //         Instruction::Dec_Ri(_) => 1,
-
-    //         Instruction::Mul => 1,
-    //         Instruction::Div => 1,
-
-    //         Instruction::And_i8(_) => 2,
-    //         Instruction::And_d9(_) => 2,
-    //         Instruction::And_Ri(_) => 1,
-
-    //         Instruction::Or_i8(_) => 2,
-    //         Instruction::Or_d9(_) => 2,
-    //         Instruction::Or_Ri(_) => 1,
-
-    //         Instruction::Xor_i8(_) => 2,
-    //         Instruction::Xor_d9(_) => 2,
-    //         Instruction::Xor_Ri(_) => 1,
-
-    //         Instruction::Rol => 1,
-    //         Instruction::Rolc => 1,
-
-    //         Instruction::Ror => 1,
-    //         Instruction::Rorc => 1,
-
-    //         Instruction::Ld_d9(_) => 2,
-    //         Instruction::Ld_Ri(_) => 1,
-
-    //         Instruction::St_d9(_) => 2,
-    //         Instruction::St_Ri(_) => 1,
-
-    //         Instruction::Mov_d9(_, _) => 3,
-    //         Instruction::Mov_Rj(_, _) => 2,
-
-    //         Instruction::Ldc => 1,
-
-    //         Instruction::Push(_) => 2,
-    //         Instruction::Pop(_) => 2,
-
-    //         Instruction::Xch_d9(_) => 2,
-    //         Instruction::Xch_Ri(_) => 1,
-
-    //         Instruction::Jmp(_) => 2,
-    //         Instruction::Jmpf(_) => 3,
-
-    //         Instruction::Br(_) => 2,
-    //         Instruction::Brf(_) => 3,
-    //         Instruction::Bz(_) => 2,
-    //         Instruction::Bnz(_) => 2,
-    //         Instruction::Bp(_, _, _) => 3,
-    //         Instruction::Bpc(_, _, _) => 3,
-    //         Instruction::Bn(_, _, _) => 3,
-    //         Instruction::Dbnz_d9(_, _) => 3,
-    //         Instruction::Dbnz_Ri(_, _) => 2,
-    //         Instruction::Be_i8(_,_) => 3,
-    //         Instruction::Be_d9(_,_) => 3,
-    //         Instruction::Be_Rj(_, _, _) => 3,
-    //         Instruction::Bne_i8(_,_) => 3,
-    //         Instruction::Bne_d9(_,_) => 3,
-    //         Instruction::Bne_Rj(_, _, _) => 3,
-
-    //         Instruction::Call(_) => 2,
-    //         Instruction::Callf(_) => 3,
-    //         Instruction::Callr(_) => 3,
-
-    //         Instruction::Ret => 1,
-    //         Instruction::Reti => 1,
-
-    //         Instruction::Clr1(_,_) => 2,
-    //         Instruction::Set1(_,_) => 2,
-    //         Instruction::Not1(_,_) => 2,
-
-    //         Instruction::Nop => 1
-    //     }
-    // }
 }
 
 #[cfg(test)]

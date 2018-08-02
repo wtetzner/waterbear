@@ -9,6 +9,93 @@
 // use std::collections::HashMap;
 // use num;
 
+use input::Input;
+use location::{Location,Span};
+use ast::{Statement,Statements};
+use lexer::{Token,TokenType,LexerError};
+use lexer;
+use expression::Expr;
+
+#[derive(Debug)]
+pub enum ParseError {
+    UnexpectedChar(Location),
+    ExpectedTokenNotFound(TokenType, Token),
+    UnexpectedEof
+}
+
+impl From<LexerError> for ParseError {
+    fn from(error: LexerError) -> Self {
+        use lexer::LexerError::*;
+        match error {
+            UnexpectedChar(loc) => ParseError::UnexpectedChar(loc.clone())
+        }
+    }
+}
+
+// pub fn parse_input(input: &Input) -> Result<Statements,ParseError> {
+//     let tokens = lexer::lex_input(input)?;
+// }
+
+// pub fn parse_statement(tokens: &[Token], pos: usize) -> Result<Statement,ParseError> {
+    
+// }
+
+pub fn parse_expr<'a>(tokens: TokenStream<'a>) -> Result<(TokenStream<'a>,Expr),ParseError> {
+    match tokens.peek() {
+        Some(tok) => {
+            use lexer::TokenType::*;
+            match tok.token_type() {
+                Number(num) => Ok((tokens.at(1), Expr::Number(tok.span().clone(), *num))),
+                _ => Err(ParseError::ExpectedTokenNotFound(Number(0), tok.clone()))
+            }
+        },
+        None => Err(ParseError::UnexpectedEof)
+    }
+}
+
+pub fn parse_i8<'a>(tokens: TokenStream<'a>) -> Result<(TokenStream<'a>,Expr),ParseError> {
+    tokens.assert(TokenType::Hash)?;
+    let tokens = tokens.at(1);
+    parse_expr(tokens)
+}
+
+pub struct TokenStream<'a> {
+    pos: usize,
+    tokens: &'a [Token]
+}
+
+impl<'a> TokenStream<'a> {
+    pub fn from<'b>(tokens: &'b [Token]) -> TokenStream<'b> {
+        TokenStream {
+            pos: 0,
+            tokens: tokens
+        }
+    }
+
+    pub fn at(&self, amount: usize) -> TokenStream<'a> {
+        TokenStream {
+            pos: self.pos + amount,
+            tokens: self.tokens
+        }
+    }
+
+    pub fn peek(&self) -> Option<&Token> {
+        if self.pos < self.tokens.len() {
+            Some(&self.tokens[self.pos])
+        } else {
+            None
+        }
+    }
+
+    pub fn assert(&self, token_type: TokenType) -> Result<(),ParseError> {
+        match self.peek() {
+            Some(tok) if *tok.token_type() == token_type => Ok(()),
+            Some(tok) => Err(ParseError::ExpectedTokenNotFound(token_type, tok.clone())),
+            None => Err(ParseError::UnexpectedEof)
+        }
+    }
+}
+
 // #[derive(Debug,Clone)]
 // enum Arg {
 //     I8(Expression),

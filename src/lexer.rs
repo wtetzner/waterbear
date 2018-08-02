@@ -1,8 +1,7 @@
 
-use location::Span;
 use input::Input;
 use regex::Regex;
-use location::Location;
+use location::{Location,Span};
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum TokenType {
@@ -165,13 +164,13 @@ fn skip_whitespace_and_comments<'a>(input: &Input<'a>) -> Input<'a> {
     current
 }
 
-fn to_hex_num(text: &str) -> TokenType {
-    let num = i32::from_str_radix(&text[1..], 16).unwrap();
+fn to_hex_num(text: &str, prefix: usize) -> TokenType {
+    let num = i32::from_str_radix(&text[prefix..], 16).unwrap();
     TokenType::Number(num)
 }
 
-fn to_bin_num(text: &str) -> TokenType {
-    let num = i32::from_str_radix(&text[1..], 2).unwrap();
+fn to_bin_num(text: &str, prefix: usize) -> TokenType {
+    let num = i32::from_str_radix(&text[prefix..], 2).unwrap();
     TokenType::Number(num)
 }
 
@@ -183,10 +182,12 @@ fn to_dec_num(text: &str) -> TokenType {
 fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
     lazy_static! {
         static ref MATCHERS: Vec<Matcher> = {
-            let ident = "[a-zA-Z_][a-zA-Z0-9_]*";
+            let ident = "[a-zA-Z_\\.][a-zA-Z\\$0-9_\\.]*";
             let directive_ident = ".".to_owned() + ident;
             let hex_num = "\\$[a-fA-F0-9]+";
-            let bin_num = "%-?[01]+";
+            let hex_num2 = "0[xX][a-fA-F0-9]+";
+            let bin_num = "%[01]+";
+            let bin_num2 = "0[bB][01]+";
             let dec_num = "[0-9]+";
             vec![
                 Matcher::new(r"\(", |_| TokenType::LeftParen),
@@ -205,8 +206,10 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
                 Matcher::new("@[rR][0123]", |text| to_indr_mode(text)),
                 Matcher::new(ident, |text| TokenType::Name(text.to_owned())),
                 Matcher::new(directive_ident.as_str(), |text| TokenType::Name(text.to_owned())),
-                Matcher::new(hex_num, |text| to_hex_num(text)),
-                Matcher::new(bin_num, |text| to_bin_num(text)),
+                Matcher::new(hex_num, |text| to_hex_num(text, 1)),
+                Matcher::new(hex_num2, |text| to_hex_num(text, 2)),
+                Matcher::new(bin_num, |text| to_bin_num(text, 1)),
+                Matcher::new(bin_num2, |text| to_bin_num(text, 2)),
                 Matcher::new(dec_num, |text| to_dec_num(text))
             ]
         };
