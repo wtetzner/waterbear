@@ -80,6 +80,7 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
             quote! {
                 impl<Ex,IM> #name<Ex,IM> {
                     #[inline]
+                    #[allow(unused_variables)]
                     pub fn size(&self) -> usize {
                         match self {
                             #(#size_fields),*

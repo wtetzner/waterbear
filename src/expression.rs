@@ -1,19 +1,22 @@
 
-use std::collections::HashMap;
 use std::fmt;
-use location::{Positioned, Span};
+use location::{Positioned, Location, Span};
+use env::Env;
 
 #[derive(Debug)]
 pub enum EvaluationError {
-    NameNotFound(String),
-    DivideByZero(String)
+    NameNotFound(Span,String),
+    DivideByZero(Span,String),
+    MustBeLiteralNumber(Span)
 }
 
 impl EvaluationError {
     pub fn to_string(&self) -> String {
+        use EvaluationError::*;
         match self {
-            EvaluationError::NameNotFound(msg) => msg.clone(),
-            EvaluationError::DivideByZero(msg) => msg.clone()
+            NameNotFound(span, msg) => format!("{}: {}", span, msg),
+            DivideByZero(span, msg) => format!("{}: {}", span, msg),
+            MustBeLiteralNumber(span) => format!("{}: Must be a literal integer", span)
         }
     }
 }
@@ -23,44 +26,47 @@ pub enum Expr {
     Name(Span, String),
     Plus(Box<Expr>, Box<Expr>),
     Minus(Box<Expr>, Box<Expr>),
+    UnaryMinus(Location, Box<Expr>),
     Times(Box<Expr>, Box<Expr>),
     Divide(Box<Expr>, Box<Expr>),
     Number(Span, i32),
-    UpperByte(Span, Box<Expr>),
-    LowerByte(Span, Box<Expr>)
+    UpperByte(Location, Box<Expr>),
+    LowerByte(Location, Box<Expr>)
 }
 
 impl Positioned for Expr {
     fn span(&self) -> Span {
         match self {
             Expr::Name(span, _) => span.clone(),
-            Expr::Plus(expr1, expr2) => {
-                Span::new(
-                    expr1.span().start().clone(),
-                    expr2.span().end().clone()
-                )
-            },
-            Expr::Minus(expr1, expr2) => {
-                Span::new(
-                    expr1.span().start().clone(),
-                    expr2.span().end().clone()
-                )
-            },
-            Expr::Times(expr1, expr2) => {
-                Span::new(
-                    expr1.span().start().clone(),
-                    expr2.span().end().clone()
-                )
-            },
-            Expr::Divide(expr1, expr2) => {
-                Span::new(
-                    expr1.span().start().clone(),
-                    expr2.span().end().clone()
-                )
-            },
+            Expr::Plus(expr1, expr2) => Span::new(
+                expr1.span().start().clone(),
+                expr2.span().end().clone()
+            ),
+            Expr::Minus(expr1, expr2) => Span::new(
+                expr1.span().start().clone(),
+                expr2.span().end().clone()
+            ),
+            Expr::UnaryMinus(loc, expr) => Span::new(
+                loc.clone(),
+                expr.span().end().clone()
+            ),
+            Expr::Times(expr1, expr2) => Span::new(
+                expr1.span().start().clone(),
+                expr2.span().end().clone()
+            ),
+            Expr::Divide(expr1, expr2) => Span::new(
+                expr1.span().start().clone(),
+                expr2.span().end().clone()
+            ),
             Expr::Number(span, _) => span.clone(),
-            Expr::UpperByte(span, _) => span.clone(),
-            Expr::LowerByte(span, _) => span.clone()
+            Expr::UpperByte(loc, expr) => Span::new(
+                loc.clone(),
+                expr.span().end().clone()
+            ),
+            Expr::LowerByte(loc, expr) => Span::new(
+                loc.clone(),
+                expr.span().end().clone()
+            )
         }
     }
 }
@@ -95,6 +101,14 @@ impl fmt::Display for Expr {
                 if right_paren { write!(f, "(")?; }
                 write!(f, "{}", right)?;
                 if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            Expr::UnaryMinus(_, expr) => {
+                let paren = expr.complex();
+                write!(f, "-")?;
+                if paren { write!(f, "(")?; }
+                write!(f, "{}", expr)?;
+                if paren { write!(f, ")")?; }
                 write!(f, "")
             },
             Expr::Times(left, right) => {
@@ -152,6 +166,7 @@ impl Expr {
             Expr::Name(_,_) => false,
             Expr::Plus(_,_) => true,
             Expr::Minus(_,_) => true,
+            Expr::UnaryMinus(_,_) => true,
             Expr::Times(_,_) => true,
             Expr::Divide(_,_) => true,
             Expr::Number(_,_) => false,
@@ -160,21 +175,22 @@ impl Expr {
         }
     }
 
-    pub fn eval(&self, name_lookup: &HashMap<String,i32>) -> Result<i32,EvaluationError> {
+    pub fn eval<E: Env<i32>>(&self, name_lookup: &E) -> Result<i32,EvaluationError> {
         match self {
             Expr::Name(_, name) =>
                 match name_lookup.get(&name.to_lowercase()) {
-                    Some(num) => Ok(*num),
-                    None => Err(EvaluationError::NameNotFound(format!("Name '{}' not found", name)))
+                    Some(num) => Ok(num),
+                    None => Err(EvaluationError::NameNotFound(self.span(), format!("{} '{}' not found", name_lookup.name(), name)))
                 },
             Expr::Plus(left, right) => Ok(left.eval(name_lookup)? + right.eval(name_lookup)?),
             Expr::Minus(left, right) => Ok(left.eval(name_lookup)? - right.eval(name_lookup)?),
+            Expr::UnaryMinus(_, expr) => Ok(-1 * expr.eval(name_lookup)?),
             Expr::Times(left, right) => Ok(left.eval(name_lookup)? * right.eval(name_lookup)?),
             Expr::Divide(left, right) => {
                 let left_val = left.eval(name_lookup)?;
                 let right_val = right.eval(name_lookup)?;
                 if right_val == 0 {
-                    Err(EvaluationError::DivideByZero(format!("Divide by zero: {}/{}", left_val, right_val)))
+                    Err(EvaluationError::DivideByZero(self.span(), format!("Divide by zero: {}/{}", left_val, right_val)))
                 } else {
                     Ok(left_val / right_val)
                 }

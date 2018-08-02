@@ -1,8 +1,8 @@
 
-use std;
 use expression::{Expr,EvaluationError};
 use std::collections::HashMap;
 use location::{Positioned,Span};
+use env::Env;
 
 #[derive(Debug)]
 pub enum EncodingError {
@@ -238,9 +238,8 @@ pub enum Instruction<Ex,IM> {
 }
 
 type EncResult<T> = Result<T,EncodingError>;
-type Env = HashMap<String,i32>;
 
-fn eval(expr: &Expr, env: &Env, bits: usize) -> EncResult<i32> {
+fn eval<E: Env<i32>>(expr: &Expr, env: &E, bits: usize) -> EncResult<i32> {
     let value = expr.eval(env)?;
     if (value >> bits) != 0 {
         Err(EncodingError::out_of_range(expr.span(), bits, value))
@@ -249,23 +248,23 @@ fn eval(expr: &Expr, env: &Env, bits: usize) -> EncResult<i32> {
     }
 }
 
-fn eval3(expr: &Expr, env: &Env) -> EncResult<i32> {
+fn eval3<E: Env<i32>>(expr: &Expr, env: &E) -> EncResult<i32> {
     eval(expr, env, 3)
 }
 
-fn eval8(expr: &Expr, env: &Env) -> EncResult<i32> {
+fn eval8<E: Env<i32>>(expr: &Expr, env: &E) -> EncResult<i32> {
     eval(expr, env, 8)
 }
 
-fn eval9(expr: &Expr, env: &Env) -> EncResult<i32> {
+fn eval9<E: Env<i32>>(expr: &Expr, env: &E) -> EncResult<i32> {
     eval(expr, env, 9)
 }
 
-fn eval16(expr: &Expr, env: &Env) -> EncResult<i32> {
+fn eval16<E: Env<i32>>(expr: &Expr, env: &E) -> EncResult<i32> {
     eval(expr, env, 16)
 }
 
-fn rel8(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
+fn rel8<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     let address = expr.eval(env)?;
     if address >= 0 && address <= 65535 {
         let value = address - (pos as i32);
@@ -279,7 +278,7 @@ fn rel8(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
     }
 }
 
-fn eval12(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
+fn eval12<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     let addr = eval16(expr, env)?;
     let val_top = (addr as usize) & 0b1111000000000000;
     let pos_top = pos & 0b1111000000000000;
@@ -297,7 +296,7 @@ fn eval12(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
     }
 }
 
-fn rel16(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
+fn rel16<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     let address = expr.eval(env)?;
     if address >= 0 && address <= 65535 {
         let value = address - (pos as i32);
@@ -314,7 +313,7 @@ fn rel16(expr: &Expr, pos: usize, env: &Env) -> EncResult<i32> {
 type EvalResult = EncResult<Instruction<i32,u8>>;
 
 impl Instruction<Expr,IndirectionMode> {
-    pub fn eval(&self, pos: usize, env: &Env) -> EvalResult {
+    pub fn eval<E: Env<i32>>(&self, pos: usize, env: &E) -> EvalResult {
         use instruction::Instruction::*;
         let val = match self {
             Add_i8(imm) => Add_i8(eval8(imm, env)?),
@@ -386,17 +385,17 @@ impl Instruction<Expr,IndirectionMode> {
             Bnz(rel) => Bnz(rel8(rel, pos, env)?),
             Bp(dir, b3, rel) => Bp(
                 eval9(dir, env)?,
-                eval3(dir, env)?,
+                eval3(b3, env)?,
                 rel8(rel, pos, env)?
             ),
             Bpc(dir, b3, rel) => Bpc(
                 eval9(dir, env)?,
-                eval3(dir, env)?,
+                eval3(b3, env)?,
                 rel8(rel, pos, env)?
             ),
             Bn(dir, b3, rel) => Bn(
                 eval9(dir, env)?,
-                eval3(dir, env)?,
+                eval3(b3, env)?,
                 rel8(rel, pos, env)?
             ),
             Dbnz_d9(dir, rel) => Dbnz_d9(

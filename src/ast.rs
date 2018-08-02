@@ -1,8 +1,8 @@
 
 use instruction::{Instruction, IndirectionMode};
-use expression::Expr;
+use expression::{Expr, EvaluationError};
 use std::fmt;
-use location::Span;
+use location::{Span, Positioned};
 
 #[derive(Debug)]
 pub enum Directive {
@@ -12,6 +12,55 @@ pub enum Directive {
     Word(Span, Vec<Expr>),
     Include(Span, String),
     Cnop(Span, Expr,Expr)
+}
+
+impl Directive {
+    fn eval_cnop_expr(expr: &Expr) -> Result<i32,EvaluationError> {
+        use expression::Expr::*;
+        match expr {
+            Number(_, num) => Ok(*num),
+            _ => Err(EvaluationError::MustBeLiteralNumber(expr.span()))
+        }
+    }
+
+    pub fn eval_cnop(pos: i32, add: &Expr, multiple: &Expr) -> Result<i32,EvaluationError> {
+        let add = Directive::eval_cnop_expr(add)?;
+        let multiple = Directive::eval_cnop_expr(multiple)?;
+        let mut mult = 0;
+        loop {
+            if pos < mult {
+                break;
+            }
+            mult = mult + multiple;
+        }
+        Ok(mult + add)
+    }
+
+    pub fn size(&self, pos: i32) -> Result<i32,EvaluationError> {
+        use self::Directive::*;
+        match self {
+            Byte(_, bytes) => Ok(bytes.len() as i32),
+            ByteString(_, bytes) => Ok(bytes.len() as i32),
+            Org(_, location) => Ok(*location as i32),
+            Word(_, words) => Ok((words.len() * 2) as i32),
+            Include(_,_) => Ok(0),
+            Cnop(_, add, multiple) => Ok(Directive::eval_cnop(pos, add, multiple)?)
+        }
+    }
+}
+
+impl Positioned for Directive {
+    fn span(&self) -> Span {
+        use self::Directive::*;
+        match self {
+            Byte(span, _) => span.clone(),
+            ByteString(span, _) => span.clone(),
+            Org(span, _) => span.clone(),
+            Word(span, _) => span.clone(),
+            Include(span,_) => span.clone(),
+            Cnop(span, _, _) => span.clone()
+        }
+    }
 }
 
 impl fmt::Display for Directive {
@@ -68,6 +117,19 @@ pub enum Statement {
     Alias(Span, String, Expr)
 }
 
+impl Positioned for Statement {
+    fn span(&self) -> Span {
+        use self::Statement::*;
+        match self {
+            Directive(span, _) => span.clone(),
+            Label(span, _) => span.clone(),
+            Instruction(span,_) => span.clone(),
+            Variable(span, _, _) => span.clone(),
+            Alias(span, _, _) => span.clone()
+        }
+    }
+}
+
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -87,6 +149,8 @@ impl fmt::Display for Statement {
         }
     }
 }
+
+
 
 #[derive(Debug)]
 pub struct Statements {
