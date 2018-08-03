@@ -138,7 +138,8 @@ impl From<EncodingError> for AssemblyError {
             NumOutOfRange { span, bits, value } => AssemblyError::NumOutOfRange { span, bits, value },
             SignedNumOutOfRange { span, bits, value } => AssemblyError::SignedNumOutOfRange { span, bits, value },
             InvalidAddress { span, value } => AssemblyError::InvalidAddress { span, value },
-            AddrBitsDontMatch { span, pos, value, pos_top, value_top } => AssemblyError::AddrBitsDontMatch { span, pos, value, pos_top, value_top },
+            AddrBitsDontMatch { span, pos, value, pos_top, value_top } =>
+                AssemblyError::AddrBitsDontMatch { span, pos, value, pos_top, value_top },
             EvalError(eval) => AssemblyError::from(eval)
         }
     }
@@ -186,7 +187,6 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError>
     let mut local = HashMap::new();
     let mut current_global = "".to_owned();
     let mut pos: i32 = 0;
-    let mut max_pos = 0;
     for statement in statements.statements.iter() {
         use ast::Statement::*;
         match statement {
@@ -229,7 +229,7 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
             Directive(_, dir) => {
                 pos += dir.size(pos)?
             },
-            Label(_, name) => (),
+            Label(_, _name) => (),
             Instruction(_, instr) => {
                 pos += instr.size() as i32;
             },

@@ -27,6 +27,33 @@ pub enum TokenType {
     EOF
 }
 
+impl TokenType {
+    pub fn name(&self) -> &str {
+        match self {
+            TokenType::LeftParen => "'('",
+            TokenType::RightParen => "')'",
+            TokenType::Hash => "'#'",
+            TokenType::Comma => "','",
+            TokenType::Colon => "':'",
+            TokenType::Name(_) => "Name",
+            TokenType::Number(_) => "Number",
+            TokenType::Equals => "'='",
+            TokenType::Plus => "'+'",
+            TokenType::Times => "'*'",
+            TokenType::Minus => "'-'",
+            TokenType::Divide => "'/'",
+            TokenType::UpperByte => "'>'",
+            TokenType::LowerByte => "'<'",
+            TokenType::String(_) => "String",
+            TokenType::R0 => "'@R0'",
+            TokenType::R1 => "'@R1'",
+            TokenType::R2 => "'@R2'",
+            TokenType::R3 => "'@R3'",
+            TokenType::EOF => "EOF"
+        }
+    }
+}
+
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub struct Token {
     token_type: TokenType,
@@ -40,6 +67,27 @@ impl Token {
 
     pub fn token_type(&self) -> &TokenType { &self.token_type }
     pub fn span(&self) -> &Span { &self.span }
+
+    pub fn is_colon(&self) -> bool {
+        match self.token_type {
+            TokenType::Colon => true,
+            _ => false
+        }
+    }
+
+    pub fn is_name(&self) -> bool {
+        match self.token_type {
+            TokenType::Name(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn name_is(&self, name: &str) -> bool {
+        match self.token_type {
+            TokenType::Name(ref n) if n == name => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(Debug)]
