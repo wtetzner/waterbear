@@ -6,6 +6,16 @@ pub trait Env<T> {
     fn get(&self, name: &str) -> Option<T>;
 }
 
+impl<T: Clone> Env<T> for HashMap<String,T> {
+    fn name(&self) -> &str {
+        "HashMap"
+    }
+
+    fn get(&self, name: &str) -> Option<T> {
+        self.get(name).map(|x| x.clone())
+    }
+}
+
 #[derive(Debug)]
 pub struct Names {
     pub globals: HashMap<String,i32>,

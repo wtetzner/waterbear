@@ -33,30 +33,37 @@ impl From<LexerError> for ParseError {
     
 // }
 
-mod Precedence {
-    pub const SUM: i32 = 3;
-    pub const PRODUCT: i32 = 4;
-    pub const PREFIX: i32 = 6;
+
+fn parse_i8<'a>(tokens: &mut TokenStream<'a>) -> Result<Expr,ParseError> {
+    tokens.consume(TokenType::Hash)?;
+    parse_expr(tokens)
+}
+
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+enum Precedence {
+    Sum = 3,
+    Product = 4,
+    Prefix = 6
 }
 
 fn parse_expr<'a>(tokens: &mut TokenStream<'a>) -> Result<Expr,ParseError> {
     let prefix = {
         let mut m: HashMap<ExprTokenType,Box<dyn PrefixParselet>> = HashMap::new();
-        m.insert(ExprTokenType::Paren, Box::new(ParenParselet(Precedence::PREFIX)));
-        m.insert(ExprTokenType::Name, Box::new(NameParselet(Precedence::PREFIX)));
-        m.insert(ExprTokenType::Number, Box::new(NumberParselet(Precedence::PREFIX)));
-        m.insert(ExprTokenType::Minus, Box::new(PrefixOperatorParselet(Precedence::PREFIX)));
-        m.insert(ExprTokenType::UpperByte, Box::new(PrefixOperatorParselet(Precedence::PREFIX)));
-        m.insert(ExprTokenType::LowerByte, Box::new(PrefixOperatorParselet(Precedence::PREFIX)));
+        m.insert(ExprTokenType::Paren, Box::new(ParenParselet(Precedence::Prefix)));
+        m.insert(ExprTokenType::Name, Box::new(NameParselet(Precedence::Prefix)));
+        m.insert(ExprTokenType::Number, Box::new(NumberParselet(Precedence::Prefix)));
+        m.insert(ExprTokenType::Minus, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
+        m.insert(ExprTokenType::UpperByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
+        m.insert(ExprTokenType::LowerByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
         m
     };
 
     let infix = {
         let mut m: HashMap<ExprTokenType,Box<dyn InfixParselet>> = HashMap::new();
-        m.insert(ExprTokenType::Plus, Box::new(BinaryOperatorParselet(Precedence::SUM)));
-        m.insert(ExprTokenType::Times, Box::new(BinaryOperatorParselet(Precedence::PRODUCT)));
-        m.insert(ExprTokenType::Minus, Box::new(BinaryOperatorParselet(Precedence::SUM)));
-        m.insert(ExprTokenType::Divide, Box::new(BinaryOperatorParselet(Precedence::PRODUCT)));
+        m.insert(ExprTokenType::Plus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
+        m.insert(ExprTokenType::Times, Box::new(BinaryOperatorParselet(Precedence::Product)));
+        m.insert(ExprTokenType::Minus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
+        m.insert(ExprTokenType::Divide, Box::new(BinaryOperatorParselet(Precedence::Product)));
         m
     };
 
@@ -128,11 +135,6 @@ impl ExprParser {
             None => Err(ParseError::InvalidExpression(location))
         }
     }
-}
-
-fn parse_i8<'a>(tokens: &mut TokenStream<'a>) -> Result<Expr,ParseError> {
-    tokens.consume(TokenType::Hash)?;
-    parse_expr(tokens)
 }
 
 struct TokenStream<'a> {
@@ -247,7 +249,7 @@ trait PrefixParselet {
     fn precedence(&self) -> i32;
 }
 
-struct ParenParselet(i32);
+struct ParenParselet(Precedence);
 
 impl PrefixParselet for ParenParselet {
     fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token) -> Result<Expr,ParseError> {
@@ -255,10 +257,10 @@ impl PrefixParselet for ParenParselet {
         tokens.consume(TokenType::RightParen)?;
         Ok(result)
     }
-    fn precedence(&self) -> i32 { self.0 }
+    fn precedence(&self) -> i32 { self.0 as i32 }
 }
 
-struct NameParselet(i32);
+struct NameParselet(Precedence);
 
 impl PrefixParselet for NameParselet {
     fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token)
@@ -269,10 +271,10 @@ impl PrefixParselet for NameParselet {
             _ => Err(ParseError::ExpectedTokenNotFound("Name", token.clone()))
         }
     }
-    fn precedence(&self) -> i32 { self.0 }
+    fn precedence(&self) -> i32 { self.0 as i32 }
 }
 
-struct NumberParselet(i32);
+struct NumberParselet(Precedence);
 
 impl PrefixParselet for NumberParselet {
     fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token)
@@ -283,10 +285,10 @@ impl PrefixParselet for NumberParselet {
             _ => Err(ParseError::ExpectedTokenNotFound("Number", token.clone()))
         }
     }
-    fn precedence(&self) -> i32 { self.0 }
+    fn precedence(&self) -> i32 { self.0 as i32 }
 }
 
-struct PrefixOperatorParselet(i32);
+struct PrefixOperatorParselet(Precedence);
 
 impl PrefixParselet for PrefixOperatorParselet {
     fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token) -> Result<Expr,ParseError> {
@@ -299,7 +301,7 @@ impl PrefixParselet for PrefixOperatorParselet {
             _ => Err(ParseError::ExpectedTokenNotFound("PrefixOperator", token.clone()))
         }
     }
-    fn precedence(&self) -> i32 { self.0 }
+    fn precedence(&self) -> i32 { self.0 as i32 }
 }
 
 // -- Infix Parselets --
@@ -309,7 +311,7 @@ trait InfixParselet {
     fn precedence(&self) -> i32;
 }
 
-struct BinaryOperatorParselet(i32);
+struct BinaryOperatorParselet(Precedence);
 
 impl InfixParselet for BinaryOperatorParselet {
     fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, left: Expr, token: Token) -> Result<Expr,ParseError> {
@@ -323,7 +325,7 @@ impl InfixParselet for BinaryOperatorParselet {
             _ => Err(ParseError::ExpectedTokenNotFound("Binary Operator", token.clone()))
         }
     }
-    fn precedence(&self) -> i32 { self.0 }
+    fn precedence(&self) -> i32 { self.0 as i32 }
 }
 
 // Expression type stuff
@@ -367,11 +369,33 @@ mod test {
     use lexer;
     use input::Input;
     use files::FileID;
+    use env::Env;
+    use std::collections::HashMap;
 
     #[test]
     fn test_expression_parser() {
-        check_expression_parser("fred + 2 * 7 - 21 * (6 + 7)", "(fred + (2 * 7)) - (21 * (6 + 7))");
-        //check_expression_parser("fred + 2 * 7 - 21 * (6 + 7");
+        check_expression_parser(
+            "fred + 2 * 7 - 21 * (6 + 7)",
+            "(fred + (2 * 7)) - (21 * (6 + 7))"
+        );
+        check_expression_parser(
+            "bob + sam + -12 * 7",
+            "(bob + sam) + ((-12) * 7)"
+        );
+        check_expression_parser(
+            "bob + sam + -12 * 7 + ->fred - <sam",
+            "(((bob + sam) + ((-12) * 7)) + (-(>fred))) - (<sam)"
+        );
+    }
+
+    #[test]
+    fn test_expression_parser_eval() {
+        let env = HashMap::new();
+        let val = parse_expr("3 + 7 * -4")
+            .expect("failed to parse expression")
+            .eval(&env)
+            .expect("failed to eval expression");
+        assert_eq!(val, -25);
     }
 
     fn check_expression_parser(text: &str, expected: &str) {
