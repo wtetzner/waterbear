@@ -21,7 +21,7 @@ impl EvaluationError {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum Expr {
     Name(Span, String),
     Plus(Box<Expr>, Box<Expr>),

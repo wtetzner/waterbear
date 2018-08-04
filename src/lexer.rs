@@ -28,7 +28,7 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         match self {
             TokenType::LeftParen => "'('",
             TokenType::RightParen => "')'",
@@ -290,6 +290,7 @@ pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
     if current.is_none() {
         Err(LexerError::UnexpectedChar(cinput.location()))
     } else {
+        results.push(Token::new(TokenType::EOF, Span::new(cinput.location().clone(), cinput.location().clone())));
         Ok(results)
     }
 }

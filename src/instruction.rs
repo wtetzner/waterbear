@@ -445,7 +445,7 @@ impl Instruction<Expr,IndirectionMode> {
 }
 
 #[cfg(test)]
-mod Test {
+mod test {
     use instruction::Instruction;
 
     #[test]

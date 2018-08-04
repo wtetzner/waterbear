@@ -2,7 +2,7 @@ extern crate waterbear;
 
 #[macro_use]
 extern crate clap;
-extern crate ansi_term;
+extern crate termcolor;
 
 use std::fs::File;
 use std::io::Write;
@@ -63,14 +63,25 @@ fn main() {
     //         }
     //     }
     // }
-    use ansi_term::Colour::Red;
-    use ansi_term::Colour::Green;
-    use ansi_term::Style;;
-    println!("[{}] {} is {} cool",
-             Green.paint("OK"),
-             Style::new().bold().paint("Fred"),
-             Red.paint("very")
-    );
+
+    {
+        use std::io::Write;
+        use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        writeln!(&mut stdout, "[");
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green))).unwrap();
+        writeln!(&mut stdout, "OK");
+        stdout.reset();
+        writeln!(&mut stdout, "]");
+        //writeln!(&mut stdout, "green text!")?;
+
+        // println!("[{}] {} is {} cool",
+        //          Green.paint("OK"),
+        //          Style::new().bold().paint("Fred"),
+        //          Red.paint("very")
+        // );
+    }
 }
 
 fn assemble(matches: &clap::ArgMatches) -> Result<(), EvaluationError> {
