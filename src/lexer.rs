@@ -335,7 +335,7 @@ mod tests {
                 let toks: Vec<TokenType> = tokens.iter()
                     .map(|token| token.token_type.clone())
                     .collect();
-                assert_eq!(toks, vec![TokenType::R3, TokenType::R0, TokenType::Comma, TokenType::Plus, TokenType::Colon]);
+                assert_eq!(toks, vec![TokenType::R3, TokenType::R0, TokenType::Comma, TokenType::Plus, TokenType::Colon, TokenType::EOF]);
             },
             Err(err) => panic!("Failed to read token: {:?}", err)
         }

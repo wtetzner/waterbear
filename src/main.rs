@@ -19,8 +19,8 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     // We have to explicitly enable ANSI term support on Windows
-    #[cfg(windows)]
-    ansi_term::enable_ansi_support();
+    // #[cfg(windows)]
+    // ansi_term::enable_ansi_support();
 
     let matches = clap_app!(
         waterbear =>

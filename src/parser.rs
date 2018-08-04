@@ -370,13 +370,14 @@ mod test {
 
     #[test]
     fn test_expression_parser() {
-        check_expression_parser("fred + 2 * 7 - 21 * (6 + 7)");
-        check_expression_parser("fred + 2 * 7 - 21 * (6 + 7");
+        check_expression_parser("fred + 2 * 7 - 21 * (6 + 7)", "(fred + (2 * 7)) - (21 * (6 + 7))");
+        //check_expression_parser("fred + 2 * 7 - 21 * (6 + 7");
     }
 
-    fn check_expression_parser(text: &str) {
+    fn check_expression_parser(text: &str, expected: &str) {
         let expr = parse_expr(text).expect("failed to parse expression");
         let printed = format!("{}", expr);
+        assert_eq!(expected, printed);
         let expr2 = parse_expr(&printed).expect("failed to parse printed expression");
         let printed2 = format!("{}", expr2);
         assert_eq!(printed, printed2);
