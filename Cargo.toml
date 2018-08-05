@@ -11,6 +11,7 @@ unicode_categories = "*"
 clap = "*"
 regex = "*"
 termcolor = "1"
+atty = "0.2"
 
 # custom derives
 instruction-derive = { path = "instruction-derive" }

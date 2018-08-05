@@ -219,6 +219,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "waterbear"
 version = "0.1.0"
 dependencies = [
+ "atty 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "instruction-derive 0.1.0",
  "lazy_static 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -3,6 +3,7 @@ extern crate waterbear;
 #[macro_use]
 extern crate clap;
 extern crate termcolor;
+extern crate atty;
 
 use std::fs::File;
 use std::io::Write;
@@ -67,13 +68,14 @@ fn main() {
     {
         use std::io::Write;
         use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+        use atty::Stream;
 
-        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
-        writeln!(&mut stdout, "[");
+        let mut stdout = StandardStream::stdout(if atty::is(Stream::Stdout) { ColorChoice::Auto } else { ColorChoice::Never });
+        write!(&mut stdout, "[").expect("!");
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green))).unwrap();
-        writeln!(&mut stdout, "OK");
+        write!(&mut stdout, "OK").expect("!");;
         stdout.reset();
-        writeln!(&mut stdout, "]");
+        writeln!(&mut stdout, "]").expect("!");;
         //writeln!(&mut stdout, "green text!")?;
 
         // println!("[{}] {} is {} cool",
