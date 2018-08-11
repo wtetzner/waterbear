@@ -74,8 +74,8 @@ impl IndirectionMode {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug,Instruction)]
-pub enum Instruction<Ex,IM> {
+#[derive(Debug,Instruction,Clone)]
+pub enum Instr<Ex,IM> {
     #[instr="10000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Add_i8(Ex),
     #[instr="1000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
@@ -310,11 +310,11 @@ fn rel16<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     }
 }
 
-type EvalResult = EncResult<Instruction<i32,u8>>;
+type EvalResult = EncResult<Instr<i32,u8>>;
 
-impl Instruction<Expr,IndirectionMode> {
+impl Instr<Expr,IndirectionMode> {
     pub fn eval(&self, pos: usize, label: &str, names: &Names) -> EvalResult {
-        use instruction::Instruction::*;
+        use instruction::Instr::*;
         let nenv = names.as_env("Name", label);
         let venv = names.as_env("Variable", label);
         let lenv = names.as_env("Label", label);
@@ -446,15 +446,15 @@ impl Instruction<Expr,IndirectionMode> {
 
 #[cfg(test)]
 mod test {
-    use instruction::Instruction;
+    use instruction::Instr;
 
     #[test]
     fn test_encode() {
-        test(Instruction::Add_i8(0xf3), vec![0x81, 0xf3], "Add_i8");
-        test(Instruction::Add_d9(0x1F4), vec![0x83, 0xf4], "Add_d9");
+        test(Instr::Add_i8(0xf3), vec![0x81, 0xf3], "Add_i8");
+        test(Instr::Add_d9(0x1F4), vec![0x83, 0xf4], "Add_d9");
     }
 
-    fn test(instr: Instruction<i32,u8>, bytes: Vec<u8>, message: &str) {
+    fn test(instr: Instr<i32,u8>, bytes: Vec<u8>, message: &str) {
         assert_eq!(instr.encode(), bytes, "{}", message);
     }
 }

@@ -1,5 +1,5 @@
 
-use instruction::{Instruction, IndirectionMode};
+use instruction::{Instr, IndirectionMode};
 use expression::{Expr, EvaluationError};
 use std::fmt;
 use location::{Span, Positioned};
@@ -112,7 +112,7 @@ impl fmt::Display for Directive {
 pub enum Statement {
     Directive(Span, Directive),
     Label(Span, String),
-    Instruction(Span, Instruction<Expr,IndirectionMode>),
+    Instr(Span, Instr<Expr,IndirectionMode>),
     Variable(Span, String, Expr),
     Alias(Span, String, Expr)
 }
@@ -123,7 +123,7 @@ impl Positioned for Statement {
         match self {
             Directive(span, _) => span.clone(),
             Label(span, _) => span.clone(),
-            Instruction(span,_) => span.clone(),
+            Instr(span,_) => span.clone(),
             Variable(span, _, _) => span.clone(),
             Alias(span, _, _) => span.clone()
         }
@@ -139,7 +139,7 @@ impl fmt::Display for Statement {
             Statement::Label(_, text) => {
                 write!(f, "{}:", text)
             },
-            Statement::Instruction(_, inst) => write!(f, "  {:?}", inst),
+            Statement::Instr(_, inst) => write!(f, "  {:?}", inst),
             Statement::Variable(_, name, expr) => {
                 write!(f, "{} = {}", name, expr)
             },

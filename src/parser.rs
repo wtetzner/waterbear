@@ -1,12 +1,13 @@
 
 use std;
 use input::Input;
-use location::{Location,Span};
+use location::{Location,Span,Positioned};
 use ast::{Statement,Statements};
 use lexer::{Token,TokenType,LexerError};
 use lexer;
 use expression::Expr;
 use std::collections::HashMap;
+use instruction::{IndirectionMode,Instr};
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -33,110 +34,230 @@ impl From<LexerError> for ParseError {
     
 // }
 
+trait InstrMap {
+    fn inst1arg3(
+        &mut self,
+        name: &str,
+        buildi8: fn(Expr) -> Instr<Expr,IndirectionMode>,
+        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
+        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
+    );
 
-fn parse_i8<'a>(tokens: &mut TokenStream<'a>) -> Result<Expr,ParseError> {
-    tokens.consume(TokenType::Hash)?;
-    parse_expr(tokens)
+    fn inst1arg2(
+        &mut self,
+        name: &str,
+        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
+        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
+    );
+
+    fn inst0arg(&mut self, name: &str, instr: Instr<Expr,IndirectionMode>);
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
-enum Precedence {
-    Sum = 3,
-    Product = 4,
-    Prefix = 6
-}
+impl InstrMap for HashMap<String,Box<dyn InstrParser>> {
+    fn inst1arg3(
+        &mut self,
+        name: &str,
+        buildi8: fn(Expr) -> Instr<Expr,IndirectionMode>,
+        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
+        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
+    ) {
+        let parser = InstrParser1Arg3 {
+            name: name.to_owned(),
+            buildi8,
+            buildd9,
+            buildim
+        };
+        self.insert(name.to_owned(), Box::new(parser));
+    }
 
-fn parse_expr<'a>(tokens: &mut TokenStream<'a>) -> Result<Expr,ParseError> {
-    let prefix = {
-        let mut m: HashMap<ExprTokenType,Box<dyn PrefixParselet>> = HashMap::new();
-        m.insert(ExprTokenType::Paren, Box::new(ParenParselet(Precedence::Prefix)));
-        m.insert(ExprTokenType::Name, Box::new(NameParselet(Precedence::Prefix)));
-        m.insert(ExprTokenType::Number, Box::new(NumberParselet(Precedence::Prefix)));
-        m.insert(ExprTokenType::Minus, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
-        m.insert(ExprTokenType::UpperByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
-        m.insert(ExprTokenType::LowerByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
-        m
-    };
+    fn inst1arg2(
+        &mut self,
+        name: &str,
+        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
+        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
+    ) {
+        let parser = InstrParser1Arg2 {
+            name: name.to_owned(),
+            buildd9,
+            buildim
+        };
+        self.insert(name.to_owned(), Box::new(parser));
+    }
 
-    let infix = {
-        let mut m: HashMap<ExprTokenType,Box<dyn InfixParselet>> = HashMap::new();
-        m.insert(ExprTokenType::Plus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
-        m.insert(ExprTokenType::Times, Box::new(BinaryOperatorParselet(Precedence::Product)));
-        m.insert(ExprTokenType::Minus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
-        m.insert(ExprTokenType::Divide, Box::new(BinaryOperatorParselet(Precedence::Product)));
-        m
-    };
-
-    let parser = ExprParser {
-        prefix: prefix,
-        infix: infix
-    };
-    parser.parse(tokens, 0)
-}
-
-struct ExprParser {
-    prefix: HashMap<ExprTokenType,Box<dyn PrefixParselet>>,
-    infix: HashMap<ExprTokenType,Box<dyn InfixParselet>>
-}
-
-fn expr_tok_type(loc: Location, token: &Token) -> Result<ExprTokenType,ParseError> {
-    let tok_type = token.token_type().expr_type();
-    match tok_type {
-        Some(typ) => {
-            Ok(typ)
-        },
-        None => Err(ParseError::InvalidExpression(loc))
+    fn inst0arg(&mut self, name: &str, instr: Instr<Expr,IndirectionMode>) {
+        let parser = InstrParser0Arg {
+            name: name.to_owned(),
+            instr
+        };
+        self.insert(name.to_owned(), Box::new(parser));
     }
 }
 
-impl ExprParser {
-    pub fn parse(&self, tokens: &mut TokenStream, precedence: i32) -> Result<Expr,ParseError> {
+trait InstrParser {
+    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError>;
+    fn name(&self) -> &str;
+}
+
+#[derive(Debug,Clone)]
+struct InstrParser1Arg3 {
+    name: String,
+    buildi8: fn(Expr) -> Instr<Expr,IndirectionMode>,
+    buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
+    buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
+}
+
+impl InstrParser for InstrParser1Arg3 {
+    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
+        let name = tokens.consume(TokenType::Name(self.name.clone()))?;
+        if tokens.check(Token::is_hash) {
+            let expr = parser.parse_i8(tokens)?;
+            let span = Span::from(&name.span(), &expr.span());
+            Ok(Statement::Instr(span, (self.buildi8)(expr)))
+        } else if tokens.check(Token::is_indirection_mode) {
+            let span = Span::from(&name.span(), &tokens.current()?.span());
+            let im = parser.parse_im(tokens)?;
+            Ok(Statement::Instr(span, (self.buildim)(im)))
+        } else {
+            let expr = parser.parse_expr(tokens)?;
+            let span = Span::from(&name.span(), &expr.span());
+            Ok(Statement::Instr(span, (self.buildd9)(expr)))
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Debug,Clone)]
+struct InstrParser1Arg2 {
+    name: String,
+    buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
+    buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
+}
+
+impl InstrParser for InstrParser1Arg2 {
+    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
+        let name = tokens.consume(TokenType::Name(self.name.clone()))?;
+        if tokens.check(Token::is_indirection_mode) {
+            let span = Span::from(&name.span(), &tokens.current()?.span());
+            let im = parser.parse_im(tokens)?;
+            Ok(Statement::Instr(span, (self.buildim)(im)))
+        } else {
+            let expr = parser.parse_expr(tokens)?;
+            let span = Span::from(&name.span(), &expr.span());
+            Ok(Statement::Instr(span, (self.buildd9)(expr)))
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Debug,Clone)]
+struct InstrParser0Arg {
+    name: String,
+    instr: Instr<Expr,IndirectionMode>
+}
+
+impl InstrParser for InstrParser0Arg {
+    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
+        let name = tokens.consume(TokenType::Name(self.name.clone()))?;
+        Ok(Statement::Instr(name.span().clone(), self.instr.clone()))
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+struct Parser {
+    expr_parser: ExprParser,
+    instr_parsers: HashMap<String,Box<dyn InstrParser>>
+}
+
+impl Parser {
+    fn create() -> Parser {
+        let prefix = {
+            let mut m: HashMap<ExprTokenType,Box<dyn PrefixParselet>> = HashMap::new();
+            m.insert(ExprTokenType::Paren, Box::new(ParenParselet(Precedence::Prefix)));
+            m.insert(ExprTokenType::Name, Box::new(NameParselet(Precedence::Prefix)));
+            m.insert(ExprTokenType::Number, Box::new(NumberParselet(Precedence::Prefix)));
+            m.insert(ExprTokenType::Minus, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
+            m.insert(ExprTokenType::UpperByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
+            m.insert(ExprTokenType::LowerByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
+            m
+        };
+
+        let infix = {
+            let mut m: HashMap<ExprTokenType,Box<dyn InfixParselet>> = HashMap::new();
+            m.insert(ExprTokenType::Plus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
+            m.insert(ExprTokenType::Times, Box::new(BinaryOperatorParselet(Precedence::Product)));
+            m.insert(ExprTokenType::Minus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
+            m.insert(ExprTokenType::Divide, Box::new(BinaryOperatorParselet(Precedence::Product)));
+            m
+        };
+
+        let expr_parser = ExprParser {
+            prefix: prefix,
+            infix: infix
+        };
+
+        let instr_parsers = {
+            let mut m: HashMap<String,Box<dyn InstrParser>> = HashMap::new();
+            m.inst1arg3("add", Instr::Add_i8, Instr::Add_d9, Instr::Add_Ri);
+            m.inst1arg3("addc", Instr::Addc_i8, Instr::Addc_d9, Instr::Addc_Ri);
+            m.inst1arg3("sub", Instr::Sub_i8, Instr::Sub_d9, Instr::Sub_Ri);
+            m.inst1arg3("subc", Instr::Subc_i8, Instr::Subc_d9, Instr::Subc_Ri);
+            m.inst1arg2("inc", Instr::Inc_d9, Instr::Inc_Ri);
+            m.inst1arg2("dec", Instr::Dec_d9, Instr::Dec_Ri);
+            m.inst0arg("mul", Instr::Mul);
+            m.inst0arg("div", Instr::Div);
+            m.inst1arg3("and", Instr::And_i8, Instr::And_d9, Instr::And_Ri);
+            m.inst1arg3("or", Instr::Or_i8, Instr::Or_d9, Instr::Or_Ri);
+            m.inst1arg3("xor", Instr::Xor_i8, Instr::Xor_d9, Instr::Xor_Ri);
+            m.inst0arg("rol", Instr::Rol);
+            m.inst0arg("rolc", Instr::Rolc);
+            m.inst0arg("ror", Instr::Ror);
+            m.inst0arg("rorc", Instr::Rorc);
+            m.inst1arg2("ld", Instr::Ld_d9, Instr::Ld_Ri);
+            m.inst1arg2("st", Instr::St_d9, Instr::St_Ri);
+
+            m.inst0arg("ldc", Instr::Ldc);
+
+            m.inst0arg("nop", Instr::Nop);
+            m
+        };
+
+        Parser {
+            expr_parser,
+            instr_parsers
+        }
+    }
+
+    fn parse_expr(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
+        self.expr_parser.parse(tokens, 0)
+    }
+
+    fn parse_i8(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
+        tokens.consume(TokenType::Hash)?;
+        self.parse_expr(tokens)
+    }
+
+    fn parse_im(&self, tokens: &mut TokenStream) -> Result<IndirectionMode,ParseError> {
         let tok = tokens.next()?;
-        let loc = tok.span().start().clone();
-        let typ = expr_tok_type(loc.clone(), &tok)?;
-
-        let prefix = self.prefix(loc.clone(), typ)?;
-        let mut left = prefix.parse(self, tokens, tok)?;
-        while precedence < self.precedence(loc.clone(), tokens) {
-            let next_tok = tokens.next()?;
-            let next_typ = expr_tok_type(loc.clone(), &next_tok)?;
-            let infix = self.infix(loc.clone(), next_typ)?;
-            left = infix.parse(self, tokens, left, next_tok)?;
-        }
-        Ok(left)
-    }
-
-    pub fn precedence(&self, loc: Location, tokens: &TokenStream) -> i32 {
-        match tokens.peek() {
-            Some(tok) => {
-                let tok_type = tok.token_type().expr_type();
-                match tok_type {
-                    Some(typ) => match self.infix(loc, typ) {
-                        Ok(parselet) => parselet.precedence(),
-                        Err(_) => 0
-                    },
-                    None => 0
-                }
-            },
-            None => 0
-        }
-    }
-
-    pub fn infix(&self, location: Location, token_type: ExprTokenType) -> Result<&Box<dyn InfixParselet>,ParseError> {
-        match self.infix.get(&token_type) {
-            Some(parselet) => Ok(parselet),
-            None => Err(ParseError::InvalidExpression(location))
-        }
-    }
-
-    pub fn prefix(&self, location: Location, token_type: ExprTokenType) -> Result<&Box<dyn PrefixParselet>,ParseError> {
-        match self.prefix.get(&token_type) {
-            Some(parselet) => Ok(parselet),
-            None => Err(ParseError::InvalidExpression(location))
+        match tok.token_type() {
+            TokenType::R0 => Ok(IndirectionMode::R0),
+            TokenType::R1 => Ok(IndirectionMode::R1),
+            TokenType::R2 => Ok(IndirectionMode::R2),
+            TokenType::R3 => Ok(IndirectionMode::R3),
+            _ => Err(ParseError::ExpectedTokenNotFound("Indirection Mode (@R[0-3])", tok.clone()))
         }
     }
 }
 
+#[derive(Debug,Clone)]
 struct TokenStream<'a> {
     pos: usize,
     tokens: &'a [Token]
@@ -205,10 +326,9 @@ impl<'a> TokenStream<'a> {
 
     }
 
-    pub fn consume(&mut self, token_type: TokenType) -> Result<(),ParseError> {
+    pub fn consume(&mut self, token_type: TokenType) -> Result<Token,ParseError> {
         self.assert(token_type)?;
-        self.pos += 1;
-        Ok(())
+        self.next()
     }
 
     pub fn peek_at(&self, pos: usize) -> Option<&Token> {
@@ -241,6 +361,78 @@ impl<'a> TokenStream<'a> {
     }
 }
 
+// ----- Expression Parsing -----
+
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+enum Precedence {
+    Sum = 3,
+    Product = 4,
+    Prefix = 6
+}
+
+struct ExprParser {
+    prefix: HashMap<ExprTokenType,Box<dyn PrefixParselet>>,
+    infix: HashMap<ExprTokenType,Box<dyn InfixParselet>>
+}
+
+fn expr_tok_type(loc: Location, token: &Token) -> Result<ExprTokenType,ParseError> {
+    let tok_type = token.token_type().expr_type();
+    match tok_type {
+        Some(typ) => {
+            Ok(typ)
+        },
+        None => Err(ParseError::InvalidExpression(loc))
+    }
+}
+
+impl ExprParser {
+    pub fn parse(&self, tokens: &mut TokenStream, precedence: i32) -> Result<Expr,ParseError> {
+        let tok = tokens.next()?;
+        let loc = tok.span().start().clone();
+        let typ = expr_tok_type(loc.clone(), &tok)?;
+
+        let prefix = self.prefix(loc.clone(), typ)?;
+        let mut left = prefix.parse(self, tokens, tok)?;
+        while precedence < self.precedence(loc.clone(), tokens) {
+            let next_tok = tokens.next()?;
+            let next_typ = expr_tok_type(loc.clone(), &next_tok)?;
+            let infix = self.infix(loc.clone(), next_typ)?;
+            left = infix.parse(self, tokens, left, next_tok)?;
+        }
+        Ok(left)
+    }
+
+    pub fn precedence(&self, loc: Location, tokens: &TokenStream) -> i32 {
+        match tokens.peek() {
+            Some(tok) => {
+                let tok_type = tok.token_type().expr_type();
+                match tok_type {
+                    Some(typ) => match self.infix(loc, typ) {
+                        Ok(parselet) => parselet.precedence(),
+                        Err(_) => 0
+                    },
+                    None => 0
+                }
+            },
+            None => 0
+        }
+    }
+
+    pub fn infix(&self, location: Location, token_type: ExprTokenType) -> Result<&Box<dyn InfixParselet>,ParseError> {
+        match self.infix.get(&token_type) {
+            Some(parselet) => Ok(parselet),
+            None => Err(ParseError::InvalidExpression(location))
+        }
+    }
+
+    pub fn prefix(&self, location: Location, token_type: ExprTokenType) -> Result<&Box<dyn PrefixParselet>,ParseError> {
+        match self.prefix.get(&token_type) {
+            Some(parselet) => Ok(parselet),
+            None => Err(ParseError::InvalidExpression(location))
+        }
+    }
+}
+
 // Parselets for Pratt Parser (used for parsing expressions)
 
 // -- Prefix Parselets --
@@ -252,7 +444,7 @@ trait PrefixParselet {
 struct ParenParselet(Precedence);
 
 impl PrefixParselet for ParenParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token) -> Result<Expr,ParseError> {
+    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, _token: Token) -> Result<Expr,ParseError> {
         let result = parser.parse(tokens, 0)?;
         tokens.consume(TokenType::RightParen)?;
         Ok(result)
@@ -413,6 +605,7 @@ mod test {
         let tokens = lexer::lex_input(&input)?;
         println!("tokens: {:?}", tokens);
         let mut token_stream = TokenStream::from(&tokens);
-        parser::parse_expr(&mut token_stream)
+        let parser = parser::Parser::create();
+        parser.parse_expr(&mut token_stream)
     }
 }

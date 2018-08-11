@@ -46,6 +46,10 @@ impl Span {
         }
     }
 
+    pub fn from(start: &Span, end: &Span) -> Span {
+        Span::new(start.start().clone(), end.end().clone())
+    }
+
     pub fn start(&self) -> &Location { &self.start }
     pub fn end(&self) -> &Location { &self.end }
 }

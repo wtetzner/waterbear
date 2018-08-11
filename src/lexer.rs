@@ -88,6 +88,23 @@ impl Token {
             _ => false
         }
     }
+
+
+    pub fn is_hash(&self) -> bool {
+        use lexer::TokenType::*;
+        match self.token_type {
+            Hash => true,
+            _ => false
+        }
+    }
+
+    pub fn is_indirection_mode(&self) -> bool {
+        use lexer::TokenType::*;
+        match self.token_type {
+            R0 | R1 | R2 | R3 => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -217,6 +234,11 @@ fn to_hex_num(text: &str, prefix: usize) -> TokenType {
     TokenType::Number(num)
 }
 
+fn to_oct_num(text: &str) -> TokenType {
+    let num = i32::from_str_radix(&text[2..], 8).unwrap();
+    TokenType::Number(num)
+}
+
 fn to_bin_num(text: &str, prefix: usize) -> TokenType {
     let num = i32::from_str_radix(&text[prefix..], 2).unwrap();
     TokenType::Number(num)
@@ -231,11 +253,11 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
     lazy_static! {
         static ref MATCHERS: Vec<Matcher> = {
             let ident = "[a-zA-Z_\\.][a-zA-Z\\$0-9_\\.]*";
-            let directive_ident = ".".to_owned() + ident;
             let hex_num = "\\$[a-fA-F0-9]+";
             let hex_num2 = "0[xX][a-fA-F0-9]+";
             let bin_num = "%[01]+";
             let bin_num2 = "0[bB][01]+";
+            let oct_num = "0[oO][0-7]+";
             let dec_num = "[0-9]+";
             vec![
                 Matcher::new(r"\(", |_| TokenType::LeftParen),
@@ -252,9 +274,9 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
                 Matcher::new("<",   |_| TokenType::LowerByte),
                 Matcher::new(r#""(\\.|[^"\\])*""#, |text| TokenType::String(clean_str(text))),
                 Matcher::new("@[rR][0123]", |text| to_indr_mode(text)),
-                Matcher::new(ident, |text| TokenType::Name(text.to_owned())),
-                Matcher::new(directive_ident.as_str(), |text| TokenType::Name(text.to_owned())),
+                Matcher::new(ident, |text| TokenType::Name(text.to_lowercase())),
                 Matcher::new(hex_num, |text| to_hex_num(text, 1)),
+                Matcher::new(oct_num, |text| to_oct_num(text)),
                 Matcher::new(hex_num2, |text| to_hex_num(text, 2)),
                 Matcher::new(bin_num, |text| to_bin_num(text, 1)),
                 Matcher::new(bin_num2, |text| to_bin_num(text, 2)),

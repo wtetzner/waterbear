@@ -87,7 +87,7 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                     current_global = name.clone();
                 }
             },
-            Instruction(_, instr) => {
+            Instr(_, instr) => {
                 let next_pos = pos + instr.size();
                 let bytes = instr.eval(next_pos, &current_global, &names)?.encode();
                 for b in bytes.iter() {
@@ -205,7 +205,7 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError>
                     current_global = name.to_lowercase();
                 }
             },
-            Instruction(_, instr) => {
+            Instr(_, instr) => {
                 pos += instr.size() as i32;
             },
             Variable(_, _name, _expr) | Alias(_, _name, _expr) => {}
@@ -230,7 +230,7 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
                 pos += dir.size(pos)?
             },
             Label(_, _name) => (),
-            Instruction(_, instr) => {
+            Instr(_, instr) => {
                 pos += instr.size() as i32;
             },
             Variable(_, name, expr) | Alias(_, name, expr) => {
