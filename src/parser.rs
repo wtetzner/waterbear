@@ -2,7 +2,7 @@
 use std;
 use input::Input;
 use location::{Location,Span,Positioned};
-use ast::{Statement,Statements};
+use ast::{Statement,Statements,Directive};
 use lexer::{Token,TokenType,LexerError};
 use lexer;
 use expression::Expr;
@@ -12,8 +12,11 @@ use instruction::{IndirectionMode,Instr};
 #[derive(Debug)]
 pub enum ParseError {
     UnexpectedChar(Location),
+    UnexpectedToken(Token),
     ExpectedTokenNotFound(&'static str, Token),
     InvalidExpression(Location),
+    MissingBytes(Span),
+    MissingWords(Span),
     UnexpectedEof
 }
 
@@ -25,6 +28,44 @@ impl From<LexerError> for ParseError {
         }
     }
 }
+
+struct LineIterator<'a> {
+    pos: usize,
+    tokens: &'a [Token]
+}
+
+impl<'a> Iterator for LineIterator<'a> {
+    type Item = &'a [Token];
+
+    fn next(&mut self) -> Option<&'a [Token]> {
+        if self.pos < self.tokens.len() {
+            let start = self.pos;
+            let start_line = self.tokens[start].span().end().line();
+            let mut end = start + 1;
+            while end < self.tokens.len() && start_line == self.tokens[end].span().start().line() {
+                end += 1;
+            }
+            Some(&self.tokens[start..end])
+        } else {
+            None
+        }
+    }
+}
+
+fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
+    LineIterator {
+        pos: 0,
+        tokens: tokens
+    }
+}
+
+enum Arg {
+    Imm(Expr),
+    Ex(Expr),
+    IM(IndirectionMode)
+}
+
+
 
 // pub fn parse_input(input: &Input) -> Result<Statements,ParseError> {
 //     let tokens = lexer::lex_input(input)?;
@@ -236,6 +277,126 @@ impl Parser {
         }
     }
 
+    fn parse_statement(&self, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
+        if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
+            let tok = tokens.next()?;
+            if let TokenType::Name(name) = tok.token_type() {
+                let colon = tokens.next()?;
+                let span = Span::from(tok.span(), colon.span());
+                return Ok(Statement::Label(span, name.to_owned()));
+            }
+        }
+
+        // TODO: Parse instruction
+
+        // Try to parse a directive
+        if let Some(stmt) = self.parse_directive(tokens)? {
+            return Ok(stmt);
+        }
+        let tok = tokens.next()?;
+
+        // Parse label on its own line
+        if tok.is_name() && tokens.is_empty() {
+            if let TokenType::Name(name) = tok.token_type() {
+                return Ok(Statement::Label(tok.span().clone(), name.to_owned()));
+            }
+        }
+
+        if tok.is_name() && tokens.check_at(1, |tok| tok.has_name("equ")) {
+            let _equ = tokens.next()?;
+            let expr = self.parse_expr(tokens)?;
+            let span = Span::from(tok.span(), &expr.span());
+            return Ok(Statement::Alias(span, tok.get_name().unwrap().to_owned(), expr))
+        }
+
+        if tok.is_name() && tokens.check_at(1, Token::is_equ) {
+            let _equ = tokens.next()?;
+            let expr = self.parse_expr(tokens)?;
+            let span = Span::from(tok.span(), &expr.span());
+            return Ok(Statement::Variable(span, tok.get_name().unwrap().to_owned(), expr))
+        }
+
+        Err(ParseError::UnexpectedToken(tok))
+    }
+
+    fn parse_exprs(&self, tokens: &mut TokenStream) -> Result<Vec<Expr>,ParseError> {
+        self.parse_list(tokens, |toks| self.parse_expr(toks))
+    }
+
+    fn parse_list<T,F>(
+        &self,
+        tokens: &mut TokenStream,
+        parser: F) -> Result<Vec<T>,ParseError>
+    where F: Fn(&mut TokenStream) -> Result<T,ParseError> {
+        if tokens.is_empty() {
+            Ok(vec![])
+        } else {
+            let mut results = vec![];
+            let value = parser(tokens)?;
+            results.push(value);
+            loop {
+                let _comma = tokens.consume(TokenType::Comma)?;
+                let value = parser(tokens)?;
+                results.push(value);
+            }
+            Ok(results)
+        }
+    }
+
+    fn parse_directive(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
+        let peeked = tokens.peek().map(|t| t.clone());
+        match peeked {
+            Some(tok) => {
+                if tok.has_name(".byte") {
+                    let ident = tokens.next()?;
+                    if tokens.check(Token::is_string) {
+                        let string = tokens.next()?;
+                        let (sspan, string) = tokens.read_string()?;
+                        let span = Span::from(ident.span(), &sspan);
+                        Ok(Some(Statement::Directive(Directive::ByteString(span, string.bytes().collect()))))
+                    } else {
+                        let exprs = self.parse_exprs(tokens)?;
+                        if exprs.is_empty() {
+                            Err(ParseError::MissingBytes(ident.span().clone()))
+                        } else {
+                            let span = Span::from(ident.span(), &exprs.last().unwrap().span());
+                            Ok(Some(Statement::Directive(Directive::Byte(span, exprs))))
+                        }
+                    }
+                } else if tok.has_name(".org") {
+                    let ident = tokens.next()?;
+                    let (nspan, num) = tokens.read_number()?;
+                    let span = Span::from(ident.span(), &nspan);
+                    Ok(Some(Statement::Directive(Directive::Org(span, num as usize))))
+                } else if tok.has_name(".word") {
+                    let ident = tokens.next()?;
+                    let exprs = self.parse_exprs(tokens)?;
+                    if exprs.is_empty() {
+                        Err(ParseError::MissingWords(ident.span().clone()))
+                    } else {
+                        let span = Span::from(ident.span(), &exprs.last().unwrap().span());
+                        Ok(Some(Statement::Directive(Directive::Word(span, exprs))))
+                    }
+                } else if tok.has_name(".include") {
+                    let ident = tokens.next()?;
+                    let (str_span, string) = tokens.read_string()?;
+                    let span = Span::from(ident.span(), &str_span);
+                    Ok(Some(Statement::Directive(Directive::Include(span, string))))
+                } else if tok.has_name(".cnop") {
+                    let ident = tokens.next()?;
+                    let first = self.parse_expr(tokens)?;
+                    tokens.consume(TokenType::Comma)?;
+                    let second = self.parse_expr(tokens)?;
+                    let span = Span::from(ident.span(), &second.span());
+                    Ok(Some(Statement::Directive(Directive::Cnop(span, first, second))))
+                } else {
+                    Ok(None)
+                }
+            },
+            None => Ok(None)
+        }
+    }
+
     fn parse_expr(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
         self.expr_parser.parse(tokens, 0)
     }
@@ -271,12 +432,32 @@ impl<'a> TokenStream<'a> {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.tokens.len() - self.pos
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pos >= self.tokens.len()
+    }
+
     pub fn at_label(&self) -> bool {
         if self.pos + 1 < self.tokens.len() {
             (self.check(Token::is_name)
              && self.check_at(1, Token::is_colon))
         } else {
             false
+        }
+    }
+
+    pub fn read_string(&mut self) -> Result<(Span,String),ParseError> {
+        use lexer::TokenType::*;
+        let tok = self.current()?;
+        match tok.token_type() {
+            String(text) => {
+                self.advance();
+                Ok((tok.span().clone(), text.to_owned()))
+            },
+            _ => Err(ParseError::ExpectedTokenNotFound("String", tok.clone()))
         }
     }
 
@@ -324,6 +505,15 @@ impl<'a> TokenStream<'a> {
         self.advance();
         Ok(tok)
 
+    }
+
+    pub fn next_if(&mut self, expected: &'static str, pred: fn(&Token) -> bool) -> Result<Token,ParseError> {
+        let tok = self.next()?;
+        if pred(&tok) {
+            Ok(tok)
+        } else {
+            Err(ParseError::ExpectedTokenNotFound(expected, tok))
+        }
     }
 
     pub fn consume(&mut self, token_type: TokenType) -> Result<Token,ParseError> {
@@ -563,6 +753,7 @@ mod test {
     use files::FileID;
     use env::Env;
     use std::collections::HashMap;
+    use ast::Statement;
 
     #[test]
     fn test_expression_parser() {
@@ -607,5 +798,23 @@ mod test {
         let mut token_stream = TokenStream::from(&tokens);
         let parser = parser::Parser::create();
         parser.parse_expr(&mut token_stream)
+    }
+
+    #[test]
+    fn test_statement_parser() {
+        let line = ".org $44";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".org 68", printed);
+    }
+
+    fn parse_statement(text: &str) -> Result<Statement,ParseError> {
+        let file = FileID::new(7);
+        let input = Input::new(file, text);
+        let tokens = lexer::lex_input(&input)?;
+        println!("tokens: {:?}", tokens);
+        let mut token_stream = TokenStream::from(&tokens);
+        let parser = parser::Parser::create();
+        parser.parse_statement(&mut token_stream)
     }
 }

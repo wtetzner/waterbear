@@ -69,9 +69,30 @@ impl Token {
     pub fn span(&self) -> &Span { &self.span }
 
     pub fn is_colon(&self) -> bool {
-        match self.token_type {
+        match self.token_type() {
             TokenType::Colon => true,
             _ => false
+        }
+    }
+
+    pub fn is_equ(&self) -> bool {
+        match self.token_type() {
+            TokenType::Equals => true,
+            _ => false
+        }
+    }
+
+    pub fn has_name(&self, name: &str) -> bool {
+        match self.token_type() {
+            TokenType::Name(n) => name == n,
+            _ => false
+        }
+    }
+
+    pub fn get_name(&self) -> Option<&str> {
+        match self.token_type() {
+            TokenType::Name(ref n) => Some(n),
+            _ => None
         }
     }
 
@@ -82,13 +103,19 @@ impl Token {
         }
     }
 
-    pub fn name_is(&self, name: &str) -> bool {
+    pub fn is_string(&self) -> bool {
         match self.token_type {
-            TokenType::Name(ref n) if n == name => true,
+            TokenType::String(_) => true,
             _ => false
         }
     }
 
+    pub fn name_matching(&self, pred: fn(&str) -> bool) -> bool {
+        match self.token_type {
+            TokenType::Name(ref n) => pred(n),
+            _ => false
+        }
+    }
 
     pub fn is_hash(&self) -> bool {
         use lexer::TokenType::*;

@@ -47,6 +47,18 @@ impl Directive {
             Cnop(_, add, multiple) => Ok(Directive::eval_cnop(pos, add, multiple)? - pos)
         }
     }
+
+    pub fn span(&self) -> Span {
+        use self::Directive::*;
+        match self {
+            Byte(span, _) => span.clone(),
+            ByteString(span, _) => span.clone(),
+            Org(span, _) => span.clone(),
+            Word(span, _) => span.clone(),
+            Include(span, _) => span.clone(),
+            Cnop(span, _, _) => span.clone()
+        }
+    }
 }
 
 impl Positioned for Directive {
@@ -110,7 +122,7 @@ impl fmt::Display for Directive {
 
 #[derive(Debug)]
 pub enum Statement {
-    Directive(Span, Directive),
+    Directive(Directive),
     Label(Span, String),
     Instr(Span, Instr<Expr,IndirectionMode>),
     Variable(Span, String, Expr),
@@ -121,7 +133,7 @@ impl Positioned for Statement {
     fn span(&self) -> Span {
         use self::Statement::*;
         match self {
-            Directive(span, _) => span.clone(),
+            Directive(dir) => dir.span(),
             Label(span, _) => span.clone(),
             Instr(span,_) => span.clone(),
             Variable(span, _, _) => span.clone(),
@@ -133,7 +145,7 @@ impl Positioned for Statement {
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Statement::Directive(_, dir) => {
+            Statement::Directive(dir) => {
                 write!(f, "{}", dir)
             },
             Statement::Label(_, text) => {

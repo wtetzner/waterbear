@@ -43,7 +43,7 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
         println!("{} - {:?}", pos, statement);
         use ast::Statement::*;
         match statement {
-            Directive(_, dir) => {
+            Directive(dir) => {
                 use ast::Directive::*;
                 match dir {
                     Byte(_, bytes) => {
@@ -190,7 +190,7 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError>
     for statement in statements.statements.iter() {
         use ast::Statement::*;
         match statement {
-            Directive(_, dir) => {
+            Directive(dir) => {
                 pos += dir.size(pos)?
             },
             Label(_, name) => {
@@ -226,7 +226,7 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
     for statement in statements.statements.iter() {
         use ast::Statement::*;
         match statement {
-            Directive(_, dir) => {
+            Directive(dir) => {
                 pos += dir.size(pos)?
             },
             Label(_, _name) => (),
