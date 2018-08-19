@@ -117,6 +117,14 @@ impl Token {
         }
     }
 
+    pub fn is_eof(&self) -> bool {
+        use lexer::TokenType::*;
+        match self.token_type {
+            EOF => true,
+            _ => false
+        }
+    }
+
     pub fn is_hash(&self) -> bool {
         use lexer::TokenType::*;
         match self.token_type {

@@ -334,7 +334,7 @@ impl Parser {
             let mut results = vec![];
             let value = parser(tokens)?;
             results.push(value);
-            loop {
+            while !tokens.is_empty() && !tokens.check(Token::is_eof) {
                 let _comma = tokens.consume(TokenType::Comma)?;
                 let value = parser(tokens)?;
                 results.push(value);
@@ -801,11 +801,19 @@ mod test {
     }
 
     #[test]
-    fn test_statement_parser() {
+    fn test_parser_org() {
         let line = ".org $44";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
         assert_eq!(".org 68", printed);
+    }
+
+    #[test]
+    fn test_parser_byte() {
+        let line = ".byte $44, $65, 0x32, 0b10110";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".byte 68, 101, 50, 22", printed);
     }
 
     fn parse_statement(text: &str) -> Result<Statement,ParseError> {

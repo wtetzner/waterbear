@@ -91,7 +91,7 @@ impl fmt::Display for Directive {
                     if first {
                         first = false;
                     } else {
-                        write!(f, ",")?;
+                        write!(f, ", ")?;
                     }
                     write!(f, "{}", b)?;
                 }
@@ -109,7 +109,7 @@ impl fmt::Display for Directive {
                     if first {
                         first = false;
                     } else {
-                        write!(f, ",")?;
+                        write!(f, ", ")?;
                     }
                     write!(f, "{}", b)?;
                 }
