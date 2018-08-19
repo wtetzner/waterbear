@@ -350,7 +350,6 @@ impl Parser {
                 if tok.has_name(".byte") {
                     let ident = tokens.next()?;
                     if tokens.check(Token::is_string) {
-                        let string = tokens.next()?;
                         let (sspan, string) = tokens.read_string()?;
                         let span = Span::from(ident.span(), &sspan);
                         Ok(Some(Statement::Directive(Directive::ByteString(span, string.bytes().collect()))))
@@ -814,6 +813,14 @@ mod test {
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
         assert_eq!(".byte 68, 101, 50, 22", printed);
+    }
+
+    #[test]
+    fn test_parser_bytestring() {
+        let line = ".byte \"foo bar baz\"";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".byte \"foo bar baz\"", printed);
     }
 
     fn parse_statement(text: &str) -> Result<Statement,ParseError> {

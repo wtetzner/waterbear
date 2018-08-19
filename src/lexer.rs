@@ -150,7 +150,11 @@ pub enum LexerError {
 fn clean_str(string: &str) -> String {
     let mut result: Vec<u8> = vec![];
     let mut escape = false;
-    for byte in string.bytes() {
+    let len = string.len();
+    for (pos, byte) in string.bytes().enumerate() {
+        if pos == 0 || pos == len - 1 {
+            continue;
+        }
         if escape {
             escape = false;
             match byte {
@@ -362,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_clean_str() {
-        let input = "foo \\n bar \\r \\b \\t \\ \\\\ \\";
+        let input = "\"foo \\n bar \\r \\b \\t \\ \\\\ \\\"";
         let output = "foo \n bar \r \x08 \t  \\ \\";
         assert!(lexer::clean_str(input) == output);
     }
