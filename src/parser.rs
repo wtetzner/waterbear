@@ -29,6 +29,8 @@ impl From<LexerError> for ParseError {
     }
 }
 
+type PResult<T> = Result<T,ParseError>
+
 struct LineIterator<'a> {
     pos: usize,
     tokens: &'a [Token]
@@ -65,152 +67,36 @@ enum Arg {
     IM(IndirectionMode)
 }
 
-
-
-// pub fn parse_input(input: &Input) -> Result<Statements,ParseError> {
-//     let tokens = lexer::lex_input(input)?;
-// }
-
-// pub fn parse_statement(tokens: &[Token], pos: usize) -> Result<Statement,ParseError> {
-    
-// }
-
-trait InstrMap {
-    fn inst1arg3(
-        &mut self,
-        name: &str,
-        buildi8: fn(Expr) -> Instr<Expr,IndirectionMode>,
-        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
-        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
-    );
-
-    fn inst1arg2(
-        &mut self,
-        name: &str,
-        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
-        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
-    );
-
-    fn inst0arg(&mut self, name: &str, instr: Instr<Expr,IndirectionMode>);
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+impl Arg {
+    fn arg_type(&self) -> ArgType {
+        match self {
+            Arg::Imm(_) => ArgType::Imm,
+            Arg::Ex(_) => ArgType::Ex,
+            Arg::IM(_) => ArgType::IM
+        }
+    }
 }
 
-impl InstrMap for HashMap<String,Box<dyn InstrParser>> {
-    fn inst1arg3(
-        &mut self,
-        name: &str,
-        buildi8: fn(Expr) -> Instr<Expr,IndirectionMode>,
-        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
-        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
-    ) {
-        let parser = InstrParser1Arg3 {
-            name: name.to_owned(),
-            buildi8,
-            buildd9,
-            buildim
-        };
-        self.insert(name.to_owned(), Box::new(parser));
-    }
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+enum ArgType {
+    Imm,
+    Ex,
+    IM
+}
 
-    fn inst1arg2(
-        &mut self,
-        name: &str,
-        buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
-        buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
-    ) {
-        let parser = InstrParser1Arg2 {
-            name: name.to_owned(),
-            buildd9,
-            buildim
-        };
-        self.insert(name.to_owned(), Box::new(parser));
-    }
-
-    fn inst0arg(&mut self, name: &str, instr: Instr<Expr,IndirectionMode>) {
-        let parser = InstrParser0Arg {
-            name: name.to_owned(),
-            instr
-        };
-        self.insert(name.to_owned(), Box::new(parser));
+macro_rules! instr {
+    ( $func:expr, $arg1:expr ),* ),+ ) => {
+        
     }
 }
 
 trait InstrParser {
-    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError>;
     fn name(&self) -> &str;
-}
-
-#[derive(Debug,Clone)]
-struct InstrParser1Arg3 {
-    name: String,
-    buildi8: fn(Expr) -> Instr<Expr,IndirectionMode>,
-    buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
-    buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
-}
-
-impl InstrParser for InstrParser1Arg3 {
-    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
-        let name = tokens.consume(TokenType::Name(self.name.clone()))?;
-        if tokens.check(Token::is_hash) {
-            let expr = parser.parse_i8(tokens)?;
-            let span = Span::from(&name.span(), &expr.span());
-            Ok(Statement::Instr(span, (self.buildi8)(expr)))
-        } else if tokens.check(Token::is_indirection_mode) {
-            let span = Span::from(&name.span(), &tokens.current()?.span());
-            let im = parser.parse_im(tokens)?;
-            Ok(Statement::Instr(span, (self.buildim)(im)))
-        } else {
-            let expr = parser.parse_expr(tokens)?;
-            let span = Span::from(&name.span(), &expr.span());
-            Ok(Statement::Instr(span, (self.buildd9)(expr)))
-        }
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-#[derive(Debug,Clone)]
-struct InstrParser1Arg2 {
-    name: String,
-    buildd9: fn(Expr) -> Instr<Expr,IndirectionMode>,
-    buildim: fn(IndirectionMode) -> Instr<Expr,IndirectionMode>
-}
-
-impl InstrParser for InstrParser1Arg2 {
-    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
-        let name = tokens.consume(TokenType::Name(self.name.clone()))?;
-        if tokens.check(Token::is_indirection_mode) {
-            let span = Span::from(&name.span(), &tokens.current()?.span());
-            let im = parser.parse_im(tokens)?;
-            Ok(Statement::Instr(span, (self.buildim)(im)))
-        } else {
-            let expr = parser.parse_expr(tokens)?;
-            let span = Span::from(&name.span(), &expr.span());
-            Ok(Statement::Instr(span, (self.buildd9)(expr)))
-        }
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-#[derive(Debug,Clone)]
-struct InstrParser0Arg {
-    name: String,
-    instr: Instr<Expr,IndirectionMode>
-}
-
-impl InstrParser for InstrParser0Arg {
-    fn parse(&self, parser: &Parser, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
-        let name = tokens.consume(TokenType::Name(self.name.clone()))?;
-        Ok(Statement::Instr(name.span().clone(), self.instr.clone()))
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
+    fn parse(
+        &self,
+        tokens: &mut TokenStream,
+        overloads: Vec<>) -> PResult<Statement>
 }
 
 struct Parser {
@@ -293,7 +179,9 @@ impl Parser {
         if let Some(stmt) = self.parse_directive(tokens)? {
             return Ok(stmt);
         }
+        println!("after dir");
         let tok = tokens.next()?;
+        println!("tok.is_name(): {}, tokens.is_empty(): {}", tok.is_name(), tokens.is_empty());
 
         // Parse label on its own line
         if tok.is_name() && tokens.is_empty() {
@@ -317,6 +205,36 @@ impl Parser {
         }
 
         Err(ParseError::UnexpectedToken(tok))
+    }
+
+    fn parse_instr(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
+        if let Some(Token::Name(n)) = tokens.peek() {
+            let name: String = n.clone();
+            match name {
+                "add" => {
+                    let (span, name, args) = parse_gen_instr(tokens)?;
+                    
+                }
+                _ => Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn parse_gen_instr(&self, tokens: &mut TokenStream) -> Result<(Span,String,Vec<Arg>),ParseError> {
+        let (nspan, name) = tokens.read_name()?;
+        let args = self.parse_args(tokens)?;
+        if args.is_empty() {
+            Ok((nspan, name, args))
+        } else {
+            let span = Span::from(&nspan, &args.last().unwrap().span());
+            Ok((span, name, args))
+        }
+    }
+
+    fn parse_args(&self, tokens: &mut TokenStream) -> Result<Vec<Arg>,ParseError> {
+        self.parse_list(tokens, |toks| self.parse_arg(toks))
     }
 
     fn parse_exprs(&self, tokens: &mut TokenStream) -> Result<Vec<Expr>,ParseError> {
@@ -396,6 +314,16 @@ impl Parser {
         }
     }
 
+    fn parse_arg(&self, tokens: &mut TokenStream) -> Result<Arg,ParseError> {
+        if tokens.check(Token::is_indirection_mode) {
+            Ok(Arg::IM(self.parse_im(tokens)?))
+        } else if tokens.check(Token::is_hash) {
+            Ok(Arg::Imm(self.parse_i8(tokens)?))
+        } else {
+            Ok(Arg::Ex(self.parse_expr(tokens)?))
+        }
+    }
+
     fn parse_expr(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
         self.expr_parser.parse(tokens, 0)
     }
@@ -436,7 +364,7 @@ impl<'a> TokenStream<'a> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.pos >= self.tokens.len()
+        self.pos >= self.tokens.len() || self.check(Token::is_eof)
     }
 
     pub fn at_label(&self) -> bool {
@@ -816,11 +744,51 @@ mod test {
     }
 
     #[test]
+    fn test_parser_word() {
+        let line = ".word $4478, $6543, 0x3221, 0b1011100001100100";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".word 17528, 25923, 12833, 47204", printed);
+    }
+
+    #[test]
+    fn test_parser_cnop() {
+        let line = ".cnop $40, $22";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".cnop 64, 34", printed);
+    }
+
+    #[test]
+    fn test_parser_include() {
+        let line = ".include \"sfr.i\"";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".include \"sfr.i\"", printed);
+    }
+
+    #[test]
     fn test_parser_bytestring() {
         let line = ".byte \"foo bar baz\"";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
         assert_eq!(".byte \"foo bar baz\"", printed);
+    }
+
+    #[test]
+    fn test_parser_label() {
+        let line = ".loop";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".loop:", printed);
+    }
+
+    #[test]
+    fn test_parser_label2() {
+        let line = ".include:";
+        let stmt = parse_statement(line).expect("failed to parse statement");
+        let printed = format!("{}", stmt);
+        assert_eq!(".include:", printed);
     }
 
     fn parse_statement(text: &str) -> Result<Statement,ParseError> {
