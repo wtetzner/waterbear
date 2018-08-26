@@ -17,6 +17,7 @@ pub enum ParseError {
     InvalidExpression(Location),
     MissingBytes(Span),
     MissingWords(Span),
+    WrongInstructionArgs(String,Vec<String>),
     UnexpectedEof
 }
 
@@ -29,7 +30,7 @@ impl From<LexerError> for ParseError {
     }
 }
 
-type PResult<T> = Result<T,ParseError>
+type PResult<T> = Result<T,ParseError>;
 
 struct LineIterator<'a> {
     pos: usize,
@@ -61,19 +62,27 @@ fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
     }
 }
 
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 enum Arg {
     Imm(Expr),
     Ex(Expr),
-    IM(IndirectionMode)
+    IM(Span, IndirectionMode)
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 impl Arg {
     fn arg_type(&self) -> ArgType {
         match self {
             Arg::Imm(_) => ArgType::Imm,
             Arg::Ex(_) => ArgType::Ex,
-            Arg::IM(_) => ArgType::IM
+            Arg::IM(_,_) => ArgType::IM
+        }
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Arg::Imm(expr) => expr.span(),
+            Arg::Ex(expr) => expr.span(),
+            Arg::IM(span, _) => span.clone()
         }
     }
 }
@@ -85,23 +94,60 @@ enum ArgType {
     IM
 }
 
-macro_rules! instr {
-    ( $func:expr, $arg1:expr ),* ),+ ) => {
-        
+impl ArgType {
+    pub fn to_str(&self) -> &str {
+        match self {
+            ArgType::Imm => "#i8",
+            ArgType::Ex => "mem",
+            ArgType::IM => "@Ri"
+        }
     }
 }
 
-trait InstrParser {
-    fn name(&self) -> &str;
-    fn parse(
-        &self,
-        tokens: &mut TokenStream,
-        overloads: Vec<>) -> PResult<Statement>
+macro_rules! instr_pat {
+    ( $name:expr, $func:expr, $arg1:expr ) => {
+        ($name, v) if v.len() == 1 && v[0].arg_type() == $arg1 => $func(v[0])
+    };
+    ( $name:expr, $func:expr, $arg1:expr, $arg2:expr ) => {
+        ($name, v) if v.len() == 2 && v[0].arg_type() == $arg1 && v[1].arg_type() == $arg2 => $func(v[0], v[1])
+    };
+    ( $name:expr, $func:expr, $arg1:expr, $arg2:expr, $arg3:expr ) => {
+        ($name, v) if v.len() == 3 && v[0].arg_type() == $arg1 && v[1].arg_type() == $arg2 && v[2].arg_type() == $arg3 => $func(v[0], v[1], v[2])
+    };
 }
 
+macro_rules! instr_print {
+    ( $name:expr, $func:expr, $arg1:expr ) => {
+        format!("{} {}", $name, $arg1.to_string())
+    };
+    ( $name:expr, $func:expr, $arg1:expr, $arg2:expr ) => {
+        format!("{} {}, {}", $name, $arg1.to_string(), $arg2.to_string())
+    };
+    ( $name:expr, $func:expr, $arg1:expr, $arg2:expr, $arg3:expr ) => {
+        format("{} {}, {}, {}", $name, $arg1.to_string(), $arg2.to_string(), $arg3.to_string())
+    };
+}
+
+macro_rules! match_instr {
+    ( ($n:expr, $vec:expr) ( $name:expr, ( ($func:expr, $arg:expr,*) ),* ),* ) => {
+        match ($n, $vec) {
+            ( instr_pat!($name, $func, $arg,*),* )
+            ( ($name,_) => Err(ParseError::WrongInstructionArgs($name, vec![instr_print!($name, $func, $arg,*),*]>)) )
+        }
+    }
+}
+
+// trait InstrParser {
+//     fn name(&self) -> &str;
+//     fn parse(
+//         &self,
+//         tokens: &mut TokenStream,
+//         overloads: Vec<>) -> PResult<Statement>;
+// }
+
 struct Parser {
-    expr_parser: ExprParser,
-    instr_parsers: HashMap<String,Box<dyn InstrParser>>
+    expr_parser: ExprParser//,
+    // instr_parsers: HashMap<String,Box<dyn InstrParser>>
 }
 
 impl Parser {
@@ -131,35 +177,35 @@ impl Parser {
             infix: infix
         };
 
-        let instr_parsers = {
-            let mut m: HashMap<String,Box<dyn InstrParser>> = HashMap::new();
-            m.inst1arg3("add", Instr::Add_i8, Instr::Add_d9, Instr::Add_Ri);
-            m.inst1arg3("addc", Instr::Addc_i8, Instr::Addc_d9, Instr::Addc_Ri);
-            m.inst1arg3("sub", Instr::Sub_i8, Instr::Sub_d9, Instr::Sub_Ri);
-            m.inst1arg3("subc", Instr::Subc_i8, Instr::Subc_d9, Instr::Subc_Ri);
-            m.inst1arg2("inc", Instr::Inc_d9, Instr::Inc_Ri);
-            m.inst1arg2("dec", Instr::Dec_d9, Instr::Dec_Ri);
-            m.inst0arg("mul", Instr::Mul);
-            m.inst0arg("div", Instr::Div);
-            m.inst1arg3("and", Instr::And_i8, Instr::And_d9, Instr::And_Ri);
-            m.inst1arg3("or", Instr::Or_i8, Instr::Or_d9, Instr::Or_Ri);
-            m.inst1arg3("xor", Instr::Xor_i8, Instr::Xor_d9, Instr::Xor_Ri);
-            m.inst0arg("rol", Instr::Rol);
-            m.inst0arg("rolc", Instr::Rolc);
-            m.inst0arg("ror", Instr::Ror);
-            m.inst0arg("rorc", Instr::Rorc);
-            m.inst1arg2("ld", Instr::Ld_d9, Instr::Ld_Ri);
-            m.inst1arg2("st", Instr::St_d9, Instr::St_Ri);
+        // let instr_parsers = {
+        //     let mut m: HashMap<String,Box<dyn InstrParser>> = HashMap::new();
+        //     m.inst1arg3("add", Instr::Add_i8, Instr::Add_d9, Instr::Add_Ri);
+        //     m.inst1arg3("addc", Instr::Addc_i8, Instr::Addc_d9, Instr::Addc_Ri);
+        //     m.inst1arg3("sub", Instr::Sub_i8, Instr::Sub_d9, Instr::Sub_Ri);
+        //     m.inst1arg3("subc", Instr::Subc_i8, Instr::Subc_d9, Instr::Subc_Ri);
+        //     m.inst1arg2("inc", Instr::Inc_d9, Instr::Inc_Ri);
+        //     m.inst1arg2("dec", Instr::Dec_d9, Instr::Dec_Ri);
+        //     m.inst0arg("mul", Instr::Mul);
+        //     m.inst0arg("div", Instr::Div);
+        //     m.inst1arg3("and", Instr::And_i8, Instr::And_d9, Instr::And_Ri);
+        //     m.inst1arg3("or", Instr::Or_i8, Instr::Or_d9, Instr::Or_Ri);
+        //     m.inst1arg3("xor", Instr::Xor_i8, Instr::Xor_d9, Instr::Xor_Ri);
+        //     m.inst0arg("rol", Instr::Rol);
+        //     m.inst0arg("rolc", Instr::Rolc);
+        //     m.inst0arg("ror", Instr::Ror);
+        //     m.inst0arg("rorc", Instr::Rorc);
+        //     m.inst1arg2("ld", Instr::Ld_d9, Instr::Ld_Ri);
+        //     m.inst1arg2("st", Instr::St_d9, Instr::St_Ri);
 
-            m.inst0arg("ldc", Instr::Ldc);
+        //     m.inst0arg("ldc", Instr::Ldc);
 
-            m.inst0arg("nop", Instr::Nop);
-            m
-        };
+        //     m.inst0arg("nop", Instr::Nop);
+        //     m
+        // };
 
         Parser {
-            expr_parser,
-            instr_parsers
+            expr_parser//,
+            //instr_parsers
         }
     }
 
@@ -209,18 +255,24 @@ impl Parser {
 
     fn parse_instr(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
         if let Some(Token::Name(n)) = tokens.peek() {
-            let name: String = n.clone();
-            match name {
-                "add" => {
-                    let (span, name, args) = parse_gen_instr(tokens)?;
+            // let name: String = n.clone();
+            let (span, name, args) = parse_gen_instr(tokens)?;
+            match_instr!((name, &args)
+                ("add",
+                 (Instr::Add_i8, ArgType::Imm),
+                 (Instr::Add_d9, ArgType::Mem))
+            )
+            // match name {
+            //     "add" => {
+            //         let (span, name, args) = parse_gen_instr(tokens)?;
                     
-                }
-                _ => Ok(None)
-            }
+            //     }
+            //     _ => Ok(None)
+            // }
         } else {
             Ok(None)
         }
-    }
+     }
 
     fn parse_gen_instr(&self, tokens: &mut TokenStream) -> Result<(Span,String,Vec<Arg>),ParseError> {
         let (nspan, name) = tokens.read_name()?;
@@ -316,7 +368,8 @@ impl Parser {
 
     fn parse_arg(&self, tokens: &mut TokenStream) -> Result<Arg,ParseError> {
         if tokens.check(Token::is_indirection_mode) {
-            Ok(Arg::IM(self.parse_im(tokens)?))
+            let (span, im) = self.parse_im(tokens)?;
+            Ok(Arg::IM(span, im))
         } else if tokens.check(Token::is_hash) {
             Ok(Arg::Imm(self.parse_i8(tokens)?))
         } else {
@@ -333,15 +386,17 @@ impl Parser {
         self.parse_expr(tokens)
     }
 
-    fn parse_im(&self, tokens: &mut TokenStream) -> Result<IndirectionMode,ParseError> {
+    fn parse_im(&self, tokens: &mut TokenStream) -> Result<(Span,IndirectionMode),ParseError> {
         let tok = tokens.next()?;
-        match tok.token_type() {
+        let im = match tok.token_type() {
             TokenType::R0 => Ok(IndirectionMode::R0),
             TokenType::R1 => Ok(IndirectionMode::R1),
             TokenType::R2 => Ok(IndirectionMode::R2),
             TokenType::R3 => Ok(IndirectionMode::R3),
             _ => Err(ParseError::ExpectedTokenNotFound("Indirection Mode (@R[0-3])", tok.clone()))
-        }
+        };
+        let im = im?;
+        Ok((tok.span().clone(), im))
     }
 }
 

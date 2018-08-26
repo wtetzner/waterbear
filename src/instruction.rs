@@ -54,7 +54,7 @@ impl From<EvaluationError> for EncodingError {
     }
 }
 
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
 pub enum IndirectionMode {
     R0,
     R1,
