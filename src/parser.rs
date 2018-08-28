@@ -90,29 +90,39 @@ impl Arg {
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
 enum ArgType {
     Imm,
-    Ex,
-    IM
+    D9,
+    IM,
+    B3,
+    A12,
+    A16,
+    R8,
+    R16
 }
 
 impl ArgType {
     pub fn to_str(&self) -> &str {
         match self {
             ArgType::Imm => "#i8",
-            ArgType::Ex => "mem",
-            ArgType::IM => "@Ri"
+            ArgType::D9 => "d9",
+            ArgType::IM => "@Ri",
+            ArgType::B3 => "b3",
+            ArgType::A12 => "a12",
+            ArgType::A16 => "a16",
+            ArgType::R8 => "r8",
+            ArgType::R16 => "r16"
         }
     }
 }
 
 macro_rules! instr_pat {
-    ( $name:expr, $func:expr, $arg1:expr ) => {
-        ($name, v) if v.len() == 1 && v[0].arg_type() == $arg1 => $func(v[0])
+    ( $func:expr, $arg1:expr ) => {
+        v if v.len() == 1 && v[0].arg_type() == $arg1 => $func(v[0])
     };
-    ( $name:expr, $func:expr, $arg1:expr, $arg2:expr ) => {
-        ($name, v) if v.len() == 2 && v[0].arg_type() == $arg1 && v[1].arg_type() == $arg2 => $func(v[0], v[1])
+    ( $func:expr, $arg1:expr, $arg2:expr ) => {
+        v if v.len() == 2 && v[0].arg_type() == $arg1 && v[1].arg_type() == $arg2 => $func(v[0], v[1])
     };
-    ( $name:expr, $func:expr, $arg1:expr, $arg2:expr, $arg3:expr ) => {
-        ($name, v) if v.len() == 3 && v[0].arg_type() == $arg1 && v[1].arg_type() == $arg2 && v[2].arg_type() == $arg3 => $func(v[0], v[1], v[2])
+    ( $func:expr, $arg1:expr, $arg2:expr, $arg3:expr ) => {
+        v if v.len() == 3 && v[0].arg_type() == $arg1 && v[1].arg_type() == $arg2 && v[2].arg_type() == $arg3 => $func(v[0], v[1], v[2])
     };
 }
 
@@ -124,15 +134,26 @@ macro_rules! instr_print {
         format!("{} {}, {}", $name, $arg1.to_string(), $arg2.to_string())
     };
     ( $name:expr, $func:expr, $arg1:expr, $arg2:expr, $arg3:expr ) => {
-        format("{} {}, {}, {}", $name, $arg1.to_string(), $arg2.to_string(), $arg3.to_string())
+        format!("{} {}, {}, {}", $name, $arg1.to_string(), $arg2.to_string(), $arg3.to_string())
     };
 }
 
 macro_rules! match_instr {
-    ( ($n:expr, $vec:expr) ( $name:expr, ( ($func:expr, $arg:expr,*) ),* ),* ) => {
+    { ($n:expr, $vec:expr) $({ $name:expr => $(($($arg:expr),*));* }),* } => {
         match ($n, $vec) {
-            ( instr_pat!($name, $func, $arg,*),* )
-            ( ($name,_) => Err(ParseError::WrongInstructionArgs($name, vec![instr_print!($name, $func, $arg,*),*]>)) )
+            $(
+                ($name, v) => match v {
+                  $( instr_pat![$($arg),*] ),*
+                  // _ => Err(ParseError::WrongInstructionArgs($name, vec![$(instr_print!($name, $($arg),*)),*]))
+                }
+
+                // $(instr_print!($name, $($arg),*)),*
+                // $( ($name, $($arg),* ) ),*
+                // ($name,_) => Err(ParseError::WrongInstructionArgs($name, vec![$(instr_print!($name, $($arg),*)),*]))
+            ),*
+           // $($name => x),*
+           // $(($(instr_pat!($name, $($arg),* )),*)),*
+           // $(  ),*
         }
     }
 }
@@ -256,12 +277,37 @@ impl Parser {
     fn parse_instr(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
         if let Some(Token::Name(n)) = tokens.peek() {
             // let name: String = n.clone();
-            let (span, name, args) = parse_gen_instr(tokens)?;
+            let (span, name, args) = self.parse_gen_instr(tokens)?;
+
+            // instr_pat!("add", Instr::Add_i8, ArgType::Imm)
+
             match_instr!((name, &args)
-                ("add",
-                 (Instr::Add_i8, ArgType::Imm),
-                 (Instr::Add_d9, ArgType::Mem))
+              {"add" =>
+                  (Instr::Add_i8, ArgType::Imm);
+                  (Instr::Add_d9, ArgType::D9);
+                  (Instr::Add_Ri, ArgType::IM)
+              },
+              {"addc" =>
+                  (Instr::Addc_i8, ArgType::Imm);
+                  (Instr::Addc_d9, ArgType::D9);
+                  (Instr::Addc_Ri, ArgType::IM)
+              }//,
+              // "sub", {
+              //     Instr::Sub_i8, ArgType::Imm;
+              //     Instr::Sub_d9, ArgType::D9;
+              //     Instr::Sub_Ri, ArgType::IM
+              // },
+              // "subc", {
+              //     Instr::Subc_i8, ArgType::Imm;
+              //     Instr::Subc_d9, ArgType::D9;
+              //     Instr::Subc_Ri, ArgType::IM
+              // },
+              // "inc", {
+              //     Instr::Inc_d9, ArgType::D9;
+              //     Instr::Inc_Ri, ArgType::IM
+              // }
             )
+
             // match name {
             //     "add" => {
             //         let (span, name, args) = parse_gen_instr(tokens)?;
