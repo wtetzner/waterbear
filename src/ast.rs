@@ -101,7 +101,7 @@ impl fmt::Display for Directive {
                 write!(f, ".byte \"")?;
                 write!(f, "{}\"", escape_string(vec))
             },
-            Directive::Org(_, num) => write!(f, ".org {}", num),
+            Directive::Org(_, num) => write!(f, ".org ${:X}", num),
             Directive::Word(_, vec) => {
                 write!(f, ".word ")?;
                 let mut first = true;

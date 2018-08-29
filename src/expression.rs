@@ -139,7 +139,7 @@ impl fmt::Display for Expr {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            Expr::Number(_, num) => write!(f, "{:X}", num),
+            Expr::Number(_, num) => write!(f, "${:X}", num),
             Expr::UpperByte(_, expr) => {
                 let paren = expr.complex();
                 write!(f, ">")?;

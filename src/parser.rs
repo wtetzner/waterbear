@@ -970,15 +970,15 @@ mod test {
     fn test_expression_parser() {
         check_expression_parser(
             "fred + 2 * 7 - 21 * (6 + 7)",
-            "(fred + (2 * 7)) - (21 * (6 + 7))"
+            "(fred + ($2 * $7)) - ($15 * ($6 + $7))"
         );
         check_expression_parser(
             "bob + sam + -12 * 7",
-            "(bob + sam) + ((-12) * 7)"
+            "(bob + sam) + ((-$C) * $7)"
         );
         check_expression_parser(
             "bob + sam + -12 * 7 + ->fred - <sam",
-            "(((bob + sam) + ((-12) * 7)) + (-(>fred))) - (<sam)"
+            "(((bob + sam) + ((-$C) * $7)) + (-(>fred))) - (<sam)"
         );
     }
 
@@ -1016,7 +1016,7 @@ mod test {
         let line = ".org $44";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".org 68", printed);
+        assert_eq!(".org $44", printed);
     }
 
     #[test]
@@ -1024,7 +1024,7 @@ mod test {
         let line = ".byte $44, $65, 0x32, 0b10110";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".byte 68, 101, 50, 22", printed);
+        assert_eq!(".byte $44, $65, $32, $16", printed);
     }
 
     #[test]
@@ -1032,7 +1032,7 @@ mod test {
         let line = ".word $4478, $6543, 0x3221, 0b1011100001100100";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".word 17528, 25923, 12833, 47204", printed);
+        assert_eq!(".word $4478, $6543, $3221, $B864", printed);
     }
 
     #[test]
@@ -1040,7 +1040,7 @@ mod test {
         let line = ".cnop $40, $22";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".cnop 64, 34", printed);
+        assert_eq!(".cnop $40, $22", printed);
     }
 
     #[test]
