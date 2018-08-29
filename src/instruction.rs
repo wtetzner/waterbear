@@ -234,7 +234,12 @@ pub enum Instr<Ex,IM> {
     Not1(Ex, Ex),
 
     #[instr="00000000"]
-    Nop
+    Nop,
+
+    #[instr="01010000"]
+    Ldf,
+    #[instr="01010001"]
+    Stf
 }
 
 type EncResult<T> = Result<T,EncodingError>;
@@ -438,7 +443,9 @@ impl Instr<Expr,IndirectionMode> {
             Set1(dir, b3) => Set1(eval9(dir, &venv)?, eval3(b3, &nenv)?),
             Not1(dir, b3) => Not1(eval9(dir, &venv)?, eval3(b3, &nenv)?),
 
-            Nop => Nop
+            Nop => Nop,
+            Ldf => Ldf,
+            Stf => Stf
         };
         Ok(val)
     }

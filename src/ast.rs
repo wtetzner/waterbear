@@ -4,7 +4,7 @@ use expression::{Expr, EvaluationError};
 use std::fmt;
 use location::{Span, Positioned};
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Directive {
     Byte(Span, Vec<Expr>),
     ByteString(Span, Vec<u8>),
@@ -120,13 +120,22 @@ impl fmt::Display for Directive {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Statement {
     Directive(Directive),
     Label(Span, String),
     Instr(Span, Instr<Expr,IndirectionMode>),
     Variable(Span, String, Expr),
     Alias(Span, String, Expr)
+}
+
+impl Statement {
+    pub fn is_label(&self) -> bool {
+        match self {
+            Statement::Label(_,_) => true,
+            _ => false
+        }
+    }
 }
 
 impl Positioned for Statement {

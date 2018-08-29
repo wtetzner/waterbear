@@ -10,7 +10,7 @@ use std::io::Write;
 use std::string::ToString;
 
 use waterbear::instruction;
-use waterbear::expression::EvaluationError;
+use waterbear::AssemblyError;
 
 use std::io::Read;
 
@@ -45,12 +45,13 @@ fn main() {
     ).get_matches();
 
     if let Some(matches) = matches.subcommand_matches("assemble") {
+        println!("assemble");
         let input_file = matches.value_of("INPUT").unwrap();
         match assemble(matches) {
-            Ok(_) => {}
+            Ok(_) => {},
             Err(ref err) => {
                 println!("Failed to assemble {}:", input_file);
-                println!("{}", err.to_string());
+                println!("{:?}", err);
             }
         }
     } // else if let Some(matches) = matches.subcommand_matches("build") {
@@ -86,10 +87,10 @@ fn main() {
     }
 }
 
-fn assemble(matches: &clap::ArgMatches) -> Result<(), EvaluationError> {
-    // let input_file = matches.value_of("INPUT").unwrap();
-    // let bytes = waterbear::assemble_file(&input_file)?;
-    // let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
-    // outfile.write_all(&bytes).unwrap();
+fn assemble(matches: &clap::ArgMatches) -> Result<(), AssemblyError> {
+    let input_file = matches.value_of("INPUT").unwrap();
+    let bytes = waterbear::assemble_file(input_file)?;
+    let mut outfile = File::create(matches.value_of("OUTPUT").unwrap()).unwrap();
+    outfile.write_all(&bytes).unwrap();
     Ok(())
 }

@@ -17,21 +17,57 @@ pub mod location;
 pub mod files;
 mod env;
 
-use ast::{Statements};
+use std::path::Path;
+use ast::{Statements,Statement,Directive};
 use expression::{EvaluationError};
 use std::collections::HashMap;
-use location::{Span, Positioned};
+use location::{Span, Positioned, Location};
 use env::{Env,Names};
 use instruction::{EncodingError};
+use lexer::{Token,LexerError};
+use parser::{ParseError,ArgType,Parser};
+use files::{FileLoadError,SourceFiles};
+use input::Input;
 
-// pub fn assemble_file(filename: &str) -> Result<Vec<u8>,EvaluationError> {
-//     let statements = parser::parse_file(filename)?;
-//     assemble(&statements)
-// }
+pub fn assemble_file(filename: &str) -> Result<Vec<u8>,AssemblyError> {
+    let path = Path::new(filename); 
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let mut files = files::SourceFiles::new(dir.to_str().unwrap().to_owned());
+    let parser = parser::Parser::create();
+
+    let tokens = {
+        let file = files.load(path.file_name().expect("expected filename").to_str().unwrap())?;
+        let input = Input::new(file.id(), file.contents());
+        lexer::lex_input(&input)?
+    };
+    let statements = parser.parse(&tokens)?;
+    let statements = replace_includes(&parser, &mut files, &statements)?;
+    assemble(&statements)
+}
+
+fn replace_includes(parser: &Parser, files: &mut SourceFiles, statements: &Statements) -> Result<Statements,AssemblyError> {
+    let mut results = vec![];
+    for statement in statements.statements.iter() {
+        if let Statement::Directive(Directive::Include(_, path)) = statement {
+            let tokens = {
+                let file = files.load(&path)?;
+                let input = Input::new(file.id(), file.contents());
+                lexer::lex_input(&input)?
+            };
+            let statements = replace_includes(parser, files, &parser.parse(&tokens)?)?;
+            for stmt in statements.statements.iter() {
+                results.push(stmt.clone());
+            }
+        } else {
+            results.push(statement.clone());
+        }
+    }
+    Ok(Statements { statements: results })
+}
 
 pub fn assemble(statements: &Statements) -> Result<Vec<u8>,AssemblyError> {
     let (max_pos, names) = compute_names(statements)?;
-    let mut output = vec![0; max_pos];
+    let mut output = vec![0; max_pos - 1];
     generate_bytes(statements, &names, &mut output)?;
     Ok(output)
 }
@@ -40,7 +76,6 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
     let mut pos: usize = 0;
     let mut current_global = "".to_owned();
     for statement in statements.statements.iter() {
-        println!("{} - {:?}", pos, statement);
         use ast::Statement::*;
         match statement {
             Directive(dir) => {
@@ -128,6 +163,53 @@ pub enum AssemblyError {
         value: i32,
         pos_top: u8,
         value_top: u8
+    },
+    UnexpectedChar(Location),
+    UnexpectedToken(Token),
+    InvalidInstruction(Token),
+    ExpectedTokenNotFound(&'static str, Token),
+    InvalidExpression(Location),
+    MissingBytes(Span),
+    MissingWords(Span),
+    WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
+    UnexpectedEof,
+    FileLoadFailure(std::io::Error),
+    FileUtf8Error(std::string::FromUtf8Error)
+}
+
+impl From<LexerError> for AssemblyError {
+    fn from(error: LexerError) -> Self {
+        use lexer::LexerError::*;
+        match error {
+            UnexpectedChar(loc) => AssemblyError::UnexpectedChar(loc)
+        }
+    }
+}
+
+impl From<FileLoadError> for AssemblyError {
+    fn from(error: FileLoadError) -> Self {
+        use files::FileLoadError::*;
+        match error {
+            FileLoadFailure(err) => AssemblyError::FileLoadFailure(err),
+            Utf8Error(err) => AssemblyError::FileUtf8Error(err)
+        }
+    }
+}
+
+impl From<ParseError> for AssemblyError {
+    fn from(error: ParseError) -> Self {
+        use parser::ParseError::*;
+        match error {
+            UnexpectedChar(loc) => AssemblyError::UnexpectedChar(loc),
+            UnexpectedToken(tok) => AssemblyError::UnexpectedToken(tok),
+            InvalidInstruction(tok) => AssemblyError::InvalidInstruction(tok),
+            ExpectedTokenNotFound(name, tok) => AssemblyError::ExpectedTokenNotFound(name, tok),
+            InvalidExpression(loc) => AssemblyError::InvalidExpression(loc),
+            MissingBytes(span) => AssemblyError::MissingBytes(span),
+            MissingWords(span) => AssemblyError::MissingWords(span),
+            WrongInstructionArgs(span, name, types) => AssemblyError::WrongInstructionArgs(span, name, types),
+            UnexpectedEof => AssemblyError::UnexpectedEof
+        }
     }
 }
 

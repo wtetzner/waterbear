@@ -77,8 +77,24 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
                 }
             }).collect();
 
+            let instr_names: Vec<String> = {
+                let mut names: Vec<String> = data.iter().map(|variant| {
+                    lazy_static! {
+                        static ref NAME: Regex = Regex::new("^([^_]+)").unwrap();
+                    }
+                    let vname = &variant.ident;
+                    let name_str = format!("{}", vname);
+                    let name  = NAME.captures_iter(&name_str).next().unwrap()[1].to_lowercase();
+                    name
+                })
+                .collect();
+                names.dedup();
+                names
+            };
+
             quote! {
                 impl<Ex,IM> #name<Ex,IM> {
+                    #[automatically_derived]
                     #[inline]
                     #[allow(unused_variables)]
                     pub fn size(&self) -> usize {
@@ -86,9 +102,19 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
                             #(#size_fields),*
                         }
                     }
+
+                    #[automatically_derived]
+                    #[inline]
+                    pub fn exists(name: &str) -> bool {
+                        match name {
+                            #(#instr_names)|* => true,
+                            _ => false
+                        }
+                    }
                 }
 
                 impl #name<i32,u8> {
+                    #[automatically_derived]
                     pub fn encode(&self) -> Vec<u8> {
                         match self {
                             #(#fields),*
@@ -248,10 +274,6 @@ fn make_mask(num_bits: usize) -> u32 {
     }
     val
 }
-
-//  1 1 1 1 1 1 1 1
-// ^
-//          1 1 1 1
 
 fn byte_to_tokens(ranges: &[BitRange]) -> quote::Tokens {
     let mut toks: Vec<quote::Tokens> = vec![];

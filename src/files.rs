@@ -44,6 +44,20 @@ pub struct SourceFile {
     contents: String
 }
 
+impl SourceFile {
+    pub fn id(&self) -> FileID {
+        self.id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn contents(&self) -> &str {
+        &self.contents
+    }
+}
+
 pub struct SourceFiles {
     working_dir: String,
     files: Vec<SourceFile>
@@ -90,14 +104,15 @@ impl SourceFiles {
     }
 
     pub fn load(&mut self, filename: &str) -> Result<&SourceFile,FileLoadError> {
-        match self.get_id(filename) {
+        let path = format!("{}/{}", self.working_dir, filename);
+        match self.get_id(&path) {
             Some(id) => Ok(&self.files[id.value]),
             None => {
-                let contents = load_file(filename)?;
+                let contents = load_file(&path)?;
                 let id_value = self.files.len();
                 let file = SourceFile {
                     id: FileID { value: id_value },
-                    name: filename.to_owned(),
+                    name: path.to_owned(),
                     contents: contents
                 };
                 self.files.push(file);
