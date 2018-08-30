@@ -18,6 +18,8 @@ pub enum ParseError {
     InvalidExpression(Location),
     MissingBytes(Span),
     MissingWords(Span),
+    UnknownDirective(Token),
+    UnknownInstruction(Token),
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     UnexpectedEof
 }
@@ -274,6 +276,13 @@ impl Parser {
             let expr = self.parse_expr(tokens)?;
             let span = Span::from(tok.span(), &expr.span());
             return Ok(Statement::Variable(span, tok.get_name().unwrap().to_owned(), expr))
+        }
+
+        if tok.is_name() && tok.name_matching(|n| n.starts_with(".")) {
+            return Err(ParseError::UnknownDirective(tok));
+        }
+        if tok.is_name() {
+            return Err(ParseError::UnknownInstruction(tok));
         }
         Err(ParseError::UnexpectedToken(tok))
     }

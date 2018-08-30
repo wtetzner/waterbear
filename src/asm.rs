@@ -1,22 +1,8 @@
 
-extern crate unicode_segmentation;
-extern crate unicode_categories;
-extern crate regex;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate instruction_derive;
-
-pub mod instruction;
-pub mod parser;
-pub mod ast;
-pub mod expression;
-pub mod input;
-pub mod lexer;
-pub mod location;
-pub mod files;
-mod env;
-
+use std;
+use lexer;
+use files;
+use parser;
 use std::path::Path;
 use ast::{Statements,Statement,Directive};
 use expression::{EvaluationError};
@@ -171,6 +157,8 @@ pub enum AssemblyError {
     InvalidExpression(Location),
     MissingBytes(Span),
     MissingWords(Span),
+    UnknownDirective(Token),
+    UnknownInstruction(Token),
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     UnexpectedEof,
     FileLoadFailure(std::io::Error),
@@ -207,6 +195,8 @@ impl From<ParseError> for AssemblyError {
             InvalidExpression(loc) => AssemblyError::InvalidExpression(loc),
             MissingBytes(span) => AssemblyError::MissingBytes(span),
             MissingWords(span) => AssemblyError::MissingWords(span),
+            UnknownDirective(tok) => AssemblyError::UnknownDirective(tok),
+            UnknownInstruction(tok) => AssemblyError::UnknownInstruction(tok),
             WrongInstructionArgs(span, name, types) => AssemblyError::WrongInstructionArgs(span, name, types),
             UnexpectedEof => AssemblyError::UnexpectedEof
         }

@@ -18,7 +18,7 @@ instruction-derive = { path = "instruction-derive" }
 
 [lib]
 name = "waterbear"
-path = "src/asm.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "waterbear"
