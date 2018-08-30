@@ -25,27 +25,16 @@ mod env;
 
 use std::fs::File;
 use std::io::Write;
-use std::string::ToString;
 use std::fmt::Display;
 
 use asm::AssemblyError;
-
-use std::io::Read;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use atty::Stream;
 
 use std::path::Path;
-use ast::{Statements,Statement,Directive};
 use expression::{EvaluationError};
-use std::collections::HashMap;
-use location::{Span, Positioned, Location};
-use env::{Env,Names};
-use instruction::{EncodingError};
-use lexer::{Token,LexerError};
-use parser::{ParseError,ArgType,Parser};
-use files::{FileLoadError,SourceFiles};
-use input::Input;
+use files::{SourceFiles};
 
 pub use asm::{assemble_file,assemble};
 
@@ -70,11 +59,18 @@ pub fn run_command(args: &[String]) {
 
     if let Some(matches) = matches.subcommand_matches("assemble") {
         let input_file = matches.value_of("INPUT").unwrap();
-        match assemble_cmd(&mut stdout, matches) {
+        let path = Path::new(input_file);
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let mut files = files::SourceFiles::new(dir.to_str().unwrap().to_owned());
+        match assemble_cmd(&mut files, &mut stdout, matches) {
             Ok(_num_bytes) => {},
             Err(ref err) => {
-                println!("Failed to assemble {}:", input_file);
-                println!("{:?}", err);
+                stdout.write("Failed to assemble ")
+                    .bold()
+                    .write(input_file)
+                    .reset()
+                    .writeln(":");
+                print_error(&mut files, err, &mut stdout);
             }
         }
     } else {
@@ -83,9 +79,9 @@ pub fn run_command(args: &[String]) {
     }
 }
 
-fn assemble_cmd(stdout: &mut ColorWriter, matches: &clap::ArgMatches) -> Result<usize, AssemblyError> {
+fn assemble_cmd(mut files: &mut SourceFiles, stdout: &mut ColorWriter, matches: &clap::ArgMatches) -> Result<usize, AssemblyError> {
     let input_file = matches.value_of("INPUT").unwrap();
-    let bytes = asm::assemble_file(input_file)?;
+    let bytes = asm::assemble_file(&mut files, input_file)?;
     let output_file = matches.value_of("OUTPUT").unwrap();
     let mut outfile = File::create(output_file).unwrap();
     outfile.write_all(&bytes).unwrap();
@@ -104,11 +100,120 @@ fn assemble_cmd(stdout: &mut ColorWriter, matches: &clap::ArgMatches) -> Result<
     Ok(bytes.len())
 }
 
-// fn print_error(err: &AssemblyError) {
-//     match err {
-
-//     }
-// }
+fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWriter) {
+    use asm::AssemblyError::*;
+    match err {
+        NameNotFound(span,msg) => {
+            stdout.write_error().space().writeln(msg);
+        },
+        DivideByZero(span,msg) => {
+            stdout.write_error().space().writeln(msg);
+        },
+        MustBeLiteralNumber(span) => {
+            stdout.write_error()
+                .writeln(" Must be a literal number");
+        },
+        NameAlreadyExists(current,existing,name) => {
+            stdout.write_error().space()
+                .write("Name already exists: ")
+                .bold()
+                .writeln(name)
+                .reset();
+        },
+        InvalidCodeLocation(span,location) => {
+            stdout.write_error().space()
+                .write("Invalid code location: ")
+                .bold()
+                .writeln(format!("0x{:X}", location))
+                .reset();
+        },
+        NumOutOfRange {
+            span,
+            bits,
+            value
+        } => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        SignedNumOutOfRange {
+            span,
+            bits,
+            value
+        } => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        InvalidAddress {
+            span,
+            value
+        } => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        AddrBitsDontMatch {
+            span,
+            pos,
+            value,
+            pos_top,
+            value_top
+        } => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        UnexpectedChar(loc) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        UnexpectedToken(tok) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        InvalidInstruction(tok) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        ExpectedTokenNotFound(name, tok) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        InvalidExpression(loc) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        MissingBytes(span) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        MissingWords(span) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        UnknownDirective(loc) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        UnknownInstruction(loc) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        WrongInstructionArgs(span,name,arg_types) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        UnexpectedEof => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        FileLoadFailure(err) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        },
+        FileUtf8Error(err) => {
+            let msg = format!("{:?}", err);
+            stdout.write_error().space().writeln(msg);
+        }
+    }
+}
 
 struct ColorWriter {
     stream: StandardStream
@@ -121,6 +226,10 @@ impl ColorWriter {
 
     pub fn newline(&mut self) -> &mut ColorWriter {
         self.writeln("")
+    }
+
+    pub fn space(&mut self) -> &mut ColorWriter {
+        self.write(" ")
     }
 
     pub fn write_error(&mut self) -> &mut ColorWriter {

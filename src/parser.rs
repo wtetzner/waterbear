@@ -1,6 +1,4 @@
 
-use std;
-use input::Input;
 use location::{Location,Span,Positioned};
 use ast::{Statement,Statements,Directive};
 use lexer::{Token,TokenType,LexerError};
@@ -32,8 +30,6 @@ impl From<LexerError> for ParseError {
         }
     }
 }
-
-type PResult<T> = Result<T,ParseError>;
 
 struct LineIterator<'a> {
     pos: usize,
@@ -67,14 +63,6 @@ enum Arg {
 }
 
 impl Arg {
-    fn matches(&self, arg_type: ArgType) -> bool {
-        match self {
-            Arg::Imm(_) => arg_type.is_immediate(),
-            Arg::Ex(_) => arg_type.is_mem(),
-            Arg::IM(_,_) => arg_type.is_indirection_mode()
-        }
-    }
-
     fn span(&self) -> Span {
         match self {
             Arg::Imm(expr) => expr.span(),
@@ -144,19 +132,6 @@ fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
     LineIterator {
         pos: 0,
         tokens: tokens
-    }
-}
-
-fn args_match(args: &[Arg], arg_types: &[ArgType]) -> bool {
-    if args.len() != arg_types.len() {
-        false
-    } else {
-        for idx in 0..args.len() {
-            if !args[idx].matches(arg_types[idx]) {
-                return false;
-            }
-        }
-        true
     }
 }
 
@@ -652,21 +627,8 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.tokens.len() - self.pos
-    }
-
     pub fn is_empty(&self) -> bool {
         self.pos >= self.tokens.len() || self.check(Token::is_eof)
-    }
-
-    pub fn at_label(&self) -> bool {
-        if self.pos + 1 < self.tokens.len() {
-            (self.check(Token::is_name)
-             && self.check_at(1, Token::is_colon))
-        } else {
-            false
-        }
     }
 
     pub fn read_string(&mut self) -> Result<(Span,String),ParseError> {
@@ -725,15 +687,6 @@ impl<'a> TokenStream<'a> {
         self.advance();
         Ok(tok)
 
-    }
-
-    pub fn next_if(&mut self, expected: &'static str, pred: fn(&Token) -> bool) -> Result<Token,ParseError> {
-        let tok = self.next()?;
-        if pred(&tok) {
-            Ok(tok)
-        } else {
-            Err(ParseError::ExpectedTokenNotFound(expected, tok))
-        }
     }
 
     pub fn consume(&mut self, token_type: TokenType) -> Result<Token,ParseError> {
@@ -865,7 +818,7 @@ impl PrefixParselet for ParenParselet {
 struct NameParselet(Precedence);
 
 impl PrefixParselet for NameParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token)
+    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
                  -> Result<Expr,ParseError> {
         match token.token_type() {
             TokenType::Name(name) =>
@@ -879,7 +832,7 @@ impl PrefixParselet for NameParselet {
 struct NumberParselet(Precedence);
 
 impl PrefixParselet for NumberParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token)
+    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
                  -> Result<Expr,ParseError> {
         match token.token_type() {
             TokenType::Number(num) =>

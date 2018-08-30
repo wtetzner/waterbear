@@ -1,6 +1,5 @@
 
 use expression::{Expr,EvaluationError};
-use std::collections::HashMap;
 use location::{Positioned,Span};
 use env::{Names,Env};
 

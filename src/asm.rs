@@ -1,7 +1,6 @@
 
 use std;
 use lexer;
-use files;
 use parser;
 use std::path::Path;
 use ast::{Statements,Statement,Directive};
@@ -15,10 +14,8 @@ use parser::{ParseError,ArgType,Parser};
 use files::{FileLoadError,SourceFiles};
 use input::Input;
 
-pub fn assemble_file(filename: &str) -> Result<Vec<u8>,AssemblyError> {
-    let path = Path::new(filename); 
-    let dir = path.parent().unwrap_or(Path::new("."));
-    let mut files = files::SourceFiles::new(dir.to_str().unwrap().to_owned());
+pub fn assemble_file(mut files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
+    let path = Path::new(filename);
     let parser = parser::Parser::create();
 
     let tokens = {
@@ -355,28 +352,3 @@ impl<'a,'b> Env<i32> for MapEnv<'a,'b> {
     }
 }
 
-struct LabelEnv<'a,'b,'c> {
-    name: &'a str,
-    globals: &'b HashMap<String,NameValue>,
-    locals: &'c HashMap<String,NameValue>
-}
-
-impl<'a,'b,'c> LabelEnv<'a,'b,'c> {
-    fn new<'d,'e,'f>(name: &'d str, globals: &'e HashMap<String,NameValue>, locals: &'f HashMap<String,NameValue>) -> LabelEnv<'d,'e,'f> {
-        LabelEnv { name, globals, locals }
-    }
-}
-
-impl<'a,'b,'c> Env<i32> for LabelEnv<'a,'b,'c> {
-    fn name(&self) -> &str {
-        self.name
-    }
-
-    fn get(&self, name: &str) -> Option<i32> {
-        if name.starts_with(".") {
-            self.locals.get(name).map(|v| v.value.clone())
-        } else {
-            self.globals.get(name).map(|v| v.value.clone())
-        }
-    }
-}
