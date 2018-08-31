@@ -24,6 +24,10 @@ impl Location {
     pub fn pos(&self) -> usize { self.pos }
     pub fn line(&self) -> usize { self.line }
     pub fn column(&self) -> usize { self.column }
+
+    pub fn to_span(&self) -> Span {
+        Span::new(self.clone(), self.clone())
+    }
 }
 
 impl fmt::Display for Location {

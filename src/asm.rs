@@ -158,7 +158,7 @@ pub enum AssemblyError {
     UnknownInstruction(Token),
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     UnexpectedEof,
-    FileLoadFailure(std::io::Error),
+    FileLoadFailure(String, std::io::Error),
     FileUtf8Error(std::string::FromUtf8Error)
 }
 
@@ -175,7 +175,7 @@ impl From<FileLoadError> for AssemblyError {
     fn from(error: FileLoadError) -> Self {
         use files::FileLoadError::*;
         match error {
-            FileLoadFailure(err) => AssemblyError::FileLoadFailure(err),
+            FileLoadFailure(file, err) => AssemblyError::FileLoadFailure(file, err),
             Utf8Error(err) => AssemblyError::FileUtf8Error(err)
         }
     }

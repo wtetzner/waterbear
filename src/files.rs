@@ -2,19 +2,14 @@
 use std;
 use std::fmt;
 
+use std::path::Path;
 use std::fs::File;
 use std::io::Read;
 
 #[derive(Debug)]
 pub enum FileLoadError {
-    FileLoadFailure(std::io::Error),
+    FileLoadFailure(String, std::io::Error),
     Utf8Error(std::string::FromUtf8Error)
-}
-
-impl std::convert::From<std::io::Error> for FileLoadError {
-    fn from(error: std::io::Error) -> FileLoadError {
-        FileLoadError::FileLoadFailure(error)
-    }
 }
 
 impl std::convert::From<std::string::FromUtf8Error> for FileLoadError {
@@ -64,9 +59,9 @@ pub struct SourceFiles {
 }
 
 pub fn load_file(path: &str) -> Result<String, FileLoadError> {
-    let mut file = File::open(path)?;
+    let mut file = File::open(path).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
     let mut bytes = vec![];
-    file.read_to_end(&mut bytes)?;
+    file.read_to_end(&mut bytes).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
 
     Ok(String::from_utf8(bytes)?)
 }
@@ -104,7 +99,11 @@ impl SourceFiles {
     }
 
     pub fn load(&mut self, filename: &str) -> Result<&SourceFile,FileLoadError> {
-        let path = format!("{}/{}", self.working_dir, filename);
+        let path = if self.working_dir.is_empty() {
+            filename.to_owned()
+        } else {
+            format!("{}/{}", self.working_dir, filename)
+        };
         match self.get_id(&path) {
             Some(id) => Ok(&self.files[id.value]),
             None => {
@@ -112,7 +111,7 @@ impl SourceFiles {
                 let id_value = self.files.len();
                 let file = SourceFile {
                     id: FileID { value: id_value },
-                    name: path.to_owned(),
+                    name: filename.to_owned(),
                     contents: contents
                 };
                 self.files.push(file);
