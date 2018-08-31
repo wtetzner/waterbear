@@ -2,20 +2,13 @@
 use std;
 use std::fmt;
 
-use std::path::Path;
 use std::fs::File;
 use std::io::Read;
 
 #[derive(Debug)]
 pub enum FileLoadError {
     FileLoadFailure(String, std::io::Error),
-    Utf8Error(std::string::FromUtf8Error)
-}
-
-impl std::convert::From<std::string::FromUtf8Error> for FileLoadError {
-    fn from(error: std::string::FromUtf8Error) -> FileLoadError {
-        FileLoadError::Utf8Error(error)
-    }
+    Utf8Error(String, std::string::FromUtf8Error)
 }
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Copy,Clone)]
@@ -63,7 +56,8 @@ pub fn load_file(path: &str) -> Result<String, FileLoadError> {
     let mut bytes = vec![];
     file.read_to_end(&mut bytes).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
 
-    Ok(String::from_utf8(bytes)?)
+    let text = String::from_utf8(bytes).map_err(|err| FileLoadError::Utf8Error(path.to_string(), err))?;
+    Ok(text)
 }
 
 impl SourceFiles {

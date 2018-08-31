@@ -30,12 +30,13 @@ use std::fs::File;
 use std::io::Write;
 use std::fmt::Display;
 
+use std::path::Path;
 use asm::AssemblyError;
+use parser::ArgType;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use atty::Stream;
 
-use std::path::Path;
 use expression::{EvaluationError};
 use files::{SourceFiles};
 
@@ -190,8 +191,13 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
             span,
             value
         } => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            let hex = format!("0x{:X}", value);
+            stdout.write("Invalid address: ")
+                .bold()
+                .writeln(hex)
+                .reset()
+                .newline();
+            highlight_line(&span, "", files, stdout);
         },
         AddrBitsDontMatch {
             span,
@@ -200,52 +206,156 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
             pos_top,
             value_top
         } => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("Target is a 12 bit absolution position, and the top 4 bits of the")
+                .spaces(2)
+                .write("target (")
+                .yellow()
+                .write(format!("0x{:04X}", value))
+                .reset()
+                .writeln(") don't match the top 4 bits of the current instruction")
+                .write("  position (")
+                .yellow()
+                .write(format!("0x{:04X}", pos))
+                .reset()
+                .writeln(")")
+                .newline()
+                .spaces(2)
+                .bold()
+                .write("Top 4 bits of target:   ")
+                .reset()
+                .yellow()
+                .writeln(format!("{:04b}", value_top))
+                .reset()
+                .spaces(2)
+                .bold()
+                .write("Top 4 bits of position: ")
+                .reset()
+                .yellow()
+                .writeln(format!("{:04b}", pos_top))
+                .reset()
+                .newline();
+
+            highlight_line(&span, "", files, stdout);
         },
         UnexpectedChar(loc) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("Unexpected Character").newline();
+            highlight_line(&loc.to_span(), "", files, stdout);
         },
         UnexpectedToken(tok) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("Unexpected Token").newline();
+            highlight_line(tok.span(), "", files, stdout);
         },
         InvalidInstruction(tok) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("Invalid Instruction").newline();
+            highlight_line(tok.span(), "", files, stdout);
         },
         ExpectedTokenNotFound(name, tok) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.write("Expected to find ")
+                .yellow()
+                .writeln(name)
+                .reset()
+                .newline();
+            highlight_line(tok.span(), "", files, stdout);
         },
         InvalidExpression(loc) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("Invalid Expression")
+                .newline();
+            highlight_line(&loc.to_span(), "", files, stdout);
         },
         MissingBytes(span) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("The ")
+                .cyan()
+                .write(".byte")
+                .reset()
+                .writeln(" directive requires at least one byte specified.")
+                .newline();
+            highlight_line(&span, "", files, stdout);
         },
         MissingWords(span) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("The ")
+                .cyan()
+                .write(".word")
+                .reset()
+                .writeln(" directive requires at least one word specified.")
+                .newline();
+            highlight_line(&span, "", files, stdout);
         },
-        UnknownDirective(loc) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+        UnknownDirective(tok) => {
+            stdout.writeln("Unknown Directive")
+                .newline();
+            highlight_line(tok.span(), "", files, stdout);
         },
-        UnknownInstruction(loc) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+        UnknownInstruction(tok) => {
+            stdout.writeln("Unknown Instruction")
+                .newline();
+            highlight_line(tok.span(), "", files, stdout);
         },
         WrongInstructionArgs(span,name,arg_types) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.write("Wrong arguments for instruction ")
+                .cyan()
+                .write(name)
+                .reset()
+                .writeln(".")
+                .newline();
+
+            highlight_line(&span, "", files, stdout);
+
+            stdout.newline();
+
+            if arg_types.is_empty() || (arg_types.len() == 1 && arg_types[0].is_empty()) {
+                stdout.cyan()
+                    .write(name)
+                    .reset()
+                    .writeln(" expects 0 arguments.")
+                    .newline();
+            } else {
+                stdout.write("Allowed form");
+                if arg_types.len() > 1 {
+                    stdout.write("s");
+                }
+                stdout.write(" for instruction ")
+                    .cyan()
+                    .write(name)
+                    .reset()
+                    .write(":")
+                    .newline();
+
+                for arglist in arg_types {
+                    stdout.spaces(2)
+                        .cyan()
+                        .write(name)
+                        .reset()
+                        .space();
+                    let mut first = true;
+                    for arg in arglist {
+                        if first {
+                            first = false;
+                        } else {
+                            stdout.write(", ");
+                        }
+                        match arg {
+                            ArgType::Imm => stdout.yellow()
+                                .write(arg.to_str())
+                                .reset(),
+                            ArgType::IM => stdout.magenta()
+                                .write(arg.to_str())
+                                .reset(),
+                            ArgType::B3 |
+                            ArgType::A12 |
+                            ArgType::A16 |
+                            ArgType::R8 |
+                            ArgType::R16 |
+                            ArgType::D9 => stdout.write(arg.to_str())
+                        };
+                    }
+                    stdout.newline();
+                }
+            }
+            stdout.newline();
         },
         UnexpectedEof => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+            stdout.writeln("Unexpected EOF")
+                .newline();
         },
         FileLoadFailure(file, err) => {
             stdout.write("Error loading file ")
@@ -256,9 +366,14 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .writeln(err)
                 .newline();
         },
-        FileUtf8Error(err) => {
-            let msg = format!("{:?}", err);
-            stdout.writeln(msg);
+        FileUtf8Error(file, err) => {
+            stdout.write("UTF-8 Error loading file ")
+                .cyan()
+                .write(file)
+                .reset()
+                .write(": ")
+                .writeln(err)
+                .newline();
         }
     }
 }
@@ -394,11 +509,6 @@ impl ColorWriter {
         self
     }
 
-    pub fn intense(&mut self) -> &mut ColorWriter {
-        self.stream.set_color(ColorSpec::new().set_intense(true)).ok();
-        self
-    }
-
     pub fn bold(&mut self) -> &mut ColorWriter {
         self.stream.set_color(ColorSpec::new().set_bold(true)).ok();
         self
@@ -411,6 +521,11 @@ impl ColorWriter {
 
     pub fn yellow(&mut self) -> &mut ColorWriter {
         self.stream.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).ok();
+        self
+    }
+
+    pub fn magenta(&mut self) -> &mut ColorWriter {
+        self.stream.set_color(ColorSpec::new().set_fg(Some(Color::Magenta))).ok();
         self
     }
 

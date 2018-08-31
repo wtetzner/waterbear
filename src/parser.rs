@@ -233,7 +233,7 @@ impl Parser {
         let tok = tokens.next()?;
 
         // Parse label on its own line
-        if tok.is_name() && tokens.is_empty() {
+        if tok.is_name() && tokens.is_empty() && tok.name_matching(|n| n.starts_with(".")) {
             if let TokenType::Name(name) = tok.token_type() {
                 return Ok(Statement::Label(tok.span().clone(), name.to_owned()));
             }

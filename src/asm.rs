@@ -159,7 +159,7 @@ pub enum AssemblyError {
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     UnexpectedEof,
     FileLoadFailure(String, std::io::Error),
-    FileUtf8Error(std::string::FromUtf8Error)
+    FileUtf8Error(String, std::string::FromUtf8Error)
 }
 
 impl From<LexerError> for AssemblyError {
@@ -176,7 +176,7 @@ impl From<FileLoadError> for AssemblyError {
         use files::FileLoadError::*;
         match error {
             FileLoadFailure(file, err) => AssemblyError::FileLoadFailure(file, err),
-            Utf8Error(err) => AssemblyError::FileUtf8Error(err)
+            Utf8Error(file, err) => AssemblyError::FileUtf8Error(file, err)
         }
     }
 }
