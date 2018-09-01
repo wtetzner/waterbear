@@ -381,7 +381,7 @@ mod tests {
             Location::new(file, 3, 1, 3)
         );
         match lexer::read_token(&input) {
-            Some((new_input, token)) => assert!(token == Token::new(TokenType::R3, span)),
+            Some((_new_input, token)) => assert!(token == Token::new(TokenType::R3, span)),
             None => panic!("Failed to read token")
         }
     }
@@ -408,7 +408,7 @@ mod tests {
         let text = "@R3@R0,+:!-";
         let input = Input::new(file, text);
         match lexer::lex_input(&input) {
-            Ok(tokens) => panic!("Expected bad token"),
+            Ok(_tokens) => panic!("Expected bad token"),
             Err(err) => match err {
                 LexerError::UnexpectedChar(ref loc) if *loc == Location::new(file, 9, 1, 9) => (),
                 e => panic!("Unexpected error: {:?}", e)

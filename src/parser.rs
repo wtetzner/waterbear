@@ -924,7 +924,6 @@ mod test {
     use lexer;
     use input::Input;
     use files::FileID;
-    use env::Env;
     use std::collections::HashMap;
     use ast::Statement;
 
