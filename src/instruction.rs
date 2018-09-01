@@ -303,7 +303,7 @@ fn eval12<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
 fn rel16<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     let address = expr.eval(env)?;
     if address >= 0 && address <= 65535 {
-        let value = address - (pos as i32);
+        let value = address - (pos as i32) + 1;
         if value >= -32768 && value <= 32767 {
             Ok(value)
         } else {
