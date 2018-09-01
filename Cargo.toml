@@ -1,7 +1,7 @@
 [package]
 name = "waterbear"
 description = "Assembler for the Dreamcast VMU"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 
 [dependencies]
