@@ -210,7 +210,7 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .spaces(2)
                 .write("target (")
                 .yellow()
-                .write(format!("0x{:04X}", value))
+                .write(format!("0x{:04X}", *value as usize))
                 .reset()
                 .writeln(") don't match the top 4 bits of the current instruction")
                 .write("  position (")

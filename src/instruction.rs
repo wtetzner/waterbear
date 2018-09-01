@@ -286,12 +286,12 @@ fn eval12<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     let addr = eval16(expr, env)?;
     let val_top = (addr as usize) & 0b1111000000000000;
     let pos_top = pos & 0b1111000000000000;
-    let value = addr & 0b0000111111111111;
+    let value = ((addr as usize) & 0b0000111111111111) as i32;
     if val_top != pos_top {
         return Err(EncodingError::mismatch_top_bits(
             expr.span(),
             pos,
-            value,
+            addr,
             ((pos_top >> 12) & 0xFF) as u8,
             ((val_top >> 12) & 0xFF) as u8
         ));
