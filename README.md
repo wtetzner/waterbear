@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/wtetzner/waterbear.png?branch=master)](https://travis-ci.org/wtetzner/waterbear)
 
 waterbear
 =========
