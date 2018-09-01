@@ -67,7 +67,7 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                     Byte(_, bytes) => {
                         let env = names.as_env("Name", &current_global);
                         for expr in bytes.iter() {
-                            let b: u8 = (expr.eval(&env)? | 0xFF) as u8;
+                            let b: u8 = (expr.eval(&env)? & 0xFF) as u8;
                             output[pos] = b;
                             pos = pos + 1;
                         }
@@ -87,7 +87,7 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                     Word(_, words) => {
                         let env = names.as_env("Name", &current_global);
                         for expr in words.iter() {
-                            let w: u16 = (expr.eval(&env)? | 0xFFFF) as u16;
+                            let w: u16 = (expr.eval(&env)? & 0xFFFF) as u16;
                             output[pos] = (w & 0xFF) as u8;
                             pos = pos + 1;
                             output[pos] = ((w >> 8) & 0xFF) as u8;
