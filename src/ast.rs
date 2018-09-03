@@ -26,14 +26,18 @@ impl Directive {
     pub fn eval_cnop(pos: i32, add: &Expr, multiple: &Expr) -> Result<i32,EvaluationError> {
         let add = Directive::eval_cnop_expr(add)?;
         let multiple = Directive::eval_cnop_expr(multiple)?;
-        let mut mult = 0;
-        loop {
-            if pos < mult {
-                break;
+        if multiple == 0 {
+            Ok(add)
+        } else {
+            let mut mult = 0;
+            loop {
+                if pos < mult {
+                    break;
+                }
+                mult = mult + multiple;
             }
-            mult = mult + multiple;
+            Ok(mult + add)
         }
-        Ok(mult + add)
     }
 
     pub fn size(&self, pos: i32) -> Result<i32,EvaluationError> {
@@ -101,7 +105,7 @@ impl fmt::Display for Directive {
                 write!(f, ".byte \"")?;
                 write!(f, "{}\"", escape_string(vec))
             },
-            Directive::Org(_, num) => write!(f, ".org ${:X}", num),
+            Directive::Org(_, num) => write!(f, ".org ${:04X}", num),
             Directive::Word(_, vec) => {
                 write!(f, ".word ")?;
                 let mut first = true;
@@ -172,7 +176,7 @@ impl fmt::Display for Statement {
                 write!(f, "{}", dir)
             },
             Statement::Label(_, text) => {
-                write!(f, "\n{}:", text)
+                write!(f, "{}:", text)
             },
             Statement::Instr(_, inst) => write!(f, "  {}", inst),
             Statement::Variable(_, name, expr) => {

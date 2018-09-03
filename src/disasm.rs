@@ -60,9 +60,20 @@ pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,Di
         ));
     }
 
-    statements.push(Statement::comment("\n"));
-    for pos in 0..bytes.len() {
+    statements.push(Statement::comment("\nStart"));
+    let mut pos: usize = 0;
+    while pos < bytes.len() {
+        let org = pos == 0 || (seen[pos] && !seen[pos - 1]);
+        if org {
+            if pos > 0 {
+                statements.push(Statement::comment(""));
+            }
+            statements.push(Statement::Directive(Directive::Org(Span::default(), pos)));
+        }
         if labels.contains_key(&pos) {
+            if !org && !seen[pos - 1] {
+                statements.push(Statement::comment(""));
+            }
             statements.push(Statement::label(&labels[&pos]));
         }
         if instrs.contains_key(&pos) {
@@ -190,88 +201,88 @@ pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,Di
                 },
 
                 Br(rel) => {
-                    let address = rel8(*rel, next); //(rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     Statement::instr(Instr::Br(addr_expr))
                 },
                 Brf(rel) => {
-                    let address = (rel + (next as i32) - 1) as usize;
+                    let address = rel16(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     Statement::instr(Instr::Brf(addr_expr))
                 },
                 Bz(rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     Statement::instr(Instr::Bz(addr_expr))
                 },
                 Bnz(rel) => {
-                    let address = rel8(*rel, next);// (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     Statement::instr(Instr::Bnz(addr_expr))
                 },
                 Bp(dir, b3, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let d9 = mem_expr(&aliases, *dir);
                     let bits = bits_expr(&bit_aliases, *dir, *b3);
                     Statement::instr(Instr::Bp(d9, bits, addr_expr))
                 },
                 Bpc(dir, b3, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let d9 = mem_expr(&aliases, *dir);
                     let bits = bits_expr(&bit_aliases, *dir, *b3);
                     Statement::instr(Instr::Bpc(d9, bits, addr_expr))
                 },
                 Bn(dir, b3, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let d9 = mem_expr(&aliases, *dir);
                     let bits = bits_expr(&bit_aliases, *dir, *b3);
                     Statement::instr(Instr::Bn(d9, bits, addr_expr))
                 },
                 Dbnz_d9(dir, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let d9 = mem_expr(&aliases, *dir);
                     Statement::instr(Instr::Dbnz_d9(d9, addr_expr))
                 },
                 Dbnz_Ri(ind, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let im = IndirectionMode::from(*ind);
                     Statement::instr(Instr::Dbnz_Ri(im, addr_expr))
                 },
                 Be_i8(imm, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     Statement::instr(Instr::Be_i8(Expr::num(*imm), addr_expr))
                 },
                 Be_d9(dir, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let d9 = mem_expr(&aliases, *dir);
                     Statement::instr(Instr::Be_d9(d9, addr_expr))
                 },
                 Be_Rj(ind, imm, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let im = IndirectionMode::from(*ind);
                     Statement::instr(Instr::Be_Rj(im, Expr::num(*imm), addr_expr))
                 },
                 Bne_i8(imm, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     Statement::instr(Instr::Bne_i8(Expr::num(*imm), addr_expr))
                 },
                 Bne_d9(dir, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let d9 = mem_expr(&aliases, *dir);
                     Statement::instr(Instr::Bne_d9(d9, addr_expr))
                 },
                 Bne_Rj(ind, imm, rel) => {
-                    let address = (rel + (next as i32)) as usize;
+                    let address = rel8(*rel, next);
                     let addr_expr = label_expr(&labels, address);
                     let im = IndirectionMode::from(*ind);
                     Statement::instr(Instr::Bne_Rj(im, Expr::num(*imm), addr_expr))
@@ -290,7 +301,7 @@ pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,Di
                     Statement::instr(Instr::Callf(addr_expr))
                 },
                 Callr(r16) => {
-                    let address = (r16 + (next as i32) - 1) as usize;
+                    let address = rel16(*r16, next);
                     let addr_expr = label_expr(&labels, address);
                     Statement::instr(Instr::Callr(addr_expr))
                 },
@@ -319,10 +330,48 @@ pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,Di
                 Stf => Statement::instr(Instr::Stf)
             };
             statements.push(hinstr);
+            pos = next;
+        } else {
+            if bytes[pos] == 0 && !seen[pos] {
+                while pos < bytes.len() && bytes[pos] == 0 && !seen[pos] {
+                    pos = pos + 1;
+                }
+            } else {
+                let mut end = pos;
+                while end < bytes.len() && !seen[end] && bytes[end] != 0 {
+                    end += 1;
+                }
+                let chunk = &bytes[pos..end];
+                if !chunk.is_empty() {
+                    statements.push(Statement::comment(""));
+                    statements.push(Statement::Directive(Directive::Org(Span::default(), pos)));
+                    for stmt in make_bytes(chunk) {
+                        statements.push(stmt);
+                    }
+                    pos = pos + chunk.len();
+                }
+            }
         }
     }
 
+    statements.push(Statement::Directive(Directive::Cnop(Span::default(), Expr::num(bytes.len() as i32), Expr::num(0))));
     Ok(Statements { statements: statements })
+}
+
+fn make_bytes(bytes: &[u8]) -> Vec<Statement> {
+    let mut results = vec![];
+    let mut chunk = vec![];
+    for byte in bytes {
+        if chunk.len() == 16 {
+            results.push(Statement::Directive(Directive::Byte(Span::default(), chunk.clone())));
+            chunk.clear();
+        }
+        chunk.push(Expr::num(*byte as i32));
+    }
+    if chunk.len() > 0 {
+        results.push(Statement::Directive(Directive::Byte(Span::default(), chunk.clone())));
+    }
+    results
 }
 
 fn label_expr(labels: &HashMap<usize,String>, addr: usize) -> Expr {
@@ -495,93 +544,92 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
             },
 
             Br(rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Brf(rel) => {
-                let address = (rel + (next as i32) - 1) as usize;
+                let address = rel16(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bz(rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bnz(rel) => {
-                let address = rel8(*rel, next);// (rel + (next as i32)) as usize;
-                println!("Bnz address (rel={} {:02X}): {} {:04X}", rel, rel, address, address);
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bp(_dir, _b3, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bpc(_dir, _b3, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bn(_dir, _b3, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Dbnz_d9(_dir, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Dbnz_Ri(_ind, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Be_i8(_imm, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Be_d9(_dir, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Be_Rj(_ind, _imm, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bne_i8(_imm, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bne_d9(_dir, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
 
             },
             Bne_Rj(_ind, _imm, rel) => {
-                let address = (rel + (next as i32)) as usize;
+                let address = rel8(*rel, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
@@ -602,7 +650,7 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
                 }
             },
             Callr(r16) => {
-                let address = (r16 + (next as i32) - 1) as usize;
+                let address = rel16(*r16, next);
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
@@ -722,63 +770,63 @@ fn follow(
                 },
 
                 Br(rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::One(address as usize))
                 },
                 Brf(rel) => {
-                    let address = rel + (next as i32) - 1;
+                    let address = rel8(rel, next);
                     Ok(Pos::One(address as usize))
                 },
                 Bz(rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Bnz(rel) => {
-                    let address = rel8(rel, next); //rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Bp(_dir, _b3, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Bpc(_dir, _b3, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Bn(_dir, _b3, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Dbnz_d9(_dir, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Dbnz_Ri(_ind, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Be_i8(_imm, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Be_d9(_dir, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Be_Rj(_ind, _imm, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Bne_i8(_imm, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Bne_d9(_dir, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
                 Bne_Rj(_ind, _imm, rel) => {
-                    let address = rel + (next as i32);
+                    let address = rel8(rel, next);
                     Ok(Pos::Two(address as usize, next))
                 },
 
@@ -786,15 +834,15 @@ fn follow(
                     let top_bits = next & 0xF000;
                     let bottom_bits = (a12 as usize) & 0x0FFF;
                     let address = top_bits | bottom_bits;
-                    Ok(Pos::One(address))
+                    Ok(Pos::Two(address, next))
                 },
                 Callf(a16) => {
                     let address = a16 as usize;
-                    Ok(Pos::One(address))
+                    Ok(Pos::Two(address, next))
                 },
                 Callr(r16) => {
-                    let address = r16 + (next as i32) - 1;
-                    Ok(Pos::One(address as usize))
+                    let address = rel16(r16, next);
+                    Ok(Pos::Two(address as usize, next))
                 },
 
                 Ret => Ok(Pos::None),
@@ -816,7 +864,7 @@ fn follow(
 fn rel16(rel: i32, next: usize) -> usize {
     use std::mem;
     unsafe {
-        let r16 = mem::transmute::<u8, i8>(rel as u16);
+        let r16 = mem::transmute::<u16, i16>(rel as u16);
         ((r16 as i32) + (next as i32) - 1) as usize
     }
 }
@@ -825,7 +873,6 @@ fn rel8(rel: i32, next: usize) -> usize {
     use std::mem;
     unsafe {
         let r8 = mem::transmute::<u8, i8>(rel as u8);
-        println!("rel: {}, r8: {}", rel, r8);
         ((r8 as i32) + (next as i32)) as usize
     }
 }
