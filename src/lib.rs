@@ -21,14 +21,17 @@ pub mod lexer;
 pub mod location;
 pub mod files;
 mod asm;
+mod disasm;
 mod env;
 
+use disasm::DisasmError;
 use location::{Span};
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use std::fs::File;
 use std::io::Write;
 use std::fmt::Display;
+use std::io::Read;
 
 use std::path::Path;
 use asm::AssemblyError;
@@ -54,6 +57,11 @@ pub fn run_command(args: &[String]) {
             (about: DESCRIPTION)
             (@subcommand assemble =>
               (about: "Assembler for the Dreamcast VMU")
+              (@arg INPUT: +required "Sets the input file to assemble")
+              (@arg OUTPUT: -o --output +required +takes_value "Output file")
+             )
+            (@subcommand disassemble =>
+              (about: "Disassembler for the Dreamcast VMU")
               (@arg INPUT: +required "Sets the input file to assemble")
               (@arg OUTPUT: -o --output +required +takes_value "Output file")
              )
@@ -84,10 +92,35 @@ pub fn run_command(args: &[String]) {
                 print_error(&mut files, err, &mut stdout);
             }
         }
+    } else if let Some(matches) = matches.subcommand_matches("disassemble") {
+        let input_file = matches.value_of("INPUT").unwrap();
+        let output_file = matches.value_of("OUTPUT").unwrap();
+        match disassemble_cmd(input_file, output_file) {
+            Ok(_) => {},
+            Err(ref err) => {
+                println!("ERROR: {:?}", err);
+            }
+        }
     } else {
         eprintln!("No subcommand specified");
         std::process::exit(1);
     }
+}
+
+fn disassemble_cmd(filename: &str, output_file: &str) -> Result<(), DisasmError> {
+    let bytes = {
+        let mut file = File::open(filename).map_err(|e| DisasmError::NoSuchFile(filename.to_string(), e))?;
+        let mut contents: Vec<u8> = vec![];
+        file.read_to_end(&mut contents).map_err(|e| DisasmError::NoSuchFile(filename.to_string(), e))?;
+        contents
+    };
+    let entry_points = vec![0];
+    let statements = disasm::disassemble(&entry_points, &bytes)?;
+
+    let mut outfile = File::create(output_file).unwrap();
+    write!(outfile, "{}", statements);
+    writeln!(outfile, "");
+    Ok(())
 }
 
 fn assemble_cmd(mut files: &mut SourceFiles, stdout: &mut ColorWriter, matches: &clap::ArgMatches) -> Result<usize, AssemblyError> {

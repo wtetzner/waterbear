@@ -34,6 +34,16 @@ pub enum Expr {
     LowerByte(Location, Box<Expr>)
 }
 
+impl Expr {
+    pub fn num(num: i32) -> Expr {
+        Expr::Number(Span::default(), num)
+    }
+
+    pub fn name(name: &str) -> Expr {
+        Expr::Name(Span::default(), name.to_owned())
+    }
+}
+
 impl Positioned for Expr {
     fn span(&self) -> Span {
         match self {
@@ -139,7 +149,11 @@ impl fmt::Display for Expr {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            Expr::Number(_, num) => write!(f, "${:X}", num),
+            Expr::Number(_, num) => if *num <= 0xFF {
+                write!(f, "${:02X}", num)
+            } else {
+                write!(f, "${:04X}", num)
+            },
             Expr::UpperByte(_, expr) => {
                 let paren = expr.complex();
                 write!(f, ">")?;

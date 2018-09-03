@@ -20,6 +20,15 @@ impl Location {
         }
     }
 
+    pub fn default() -> Location {
+        Location::new(
+            FileID::new(0),
+            0,
+            1,
+            0
+        )
+    }
+
     pub fn file(&self) -> FileID { self.file }
     pub fn pos(&self) -> usize { self.pos }
     pub fn line(&self) -> usize { self.line }
@@ -48,6 +57,10 @@ impl Span {
             start: start,
             end: end
         }
+    }
+
+    pub fn default() -> Span {
+        Span::new(Location::default(),Location::default())
     }
 
     pub fn from(start: &Span, end: &Span) -> Span {

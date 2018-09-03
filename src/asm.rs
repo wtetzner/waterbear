@@ -113,7 +113,8 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                     pos = pos + 1;
                 }
             },
-            Variable(_, _, _) | Alias(_, _, _) => {}
+            Variable(_, _, _) | Alias(_, _, _) => {},
+            Comment(_) => {}
         }
     }
     Ok(())
@@ -277,7 +278,8 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError>
             Instr(_, instr) => {
                 pos += instr.size() as i32;
             },
-            Variable(_, _name, _expr) | Alias(_, _name, _expr) => {}
+            Variable(_, _name, _expr) | Alias(_, _name, _expr) => {},
+            Comment(_) => {}
         }
     }
     if !locals.contains_key(&current_global) {
@@ -308,7 +310,8 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
                     NameValue { span: statement.span(), value: expr.eval(&env)? }
                 };
                 add_name(name.to_lowercase(), val, &mut globals)?;
-            }
+            },
+            Comment(_) => {}
         }
         if pos > max_pos {
             max_pos = pos;

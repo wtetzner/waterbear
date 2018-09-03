@@ -2,6 +2,7 @@
 use expression::{Expr,EvaluationError};
 use location::{Positioned,Span};
 use env::{Names,Env};
+use std::fmt;
 
 #[derive(Debug)]
 pub enum EncodingError {
@@ -70,10 +71,32 @@ impl IndirectionMode {
             IndirectionMode::R3 => 3
         }
     }
+
+    pub fn from(num: u8) -> IndirectionMode {
+        match num {
+            0 => IndirectionMode::R0,
+            1 => IndirectionMode::R1,
+            2 => IndirectionMode::R2,
+            3 => IndirectionMode::R3,
+            _ => panic!("Invalid IndirectionMode: {}", num)
+        }
+    }
+}
+
+impl fmt::Display for IndirectionMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use instruction::IndirectionMode::*;
+        match self {
+            R0 => write!(f, "@R0"),
+            R1 => write!(f, "@R1"),
+            R2 => write!(f, "@R2"),
+            R3 => write!(f, "@R3")
+        }
+    }
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug,Instruction,Clone)]
+#[derive(Debug,Instruction,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum Instr<Ex,IM> {
     #[instr="10000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Add_i8(Ex),
@@ -239,6 +262,108 @@ pub enum Instr<Ex,IM> {
     Ldf,
     #[instr="01010001"]
     Stf
+}
+
+impl fmt::Display for Instr<Expr,IndirectionMode> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use instruction::Instr::*;
+        match self {
+            Add_i8(imm) => write!(f, "add #{}", imm),
+            Add_d9(d9) => write!(f, "add {}", d9),
+            Add_Ri(im) => write!(f, "add {}", im),
+
+            Addc_i8(imm) => write!(f, "addc #{}", imm),
+            Addc_d9(d9) => write!(f, "addc {}", d9),
+            Addc_Ri(im) => write!(f, "addc {}", im),
+
+            Sub_i8(imm) => write!(f, "sub #{}", imm),
+            Sub_d9(d9) => write!(f, "sub {}", d9),
+            Sub_Ri(im) => write!(f, "sub {}", im),
+
+            Subc_i8(imm) => write!(f, "subc #{}", imm),
+            Subc_d9(d9) => write!(f, "subc {}", d9),
+            Subc_Ri(im) => write!(f, "subc {}", im),
+
+            Inc_d9(d9) => write!(f, "inc {}", d9),
+            Inc_Ri(im) => write!(f, "inc {}", im),
+
+            Dec_d9(d9) => write!(f, "dec {}", d9),
+            Dec_Ri(im) => write!(f, "dec {}", im),
+
+            Mul => write!(f, "mul"),
+            Div => write!(f, "div"),
+
+            And_i8(imm) => write!(f, "and #{}", imm),
+            And_d9(d9) => write!(f, "and {}", d9),
+            And_Ri(im) => write!(f, "and {}", im),
+
+            Or_i8(imm) => write!(f, "or #{}", imm),
+            Or_d9(d9) => write!(f, "or {}", d9),
+            Or_Ri(im) => write!(f, "or {}", im),
+
+            Xor_i8(imm) => write!(f, "xor #{}", imm),
+            Xor_d9(d9) => write!(f, "xor {}", d9),
+            Xor_Ri(im) => write!(f, "xor {}", im),
+
+            Rol => write!(f, "rol"),
+            Rolc => write!(f, "rolc"),
+
+            Ror => write!(f, "ror"),
+            Rorc => write!(f, "rorc"),
+
+            Ld_d9(d9) => write!(f, "ld {}", d9),
+            Ld_Ri(im) => write!(f, "ld {}", im),
+
+            St_d9(d9) => write!(f, "st {}", d9),
+            St_Ri(im) => write!(f, "st {}", im),
+
+            Mov_d9(imm, d9) => write!(f, "mov #{}, {}", imm, d9),
+            Mov_Rj(imm, im) => write!(f, "mov #{}, {}", imm, im),
+
+            Ldc => write!(f, "ldc"),
+
+            Push(d9) => write!(f, "push {}", d9),
+            Pop(d9) => write!(f, "pop {}", d9),
+
+            Xch_d9(d9) => write!(f, "xch {}", d9),
+            Xch_Ri(ri) => write!(f, "xch {}", ri),
+
+            Jmp(a12) => write!(f, "jmp {}", a12),
+            Jmpf(a16) => write!(f, "jmpf {}", a16),
+
+            Br(r8) => write!(f, "br {}", r8),
+            Brf(r16) => write!(f, "brf {}", r16),
+            Bz(r8) => write!(f, "bz {}", r8),
+            Bnz(r8) => write!(f, "bnz {}", r8),
+            Bp(d9, b3, r8) => write!(f, "bp {}, {}, {}", d9, b3, r8),
+            Bpc(d9, b3, r8) => write!(f, "bpc {}, {}, {}", d9, b3, r8),
+            Bn(d9, b3, r8) => write!(f, "bn {}, {}, {}", d9, b3, r8),
+            Dbnz_d9(d9, r8) => write!(f, "dbnz {}, {}", d9, r8),
+            Dbnz_Ri(im, r8) => write!(f, "dbnz {}, {}", im, r8),
+            Be_i8(imm, r8) => write!(f, "be #{}, {}", imm, r8),
+            Be_d9(d9, r8) => write!(f, "be {}, {}", d9, r8),
+            Be_Rj(im, imm, r8) => write!(f, "be {}, #{}, {}", im, imm, r8),
+            Bne_i8(imm, r8) => write!(f, "bne #{}, {}", imm, r8),
+            Bne_d9(d9, r8) => write!(f, "bne {}, {}", d9, r8),
+            Bne_Rj(im, imm, r8) => write!(f, "bne {}, #{}, {}", im, imm, r8),
+
+            Call(a12) => write!(f, "call {}", a12),
+            Callf(a16) => write!(f, "callf {}", a16),
+            Callr(r16) => write!(f, "callr {}", r16),
+
+            Ret => write!(f, "ret"),
+            Reti => write!(f, "reti"),
+
+            Clr1(d9, b3) => write!(f, "clr1 {}, {}", d9, b3),
+            Set1(d9, b3) => write!(f, "set1 {}, {}", d9, b3),
+            Not1(d9, b3) => write!(f, "not1 {}, {}", d9, b3),
+
+            Nop => write!(f, "nop"),
+
+            Ldf => write!(f, "ldf"),
+            Stf => write!(f, "stf")
+        }
+    }
 }
 
 type EncResult<T> = Result<T,EncodingError>;
@@ -462,5 +587,22 @@ mod test {
 
     fn test(instr: Instr<i32,u8>, bytes: Vec<u8>, message: &str) {
         assert_eq!(instr.encode(), bytes, "{}", message);
+    }
+
+    #[test]
+    fn test_decode() {
+        let bytes = vec![0x81, 0xf3];
+        let instr = Instr::Add_i8(0xf3);
+        let decoded = Instr::<i32,u8>::decode(&bytes);
+        assert_eq!(decoded.unwrap(),instr);
+    }
+
+    #[test]
+    fn test_decode2() {
+        let a = 0b000011111111 as i32;
+        let bytes = vec![0b00101000, 0b11111111];
+        let instr = Instr::Jmp(a);
+        let decoded = Instr::<i32,u8>::decode(&bytes);
+        assert_eq!(decoded.unwrap(),instr);
     }
 }

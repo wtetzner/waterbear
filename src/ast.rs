@@ -126,7 +126,8 @@ pub enum Statement {
     Label(Span, String),
     Instr(Span, Instr<Expr,IndirectionMode>),
     Variable(Span, String, Expr),
-    Alias(Span, String, Expr)
+    Alias(Span, String, Expr),
+    Comment(String)
 }
 
 impl Statement {
@@ -135,6 +136,18 @@ impl Statement {
             Statement::Label(_,_) => true,
             _ => false
         }
+    }
+
+    pub fn comment(text: &str) -> Statement {
+        Statement::Comment(text.to_owned())
+    }
+
+    pub fn label(text: &str) -> Statement {
+        Statement::Label(Span::default(), text.to_owned())
+    }
+
+    pub fn instr(instr: Instr<Expr,IndirectionMode>) -> Statement {
+        Statement::Instr(Span::default(), instr)
     }
 }
 
@@ -146,7 +159,8 @@ impl Positioned for Statement {
             Label(span, _) => span.clone(),
             Instr(span,_) => span.clone(),
             Variable(span, _, _) => span.clone(),
-            Alias(span, _, _) => span.clone()
+            Alias(span, _, _) => span.clone(),
+            Comment(_) => Span::default()
         }
     }
 }
@@ -158,14 +172,24 @@ impl fmt::Display for Statement {
                 write!(f, "{}", dir)
             },
             Statement::Label(_, text) => {
-                write!(f, "{}:", text)
+                write!(f, "\n{}:", text)
             },
-            Statement::Instr(_, inst) => write!(f, "  {:?}", inst),
+            Statement::Instr(_, inst) => write!(f, "  {}", inst),
             Statement::Variable(_, name, expr) => {
                 write!(f, "{} = {}", name, expr)
             },
             Statement::Alias(_, name, expr) => {
                 write!(f, "{} EQU {}", name, expr)
+            },
+            Statement::Comment(ref comment) => {
+                if comment.trim().is_empty() {
+                    write!(f, "{}", comment)
+                } else if comment.starts_with("\n") {
+                    writeln!(f, "")?;
+                    write!(f, "; {}", &comment[1..comment.len()])
+                } else {
+                    write!(f, "; {}", comment)
+                }
             }
         }
     }
