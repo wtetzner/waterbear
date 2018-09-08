@@ -1,10 +1,12 @@
 
 use instruction::{Instr,IndirectionMode};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use ast::{Statements,Statement,Directive};
 use location::{Span};
 use expression::{Expr};
 use std;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum DisasmError {
@@ -12,7 +14,32 @@ pub enum DisasmError {
     NoSuchFile(String, std::io::Error)
 }
 
-pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,DisasmError> {
+pub fn disassemble(xor_byte: Option<u8>, entry_points: &[usize], bytes: &[u8]) -> Result<Statements,DisasmError> {
+    let graph = build_instruction_graph(entry_points, bytes);
+    println!("{}", graph);
+    if 9 == 10 - 1 {
+        panic!("exit early");
+    }
+    let new_bytes = {
+        let mut results: Vec<u8> = Vec::with_capacity(bytes.len());
+        for (idx, byte) in bytes.iter().enumerate() {
+            if idx == 0 {
+                results.push(*byte);
+            } else {
+                match xor_byte {
+                    Some(xor) => {
+                        let new_byte: u8 = xor ^ byte;
+                        results.push(new_byte);
+                    },
+                    None => {
+                        results.push(*byte);
+                    }
+                }
+            }
+        }
+        results
+    };
+    let bytes = new_bytes.as_slice();
     let mut seen = vec![false; bytes.len()];
     let mut instrs: HashMap<usize,Instr<i32,u8>> = HashMap::new();
     let mut positions: Vec<usize> = entry_points.iter().map(|val| *val).collect();
@@ -76,8 +103,14 @@ pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,Di
             }
             statements.push(Statement::label(&labels[&pos]));
         }
+        if pos == 0x31CE {
+            println!("instrs.contains_key(&pos): {}", instrs.contains_key(&pos));
+        }
         if instrs.contains_key(&pos) {
             let instr = &instrs[&pos];
+            if pos < 0x31CE && pos > 0x31BF {
+                println!("{:05X} {:?}", pos, instr);
+            }
             let size = instr.size();
             let next = pos + size;
             use instruction::Instr::*;
@@ -336,7 +369,7 @@ pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,Di
                 while pos < bytes.len() && bytes[pos] == 0 && !seen[pos] {
                     pos = pos + 1;
                 }
-            } else {
+            } else if pos < bytes.len() && !seen[pos] && bytes[pos] != 0 {
                 let mut end = pos;
                 while end < bytes.len() && !seen[end] && bytes[end] != 0 {
                     end += 1;
@@ -350,6 +383,10 @@ pub fn disassemble(entry_points: &[usize], bytes: &[u8]) -> Result<Statements,Di
                     }
                     pos = pos + chunk.len();
                 }
+            } else {
+                println!("Expected instruction at 0x{:05X}", pos);
+                pos += 1;
+                //panic!("Expected instruction at 0x{:05X}", pos);
             }
         }
     }
@@ -532,6 +569,9 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
                 let top_bits = next & 0xF000;
                 let bottom_bits = (*abs as usize) & 0x0FFF;
                 let address = (top_bits | bottom_bits) as usize;
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
@@ -539,90 +579,136 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
             Jmpf(abs) => {
                 let address = *abs as usize;
                 if !results.contains_key(&address) {
+                    if address == 0x31C2 {
+                        println!("printing label {:04X}: {:?}", address, instr);
+                    }
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
 
             Br(rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Brf(rel) => {
                 let address = rel16(*rel, next);
+                println!("brf {:04X}", address);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bz(rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bnz(rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bp(_dir, _b3, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bpc(_dir, _b3, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bn(_dir, _b3, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Dbnz_d9(_dir, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Dbnz_Ri(_ind, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Be_i8(_imm, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Be_d9(_dir, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Be_Rj(_ind, _imm, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bne_i8(_imm, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Bne_d9(_dir, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
@@ -630,6 +716,9 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
             },
             Bne_Rj(_ind, _imm, rel) => {
                 let address = rel8(*rel, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
@@ -639,18 +728,27 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
                 let top_bits = next & 0xF000;
                 let bottom_bits = (*a12 as usize) & 0x0FFF;
                 let address = (top_bits | bottom_bits) as usize;
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Callf(a16) => {
                 let address = *a16 as usize;
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
             },
             Callr(r16) => {
                 let address = rel16(*r16, next);
+                if address == 0x31C2 {
+                    println!("printing label {:04X}: {:?}", address, instr);
+                }
                 if !results.contains_key(&address) {
                     results.insert(address, format!("label_{:04X}", address));
                 }
@@ -684,20 +782,30 @@ fn follow(
     instrs: &mut HashMap<usize,Instr<i32,u8>>,
     bytes: &[u8]) -> Result<Pos,DisasmError> {
     if pos >= bytes.len() || seen[pos] {
+        println!("{:04X} ++ exit because seen", pos);
         return Ok(Pos::None);
     }
+    println!("follow({:04X})", pos);
     seen[pos] = true;
 
-    match Instr::<i32,u8>::decode(&bytes[pos..bytes.len()]) {
+    let decoded = Instr::<i32,u8>::decode(&bytes[pos..bytes.len()]);
+    if pos == 12750 || pos == 12752 {
+        println!("{:04X} -- {:?}", pos, decoded);
+    }
+    match decoded {
         Some(instr) => {
             let size = instr.size();
             let next = pos + size;
+            if let Instr::Ld_d9(92) = instr {
+                println!("{:05X} XYZ {:?}", pos, instr);
+            }
             instrs.insert(pos, instr.clone());
             for idx in 0..size {
+                println!("{:04X} && {:04X} - {:?}", pos, pos + idx, instr);
                 seen[pos + idx] = true;
             }
             use instruction::Instr::*;
-            match instr {
+            let results = match instr {
                 Add_i8(_) => Ok(Pos::One(next)),
                 Add_d9(_) => Ok(Pos::One(next)),
                 Add_Ri(_) => Ok(Pos::One(next)),
@@ -765,6 +873,16 @@ fn follow(
                     Ok(Pos::One(address))
                 },
                 Jmpf(abs) => {
+                    if pos >= 2 {
+                        // If the previous instruction was `not1 ext,0`,
+                        // then this jmpf is jumping to flash, not to the
+                        // same ROM. So don't follow the address.
+                        if let Some(Instr::Not1(0x10D, 0)) = instrs.get(&(pos - 2)) {
+                        // if let Some(Instr::Not1(0x10D, 0)) = Instr::<i32,u8>::decode(&bytes[(pos - 2)..]) {
+                            println!("Skipping {:04X}", abs as usize);
+                            return Ok(Pos::None)
+                        }
+                    }
                     let address = abs as usize;
                     Ok(Pos::One(address))
                 },
@@ -775,6 +893,7 @@ fn follow(
                 },
                 Brf(rel) => {
                     let address = rel8(rel, next);
+                    println!("{:04X} flw brf {:04X}", pos, address);
                     Ok(Pos::One(address as usize))
                 },
                 Bz(rel) => {
@@ -855,7 +974,11 @@ fn follow(
                 Nop => Ok(Pos::One(next)),
                 Ldf => Ok(Pos::One(next)),
                 Stf => Ok(Pos::One(next))
+            };
+            if let Instr::Ld_d9(92) = instr {
+                println!("{:04X} {:?}, {:?}", pos, instr, results);
             }
+            results
         },
         None => Err(DisasmError::NoInstruction(pos, bytes[pos]))
     }
@@ -874,5 +997,270 @@ fn rel8(rel: i32, next: usize) -> usize {
     unsafe {
         let r8 = mem::transmute::<u8, i8>(rel as u8);
         ((r8 as i32) + (next as i32)) as usize
+    }
+}
+
+fn targets(pos: usize, instr: &Instr<i32,u8>) -> Vec<usize> {
+    let next = pos + instr.size();
+    use instruction::Instr::*;
+    match instr {
+        Add_i8(_) => vec![next],
+        Add_d9(_) => vec![next],
+        Add_Ri(_) => vec![next],
+
+        Addc_i8(_) => vec![next],
+        Addc_d9(_) => vec![next],
+        Addc_Ri(_) => vec![next],
+
+        Sub_i8(_) => vec![next],
+        Sub_d9(_) => vec![next],
+        Sub_Ri(_) => vec![next],
+
+        Subc_i8(_) => vec![next],
+        Subc_d9(_) => vec![next],
+        Subc_Ri(_) => vec![next],
+
+        Inc_d9(_) => vec![next],
+        Inc_Ri(_) => vec![next],
+
+        Dec_d9(_) => vec![next],
+        Dec_Ri(_) => vec![next],
+
+        Mul => vec![next],
+        Div => vec![next],
+
+        And_i8(_) => vec![next],
+        And_d9(_) => vec![next],
+        And_Ri(_) => vec![next],
+
+        Or_i8(_) => vec![next],
+        Or_d9(_) => vec![next],
+        Or_Ri(_) => vec![next],
+
+        Xor_i8(_) => vec![next],
+        Xor_d9(_) => vec![next],
+        Xor_Ri(_) => vec![next],
+
+        Rol => vec![next],
+        Rolc => vec![next],
+
+        Ror => vec![next],
+        Rorc => vec![next],
+
+        Ld_d9(_) => vec![next],
+        Ld_Ri(_) => vec![next],
+
+        St_d9(_) => vec![next],
+        St_Ri(_) => vec![next],
+
+        Mov_d9(_, _) => vec![next],
+        Mov_Rj(_, _) => vec![next],
+
+        Ldc => vec![next],
+
+        Push(_) => vec![next],
+        Pop(_) => vec![next],
+
+        Xch_d9(_) => vec![next],
+        Xch_Ri(_) => vec![next],
+
+        Jmp(abs) => {
+            let top_bits = next & 0xF000;
+            let bottom_bits = (*abs as usize) & 0x0FFF;
+            let address = top_bits | bottom_bits;
+            vec![address]
+        },
+        Jmpf(abs) => {
+            // if pos >= 2 {
+            //     // If the previous instruction was `not1 ext,0`,
+            //     // then this jmpf is jumping to flash, not to the
+            //     // same ROM. So don't follow the address.
+            //     if let Some(Instr::Not1(0x10D, 0)) = instrs.get(&(pos - 2)) {
+            //         // if let Some(Instr::Not1(0x10D, 0)) = Instr::<i32,u8>::decode(&bytes[(pos - 2)..]) {
+            //         return Ok(vec![])
+            //     }
+            // }
+            let address = *abs as usize;
+            vec![address]
+        },
+
+        Br(rel) => {
+            let address = rel8(*rel, next);
+            vec![address]
+        },
+        Brf(rel) => {
+            let address = rel8(*rel, next);
+            vec![address]
+        },
+        Bz(rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Bnz(rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Bp(_dir, _b3, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Bpc(_dir, _b3, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Bn(_dir, _b3, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Dbnz_d9(_dir, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Dbnz_Ri(_ind, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Be_i8(_imm, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Be_d9(_dir, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Be_Rj(_ind, _imm, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Bne_i8(_imm, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Bne_d9(_dir, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+        Bne_Rj(_ind, _imm, rel) => {
+            let address = rel8(*rel, next);
+            vec![address, next]
+        },
+
+        Call(a12) => {
+            let top_bits = next & 0xF000;
+            let bottom_bits = (*a12 as usize) & 0x0FFF;
+            let address = top_bits | bottom_bits;
+            vec![address, next]
+        },
+        Callf(a16) => {
+            let address = *a16 as usize;
+            vec![address, next]
+        },
+        Callr(r16) => {
+            let address = rel16(*r16, next);
+            vec![address, next]
+        },
+
+        Ret => vec![],
+        Reti => vec![],
+
+        Clr1(_dir, _b3) => vec![next],
+        Set1(_dir, _b3) => vec![next],
+        Not1(_dir, _b3) => vec![next],
+
+        Nop => vec![next],
+        Ldf => vec![next],
+        Stf => vec![next]
+    }
+}
+
+fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionGraph {
+    let mut positions: Vec<usize> = entry_points.iter().map(|x| *x).collect();
+    let mut locs = vec![];
+    let mut graph = InstructionGraph::new();
+    while !positions.is_empty() {
+        locs.clear();
+        locs.append(&mut positions);
+
+        for pos in locs.iter() {
+            let decoded = Instr::<i32,u8>::decode(&bytes[*pos..bytes.len()]);
+            match decoded {
+                Some(instr) => {
+                    let targets = targets(*pos, &instr);
+                    for target in targets.iter() {
+                        graph.jump_to(*pos, *target);
+                    }
+                    graph.instr(*pos, instr);
+                    for target in targets.iter() {
+                        if !graph.contains_instr(*target) {
+                            positions.push(*target);
+                        }
+                    }
+                },
+                None => eprintln!("No instruction at {:04X}", pos)
+            }
+        }
+    }
+    graph
+}
+
+struct InstructionGraph {
+    instrs: HashMap<usize,Instr<i32,u8>>,
+    jump_to: HashMap<usize,HashSet<usize>>,
+    jump_from: HashMap<usize,HashSet<usize>>
+}
+
+impl InstructionGraph {
+    pub fn new() -> InstructionGraph {
+        InstructionGraph {
+            instrs: HashMap::new(),
+            jump_to: HashMap::new(),
+            jump_from: HashMap::new()
+        }
+    }
+
+    pub fn instr(&mut self, pos: usize, instr: Instr<i32,u8>) -> &Instr<i32,u8> {
+        self.instrs.insert(pos, instr);
+        self.instrs.get(&pos).unwrap()
+    }
+
+    pub fn jump_to(&mut self, from: usize, to: usize) {
+        if !self.jump_to.contains_key(&from) {
+            self.jump_to.insert(from, HashSet::new());
+        }
+        self.jump_to.get_mut(&from).unwrap().insert(to);
+        if !self.jump_from.contains_key(&to) {
+            self.jump_from.insert(to, HashSet::new());
+        }
+        self.jump_from.get_mut(&to).unwrap().insert(from);
+    }
+
+    pub fn contains_instr(&self, pos: usize) -> bool {
+        self.instrs.contains_key(&pos)
+    }
+}
+
+impl fmt::Display for InstructionGraph {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "digraph {{")?;
+        writeln!(f, "  forcelabels=true;")?;
+        for pos in self.instrs.keys() {
+            writeln!(f, "  L{:04X} [label=\"{:?}\"];", pos, self.instrs[&pos])?;
+        }
+
+        // for pos in self.instrs.keys() {
+        //     match self.jump_to.get(&pos) {
+        //         Some(set) => {
+        //             for loc in set {
+        //                 writeln!(f, "  L{:04X} -> L{:04X};", pos, loc);
+        //             }
+        //         },
+        //         None => {
+        //             if !self.jump_from.contains_key(&pos) {
+        //                 writeln!(f, "  L{:04X};", pos);
+        //             }
+        //         }
+        //     }
+        // }
+        writeln!(f, "}}")
     }
 }
