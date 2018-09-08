@@ -16,10 +16,10 @@ pub enum DisasmError {
 
 pub fn disassemble(xor_byte: Option<u8>, entry_points: &[usize], bytes: &[u8]) -> Result<Statements,DisasmError> {
     let graph = build_instruction_graph(entry_points, bytes);
-    println!("{}", graph);
-    if 9 == 10 - 1 {
-        panic!("exit early");
-    }
+    // println!("{}", graph);
+    // if 9 == 10 - 1 {
+    //     panic!("exit early");
+    // }
     let new_bytes = {
         let mut results: Vec<u8> = Vec::with_capacity(bytes.len());
         for (idx, byte) in bytes.iter().enumerate() {
@@ -985,19 +985,11 @@ fn follow(
 }
 
 fn rel16(rel: i32, next: usize) -> usize {
-    use std::mem;
-    unsafe {
-        let r16 = mem::transmute::<u16, i16>(rel as u16);
-        ((r16 as i32) + (next as i32) - 1) as usize
-    }
+    (rel + (next as i32) - 1) as usize
 }
 
 fn rel8(rel: i32, next: usize) -> usize {
-    use std::mem;
-    unsafe {
-        let r8 = mem::transmute::<u8, i8>(rel as u8);
-        ((r8 as i32) + (next as i32)) as usize
-    }
+    (rel + (next as i32)) as usize
 }
 
 fn targets(pos: usize, instr: &Instr<i32,u8>) -> Vec<usize> {
@@ -1176,7 +1168,7 @@ fn targets(pos: usize, instr: &Instr<i32,u8>) -> Vec<usize> {
 fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionGraph {
     let mut positions: Vec<usize> = entry_points.iter().map(|x| *x).collect();
     let mut locs = vec![];
-    let mut graph = InstructionGraph::new();
+    let mut graph = InstructionGraph::new(bytes.len());
     while !positions.is_empty() {
         locs.clear();
         locs.append(&mut positions);
@@ -1210,7 +1202,7 @@ struct InstructionGraph {
 }
 
 impl InstructionGraph {
-    pub fn new() -> InstructionGraph {
+    pub fn new(num_bytes: usize) -> InstructionGraph {
         InstructionGraph {
             instrs: HashMap::new(),
             jump_to: HashMap::new(),
@@ -1236,31 +1228,5 @@ impl InstructionGraph {
 
     pub fn contains_instr(&self, pos: usize) -> bool {
         self.instrs.contains_key(&pos)
-    }
-}
-
-impl fmt::Display for InstructionGraph {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "digraph {{")?;
-        writeln!(f, "  forcelabels=true;")?;
-        for pos in self.instrs.keys() {
-            writeln!(f, "  L{:04X} [label=\"{:?}\"];", pos, self.instrs[&pos])?;
-        }
-
-        // for pos in self.instrs.keys() {
-        //     match self.jump_to.get(&pos) {
-        //         Some(set) => {
-        //             for loc in set {
-        //                 writeln!(f, "  L{:04X} -> L{:04X};", pos, loc);
-        //             }
-        //         },
-        //         None => {
-        //             if !self.jump_from.contains_key(&pos) {
-        //                 writeln!(f, "  L{:04X};", pos);
-        //             }
-        //         }
-        //     }
-        // }
-        writeln!(f, "}}")
     }
 }

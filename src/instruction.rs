@@ -264,6 +264,12 @@ pub enum Instr<Ex,IM> {
     Stf
 }
 
+impl Instr<i32,u8> {
+    pub fn decode(bytes: &[u8]) -> Option<Instr<i32,u8>> {
+        Instr::<i32,u8>::decode_raw(bytes).map(|instr| decode_from_raw(instr))
+    }
+}
+
 impl fmt::Display for Instr<Expr,IndirectionMode> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use instruction::Instr::*;
@@ -572,6 +578,120 @@ impl Instr<Expr,IndirectionMode> {
             Stf => Stf
         };
         Ok(val)
+    }
+}
+
+fn decode_from_raw(instr: Instr<i32,u8>) -> Instr<i32,u8> {
+    fn rel16(rel: i32) -> i32 {
+        use std::mem;
+        unsafe {
+            let r16 = mem::transmute::<u16, i16>(rel as u16);
+            r16 as i32
+        }
+    }
+
+    fn rel8(rel: i32) -> i32 {
+        use std::mem;
+        unsafe {
+            let r8 = mem::transmute::<u8, i8>(rel as u8);
+            r8 as i32
+        }
+    }
+    use instruction::Instr::*;
+    match instr {
+        Add_i8(val) => Add_i8(val),
+        Add_d9(val) => Add_d9(val),
+        Add_Ri(val) => Add_Ri(val),
+
+        Addc_i8(val) => Addc_i8(val),
+        Addc_d9(val) => Addc_d9(val),
+        Addc_Ri(val) => Addc_Ri(val),
+
+        Sub_i8(val) => Sub_i8(val),
+        Sub_d9(val) => Sub_d9(val),
+        Sub_Ri(val) => Sub_Ri(val),
+
+        Subc_i8(val) => Subc_i8(val),
+        Subc_d9(val) => Subc_d9(val),
+        Subc_Ri(val) => Subc_Ri(val),
+
+        Inc_d9(val) => Inc_d9(val),
+        Inc_Ri(val) => Inc_Ri(val),
+
+        Dec_d9(val) => Dec_d9(val),
+        Dec_Ri(val) => Dec_Ri(val),
+
+        Mul => Mul,
+        Div => Div,
+
+        And_i8(val) => And_i8(val),
+        And_d9(val) => And_d9(val),
+        And_Ri(val) => And_Ri(val),
+
+        Or_i8(val) => Or_i8(val),
+        Or_d9(val) => Or_d9(val),
+        Or_Ri(val) => Or_Ri(val),
+
+        Xor_i8(val) => Xor_i8(val),
+        Xor_d9(val) => Xor_d9(val),
+        Xor_Ri(val) => Xor_Ri(val),
+
+        Rol => Rol,
+        Rolc => Rolc,
+
+        Ror => Ror,
+        Rorc => Rorc,
+
+        Ld_d9(val) => Ld_d9(val),
+        Ld_Ri(val) => Ld_Ri(val),
+
+        St_d9(val) => St_d9(val),
+        St_Ri(val) => St_Ri(val),
+
+        Mov_d9(val1, val2) => Mov_d9(val1, val2),
+        Mov_Rj(val1, val2) => Mov_Rj(val1, val2),
+
+        Ldc => Ldc,
+
+        Push(val) => Push(val),
+        Pop(val) => Pop(val),
+
+        Xch_d9(val) => Xch_d9(val),
+        Xch_Ri(val) => Xch_Ri(val),
+
+        Jmp(abs) => Jmp(abs),
+        Jmpf(abs) => Jmpf(abs),
+
+        Br(rel) => Br(rel8(rel)),
+        Brf(rel) => Brf(rel8(rel)),
+        Bz(rel) => Bz(rel8(rel)),
+        Bnz(rel) => Bnz(rel8(rel)),
+        Bp(dir, b3, rel) => Bp(dir, b3, rel8(rel)),
+        Bpc(dir, b3, rel) => Bpc(dir, b3, rel8(rel)),
+        Bn(dir, b3, rel) => Bn(dir, b3, rel8(rel)),
+        Dbnz_d9(dir, rel) => Dbnz_d9(dir, rel8(rel)),
+        Dbnz_Ri(ind, rel) => Dbnz_Ri(ind, rel8(rel)),
+        Be_i8(imm, rel) => Be_i8(imm, rel8(rel)),
+        Be_d9(dir, rel) => Be_d9(dir, rel8(rel)),
+        Be_Rj(ind, imm, rel) => Be_Rj(ind, imm, rel8(rel)),
+        Bne_i8(imm, rel) => Bne_i8(imm, rel8(rel)),
+        Bne_d9(dir, rel) => Bne_d9(dir, rel8(rel)),
+        Bne_Rj(ind, imm, rel) => Bne_Rj(ind, imm, rel8(rel)),
+
+        Call(a12) => Call(a12),
+        Callf(a16) => Callf(a16),
+        Callr(r16) => Callr(rel16(r16)),
+
+        Ret => Ret,
+        Reti => Reti,
+
+        Clr1(dir, b3) => Clr1(dir, b3),
+        Set1(dir, b3) => Set1(dir, b3),
+        Not1(dir, b3) => Not1(dir, b3),
+
+        Nop => Nop,
+        Ldf => Ldf,
+        Stf => Stf
     }
 }
 

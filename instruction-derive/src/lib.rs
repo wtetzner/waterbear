@@ -159,7 +159,7 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
                         }
                     }
 
-                    pub fn decode(#bytes_ident: &[u8]) -> Option<#name<i32,u8>> {
+                    fn decode_raw(#bytes_ident: &[u8]) -> Option<#name<i32,u8>> {
                         match #bytes_ident[0] {
                             #(#extractors),* ,
                             _ => None
