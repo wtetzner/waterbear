@@ -227,6 +227,15 @@ fn compute_aliases(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
     names.push_alias("vlreg",  0x167);
     names.push_alias("btcr",   0x17F);
     names.push_alias("xram",   0x180);
+    for loc in 0x100..=0x1FF {
+        if !names.has_alias(loc) {
+            if loc >= 0x180 && loc <= 0x1FB {
+                names.push_alias(format!("xram_{:04x}", loc).as_str(), loc);
+            } else {
+                names.push_alias(format!("sfr_{:04x}", loc).as_str(), loc);
+            }
+        }
+    }
 }
 
 fn compute_labels(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
@@ -922,6 +931,10 @@ impl Names {
 
     pub fn push_psw_bit(&mut self, name: &str, pos: usize) {
         self.psw_bits.insert(pos, name.to_owned());
+    }
+
+    pub fn has_alias(&self, pos: usize) -> bool {
+        self.aliases.contains_key(&pos)
     }
 
     pub fn push_alias(&mut self, name: &str, pos: usize) {
