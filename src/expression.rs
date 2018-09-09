@@ -149,7 +149,9 @@ impl fmt::Display for Expr {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            Expr::Number(_, num) => if *num <= 0xFF {
+            Expr::Number(_, num) => if *num >= 0 && *num <= 9 {
+                write!(f, "{}", num)
+            } else if *num <= 0xFF {
                 write!(f, "${:02X}", num)
             } else {
                 write!(f, "${:04X}", num)

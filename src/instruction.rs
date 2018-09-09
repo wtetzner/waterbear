@@ -663,7 +663,7 @@ fn decode_from_raw(instr: Instr<i32,u8>) -> Instr<i32,u8> {
         Jmpf(abs) => Jmpf(abs),
 
         Br(rel) => Br(rel8(rel)),
-        Brf(rel) => Brf(rel8(rel)),
+        Brf(rel) => Brf(rel16(rel)),
         Bz(rel) => Bz(rel8(rel)),
         Bnz(rel) => Bnz(rel8(rel)),
         Bp(dir, b3, rel) => Bp(dir, b3, rel8(rel)),

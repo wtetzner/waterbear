@@ -64,6 +64,8 @@ pub fn run_command(args: &[String]) {
               (about: "Disassembler for the Dreamcast VMU")
               (@arg INPUT: +required "Sets the input file to assemble")
               (@arg OUTPUT: -o --output +required +takes_value "Output file")
+              (@arg POSITIONS: -p --positions "Output byte positions")
+              (@arg ARRIVED_FROM: -a --arrived_from "Output instruction locations that target each instruction.")
               (@arg XOR: -m --magic_byte +takes_value "Magic byte to undo XOR obfuscation on the input file")
              )
     ).get_matches_from(args);
@@ -96,8 +98,10 @@ pub fn run_command(args: &[String]) {
     } else if let Some(matches) = matches.subcommand_matches("disassemble") {
         let input_file = matches.value_of("INPUT").unwrap();
         let output_file = matches.value_of("OUTPUT").unwrap();
+        let positions = matches.occurrences_of("POSITIONS") > 0;
+        let arrived_from = matches.occurrences_of("ARRIVED_FROM") > 0;
         let xor_byte = matches.value_of("XOR").map(|b| parse_byte(b));
-        match disassemble_cmd(xor_byte, input_file, output_file) {
+        match disassemble_cmd(xor_byte, positions, arrived_from, input_file, output_file) {
             Ok(_) => {},
             Err(ref err) => {
                 println!("ERROR: {:?}", err);
@@ -109,21 +113,33 @@ pub fn run_command(args: &[String]) {
     }
 }
 
-fn disassemble_cmd(xor_byte: Option<u8>, filename: &str, output_file: &str) -> Result<(), DisasmError> {
+fn disassemble_cmd(xor_byte: Option<u8>, positions: bool, arrived_from: bool, filename: &str, output_file: &str) -> Result<(), DisasmError> {
     let bytes = {
         let mut file = File::open(filename).map_err(|e| DisasmError::NoSuchFile(filename.to_string(), e))?;
         let mut contents: Vec<u8> = vec![];
         file.read_to_end(&mut contents).map_err(|e| DisasmError::NoSuchFile(filename.to_string(), e))?;
         contents
     };
-    let entry_points = vec![0
-                            //, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130, 0x1f0
+    let entry_points = vec![0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130, 0x1f0
     ];
-    let statements = disasm::disassemble(xor_byte, &entry_points, &bytes)?;
+    let statements = disasm::disassemble(xor_byte, arrived_from, &entry_points, &bytes)?;
 
     let mut outfile = File::create(output_file).unwrap();
-    write!(outfile, "{}", statements);
-    writeln!(outfile, "");
+    for (loc, stmt, cmt) in statements {
+        if positions {
+            if let Some(pos) = loc {
+                write!(outfile, "{:04X}| ", pos).unwrap();
+            } else {
+                write!(outfile, "    | ").unwrap();
+            }
+        }
+        write!(outfile, "{}", stmt).unwrap();
+        if let Some(comment) = cmt {
+            write!(outfile, " ; {}", comment).unwrap();
+        }
+        writeln!(outfile, "").unwrap();
+    }
+
     Ok(())
 }
 

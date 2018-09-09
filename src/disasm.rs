@@ -6,7 +6,6 @@ use ast::{Statements,Statement,Directive};
 use location::{Span};
 use expression::{Expr};
 use std;
-use std::fmt;
 
 #[derive(Debug)]
 pub enum DisasmError {
@@ -14,12 +13,11 @@ pub enum DisasmError {
     NoSuchFile(String, std::io::Error)
 }
 
-pub fn disassemble(xor_byte: Option<u8>, entry_points: &[usize], bytes: &[u8]) -> Result<Statements,DisasmError> {
-    let graph = build_instruction_graph(entry_points, bytes);
-    // println!("{}", graph);
-    // if 9 == 10 - 1 {
-    //     panic!("exit early");
-    // }
+pub fn disassemble(
+    xor_byte: Option<u8>,
+    arrived_from: bool,
+    entry_points: &[usize],
+    bytes: &[u8]) -> Result<Vec<(Option<usize>,Statement,Option<String>)>,DisasmError> {
     let new_bytes = {
         let mut results: Vec<u8> = Vec::with_capacity(bytes.len());
         for (idx, byte) in bytes.iter().enumerate() {
@@ -40,467 +38,200 @@ pub fn disassemble(xor_byte: Option<u8>, entry_points: &[usize], bytes: &[u8]) -
         results
     };
     let bytes = new_bytes.as_slice();
-    let mut seen = vec![false; bytes.len()];
-    let mut instrs: HashMap<usize,Instr<i32,u8>> = HashMap::new();
-    let mut positions: Vec<usize> = entry_points.iter().map(|val| *val).collect();
-    let mut locs = vec![];
-    while positions.len() > 0 {
-        locs.clear();
-        locs.append(&mut positions);
-
-        for pos in locs.iter() {
-            match follow(*pos, &mut seen, &mut instrs, bytes)? {
-                Pos::One(val) => {
-                    positions.push(val);
-                },
-                Pos::Two(val1, val2) => {
-                    positions.push(val1);
-                    positions.push(val2);
-                },
-                Pos::None => ()
-            }
+    let (graph, names) = {
+        let graph = build_instruction_graph(entry_points, bytes);
+        let names = build_names(&graph);
+        (graph.lift_instrs(lift_instr, &names), names)
+    };
+    let entry_points = {
+        let mut results: HashSet<usize> = HashSet::new();
+        for entry_point in entry_points {
+            results.insert(*entry_point);
         }
-    }
+        results
+    };
 
-    let labels = compute_labels(&instrs);
-    let aliases = compute_aliases(&instrs);
-    let bit_aliases = compute_bit_aliases(&instrs);
-
-    let mut statements = vec![];
-    statements.push(Statement::comment("Special Function Registers"));
-    for key in aliases.keys() {
-        let name = &aliases[key];
-        statements.push(Statement::Alias(
-            Span::default(),
-            name.clone(),
-            Expr::Number(Span::default(), *key as i32)
-        ));
-    }
-
-    statements.push(Statement::comment("\nPSW bits"));
-    for key in bit_aliases.keys() {
-        let name = &bit_aliases[key];
-        statements.push(Statement::Alias(
-            Span::default(),
-            name.clone(),
-            Expr::Number(Span::default(), *key as i32)
-        ));
-    }
-
-    statements.push(Statement::comment("\nStart"));
-    let mut pos: usize = 0;
-    while pos < bytes.len() {
-        let org = pos == 0 || (seen[pos] && !seen[pos - 1]);
-        if org {
-            if pos > 0 {
-                statements.push(Statement::comment(""));
-            }
-            statements.push(Statement::Directive(Directive::Org(Span::default(), pos)));
+    let mut stmts = vec![];
+    for pos in 0..bytes.len() {
+        if entry_points.contains(&pos) {
+            stmts.push((None, Statement::comment(""), None));
+            stmts.push((None, Statement::comment("Entry point"), None));
+            stmts.push((Some(pos), org(pos), None));
         }
-        if labels.contains_key(&pos) {
-            if !org && !seen[pos - 1] {
-                statements.push(Statement::comment(""));
-            }
-            statements.push(Statement::label(&labels[&pos]));
+        if names.contains_label(pos) {
+            stmts.push((None, Statement::label(names.label(pos).unwrap()), None));
         }
-        if pos == 0x31CE {
-            println!("instrs.contains_key(&pos): {}", instrs.contains_key(&pos));
-        }
-        if instrs.contains_key(&pos) {
-            let instr = &instrs[&pos];
-            if pos < 0x31CE && pos > 0x31BF {
-                println!("{:05X} {:?}", pos, instr);
-            }
-            let size = instr.size();
-            let next = pos + size;
-            use instruction::Instr::*;
-            let hinstr = match instr {
-                Add_i8(imm) => Statement::instr(Instr::Add_i8(Expr::num(*imm))),
-                Add_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Add_d9(expr))
-                },
-                Add_Ri(ri) => Statement::instr(Instr::Add_Ri(IndirectionMode::from(*ri))),
-
-                Addc_i8(imm) => Statement::instr(Instr::Addc_i8(Expr::num(*imm))),
-                Addc_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Addc_d9(expr))
-                },
-                Addc_Ri(ri) => Statement::instr(Instr::Addc_Ri(IndirectionMode::from(*ri))),
-
-                Sub_i8(imm) => Statement::instr(Instr::Sub_i8(Expr::num(*imm))),
-                Sub_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Sub_d9(expr))
-                },
-                Sub_Ri(ri) => Statement::instr(Instr::Sub_Ri(IndirectionMode::from(*ri))),
-
-                Subc_i8(imm) => Statement::instr(Instr::Subc_i8(Expr::num(*imm))),
-                Subc_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Subc_d9(expr))
-                },
-                Subc_Ri(ri) => Statement::instr(Instr::Subc_Ri(IndirectionMode::from(*ri))),
-
-                Inc_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Inc_d9(expr))
-                },
-                Inc_Ri(ri) => Statement::instr(Instr::Inc_Ri(IndirectionMode::from(*ri))),
-
-                Dec_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Dec_d9(expr))
-                },
-                Dec_Ri(ri) => Statement::instr(Instr::Dec_Ri(IndirectionMode::from(*ri))),
-
-                Mul => Statement::instr(Instr::Mul),
-                Div => Statement::instr(Instr::Div),
-
-                And_i8(imm) => Statement::instr(Instr::And_i8(Expr::num(*imm))),
-                And_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::And_d9(expr))
-                },
-                And_Ri(ri) => Statement::instr(Instr::And_Ri(IndirectionMode::from(*ri))),
-
-                Or_i8(imm) => Statement::instr(Instr::Or_i8(Expr::num(*imm))),
-                Or_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Or_d9(expr))
-                },
-                Or_Ri(ri) => Statement::instr(Instr::Or_Ri(IndirectionMode::from(*ri))),
-
-                Xor_i8(imm) => Statement::instr(Instr::Xor_i8(Expr::num(*imm))),
-                Xor_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Xor_d9(expr))
-                },
-                Xor_Ri(ri) => Statement::instr(Instr::Xor_Ri(IndirectionMode::from(*ri))),
-
-                Rol => Statement::instr(Instr::Rol),
-                Rolc => Statement::instr(Instr::Rolc),
-
-                Ror => Statement::instr(Instr::Ror),
-                Rorc => Statement::instr(Instr::Rorc),
-
-                Ld_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Ld_d9(expr))
-                },
-                Ld_Ri(ri) => Statement::instr(Instr::Ld_Ri(IndirectionMode::from(*ri))),
-
-                St_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::St_d9(expr))
-                },
-                St_Ri(ri) => Statement::instr(Instr::St_Ri(IndirectionMode::from(*ri))),
-
-                Mov_d9(imm, d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Mov_d9(Expr::num(*imm), expr))
-                },
-                Mov_Rj(imm, ri) => Statement::instr(Instr::Mov_Rj(Expr::num(*imm), IndirectionMode::from(*ri))),
-
-                Ldc => Statement::instr(Instr::Ldc),
-
-                Push(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Push(expr))
-                },
-                Pop(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Pop(expr))
-                },
-
-                Xch_d9(d9) => {
-                    let expr = mem_expr(&aliases, *d9);
-                    Statement::instr(Instr::Xch_d9(expr))
-                },
-                Xch_Ri(ri) => Statement::instr(Instr::Xch_Ri(IndirectionMode::from(*ri))),
-
-                Jmp(abs) => {
-                    let top_bits = next & 0xF000;
-                    let bottom_bits = (*abs as usize) & 0x0FFF;
-                    let address = (top_bits | bottom_bits) as usize;
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Jmp(addr_expr))
-                },
-                Jmpf(abs) => {
-                    let address = *abs as usize;
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Jmpf(addr_expr))
-                },
-
-                Br(rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Br(addr_expr))
-                },
-                Brf(rel) => {
-                    let address = rel16(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Brf(addr_expr))
-                },
-                Bz(rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Bz(addr_expr))
-                },
-                Bnz(rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Bnz(addr_expr))
-                },
-                Bp(dir, b3, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let d9 = mem_expr(&aliases, *dir);
-                    let bits = bits_expr(&bit_aliases, *dir, *b3);
-                    Statement::instr(Instr::Bp(d9, bits, addr_expr))
-                },
-                Bpc(dir, b3, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let d9 = mem_expr(&aliases, *dir);
-                    let bits = bits_expr(&bit_aliases, *dir, *b3);
-                    Statement::instr(Instr::Bpc(d9, bits, addr_expr))
-                },
-                Bn(dir, b3, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let d9 = mem_expr(&aliases, *dir);
-                    let bits = bits_expr(&bit_aliases, *dir, *b3);
-                    Statement::instr(Instr::Bn(d9, bits, addr_expr))
-                },
-                Dbnz_d9(dir, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let d9 = mem_expr(&aliases, *dir);
-                    Statement::instr(Instr::Dbnz_d9(d9, addr_expr))
-                },
-                Dbnz_Ri(ind, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let im = IndirectionMode::from(*ind);
-                    Statement::instr(Instr::Dbnz_Ri(im, addr_expr))
-                },
-                Be_i8(imm, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Be_i8(Expr::num(*imm), addr_expr))
-                },
-                Be_d9(dir, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let d9 = mem_expr(&aliases, *dir);
-                    Statement::instr(Instr::Be_d9(d9, addr_expr))
-                },
-                Be_Rj(ind, imm, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let im = IndirectionMode::from(*ind);
-                    Statement::instr(Instr::Be_Rj(im, Expr::num(*imm), addr_expr))
-                },
-                Bne_i8(imm, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Bne_i8(Expr::num(*imm), addr_expr))
-                },
-                Bne_d9(dir, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let d9 = mem_expr(&aliases, *dir);
-                    Statement::instr(Instr::Bne_d9(d9, addr_expr))
-                },
-                Bne_Rj(ind, imm, rel) => {
-                    let address = rel8(*rel, next);
-                    let addr_expr = label_expr(&labels, address);
-                    let im = IndirectionMode::from(*ind);
-                    Statement::instr(Instr::Bne_Rj(im, Expr::num(*imm), addr_expr))
-                },
-
-                Call(a12) => {
-                    let top_bits = next & 0xF000;
-                    let bottom_bits = (*a12 as usize) & 0x0FFF;
-                    let address = (top_bits | bottom_bits) as usize;
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Call(addr_expr))
-                },
-                Callf(a16) => {
-                    let address = *a16 as usize;
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Callf(addr_expr))
-                },
-                Callr(r16) => {
-                    let address = rel16(*r16, next);
-                    let addr_expr = label_expr(&labels, address);
-                    Statement::instr(Instr::Callr(addr_expr))
-                },
-
-                Ret => Statement::instr(Instr::Ret),
-                Reti => Statement::instr(Instr::Reti),
-
-                Clr1(dir, b3) => {
-                    let d9 = mem_expr(&aliases, *dir);
-                    let bits = bits_expr(&bit_aliases, *dir, *b3);
-                    Statement::instr(Instr::Clr1(d9, bits))
-                },
-                Set1(dir, b3) => {
-                    let d9 = mem_expr(&aliases, *dir);
-                    let bits = bits_expr(&bit_aliases, *dir, *b3);
-                    Statement::instr(Instr::Set1(d9, bits))
-                },
-                Not1(dir, b3) => {
-                    let d9 = mem_expr(&aliases, *dir);
-                    let bits = bits_expr(&bit_aliases, *dir, *b3);
-                    Statement::instr(Instr::Not1(d9, bits))
-                },
-
-                Nop => Statement::instr(Instr::Nop),
-                Ldf => Statement::instr(Instr::Ldf),
-                Stf => Statement::instr(Instr::Stf)
-            };
-            statements.push(hinstr);
-            pos = next;
-        } else {
-            if bytes[pos] == 0 && !seen[pos] {
-                while pos < bytes.len() && bytes[pos] == 0 && !seen[pos] {
-                    pos = pos + 1;
-                }
-            } else if pos < bytes.len() && !seen[pos] && bytes[pos] != 0 {
-                let mut end = pos;
-                while end < bytes.len() && !seen[end] && bytes[end] != 0 {
-                    end += 1;
-                }
-                let chunk = &bytes[pos..end];
-                if !chunk.is_empty() {
-                    statements.push(Statement::comment(""));
-                    statements.push(Statement::Directive(Directive::Org(Span::default(), pos)));
-                    for stmt in make_bytes(chunk) {
-                        statements.push(stmt);
+        println!("{:04X}:", pos);
+        if let Some(instr) = graph.instrs().get(&pos) {
+            println!("  {}", instr);
+            let overlaps = graph.find_overlaps(pos);
+            if !overlaps.is_empty() {
+                let mut comment = "Overlaps with: ".to_owned();
+                let mut first = true;
+                for overlap in overlaps {
+                    if first {
+                        first = false;
+                    } else {
+                        comment.push_str(", ");
                     }
-                    pos = pos + chunk.len();
+                    comment.push_str(format!("{:04X}", overlap).as_str());
+                }
+                stmts.push((None, Statement::comment(comment.as_str()), None));
+            }
+            let comment = if let Some(set) = graph.jump_from.get(&pos) {
+                if arrived_from && !set.is_empty() {
+                    let mut vec: Vec<usize> = set.iter().map(|v| *v).collect();
+                    vec.sort();
+                    let mut comment = "Arrived from: ".to_owned();
+                    let mut first = true;
+                    for from in vec {
+                        if first {
+                            first = false;
+                        } else {
+                            comment.push_str(", ");
+                        }
+                        comment.push_str(format!("{:04X}", from).as_str());
+                    }
+                    Some(comment)
+                } else {
+                    None
                 }
             } else {
-                println!("Expected instruction at 0x{:05X}", pos);
-                pos += 1;
-                //panic!("Expected instruction at 0x{:05X}", pos);
-            }
+                None
+            };
+            stmts.push((Some(pos), Statement::instr(instr.clone()), comment));
         }
     }
 
-    statements.push(Statement::Directive(Directive::Cnop(Span::default(), Expr::num(bytes.len() as i32), Expr::num(0))));
-    Ok(Statements { statements: statements })
+    stmts.push((None, Statement::comment("\nPad size of binary"), None));
+    stmts.push((None, Statement::Directive(Directive::Cnop(Span::default(), Expr::num((bytes.len() % 0x200) as i32), Expr::num(0x200))), None));
+
+    stmts.push((None, Statement::comment("\nPSW bits"), None));
+    for (name, value) in names.sorted_psw_bits() {
+        stmts.push((None, Statement::Alias(Span::default(), name, Expr::num(value as i32)), None));
+    }
+
+    stmts.push((None, Statement::comment("\nSpecial Function Registers"), None));
+    for (name, value) in names.sorted_aliases() {
+        stmts.push((None, Statement::Alias(Span::default(), name, Expr::num(value as i32)), None));
+    }
+
+    Ok(stmts)
 }
 
-fn make_bytes(bytes: &[u8]) -> Vec<Statement> {
+fn org(pos: usize) -> Statement {
+    Statement::Directive(Directive::Org(Span::default(), pos))
+}
+
+fn make_bytes(bytes: &[u8]) -> Vec<(Option<usize>,Statement,Option<String>)> {
     let mut results = vec![];
     let mut chunk = vec![];
     for byte in bytes {
         if chunk.len() == 16 {
-            results.push(Statement::Directive(Directive::Byte(Span::default(), chunk.clone())));
+            results.push((None, Statement::Directive(Directive::Byte(Span::default(), chunk.clone())), None));
             chunk.clear();
         }
         chunk.push(Expr::num(*byte as i32));
     }
     if chunk.len() > 0 {
-        results.push(Statement::Directive(Directive::Byte(Span::default(), chunk.clone())));
+        results.push((None, Statement::Directive(Directive::Byte(Span::default(), chunk.clone())), None));
     }
     results
 }
 
-fn label_expr(labels: &HashMap<usize,String>, addr: usize) -> Expr {
-    labels.get(&addr).map(|name| Expr::name(name)).unwrap_or(Expr::num(addr as i32))
+fn label_expr(names: &Names, addr: usize) -> Expr {
+    names.label(addr).map(|name| Expr::name(name)).unwrap_or(Expr::num(addr as i32))
 }
 
-fn mem_expr(aliases: &HashMap<usize,String>, addr: i32) -> Expr {
-    aliases.get(&(addr as usize)).map(|name| Expr::name(name)).unwrap_or(Expr::num(addr as i32))
+fn mem_expr(names: &Names, addr: i32) -> Expr {
+    names.alias(addr as usize).map(|name| Expr::name(name)).unwrap_or(Expr::num(addr as i32))
 }
 
-fn bits_expr(bit_aliases: &HashMap<usize,String>, mem: i32, addr: i32) -> Expr {
+fn bits_expr(names: &Names, mem: i32, addr: i32) -> Expr {
     if mem == 0x0101 {
-        bit_aliases.get(&(addr as usize)).map(|name| Expr::name(name)).unwrap_or(Expr::num(addr as i32))
+        names.psw_bit(addr as usize).map(|name| Expr::name(name)).unwrap_or(Expr::num(addr as i32))
     } else {
         Expr::num(addr as i32)
     }
 }
 
-fn compute_bit_aliases(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String> {
-    let mut results: HashMap<usize,String> = HashMap::new();
-    results.insert(7, "cy".to_owned());
-    results.insert(6, "ac".to_owned());
-    results.insert(4, "irbk1".to_owned());
-    results.insert(3, "irbk0".to_owned());
-    results.insert(2, "ov".to_owned());
-    results.insert(1, "rambk0".to_owned());
-    results.insert(0, "p".to_owned());
-    results
+fn build_names(graph: &InstructionGraph<i32,u8>) -> Names {
+    let mut names = Names::new();
+    compute_bit_aliases(graph, &mut names);
+    compute_aliases(graph, &mut names);
+    compute_labels(graph, &mut names);
+    names
 }
 
-fn compute_aliases(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String> {
-    let mut results: HashMap<usize,String> = HashMap::new();
-    results.insert(0x100, "acc".to_owned());
-    results.insert(0x101, "psw".to_owned());
-    results.insert(0x102, "b".to_owned());
-    results.insert(0x103, "c".to_owned());
-    results.insert(0x104, "trl".to_owned());
-    results.insert(0x105, "trh".to_owned());
-    results.insert(0x106, "sp".to_owned());
-    results.insert(0x107, "pcon".to_owned());
-    results.insert(0x108, "ie".to_owned());
-    results.insert(0x109, "ip".to_owned());
-    results.insert(0x10D, "ext".to_owned());
-    results.insert(0x10E, "ocr".to_owned());
-    results.insert(0x110, "t0con".to_owned());
-    results.insert(0x111, "t0prr".to_owned());
-    results.insert(0x112, "t0l".to_owned());
-    results.insert(0x113, "t0lr".to_owned());
-    results.insert(0x114, "t0h".to_owned());
-    results.insert(0x115, "t0hr".to_owned());
-    results.insert(0x118, "t1cnt".to_owned());
-    results.insert(0x11A, "t1lc".to_owned());
-    results.insert(0x11B, "t1l".to_owned());
-    results.insert(0x11B, "t1lr".to_owned());
-    results.insert(0x11C, "t1hc".to_owned());
-    results.insert(0x11D, "t1h".to_owned());
-    results.insert(0x11D, "t1hr".to_owned());
-    results.insert(0x120, "mcr".to_owned());
-    results.insert(0x122, "stad".to_owned());
-    results.insert(0x123, "cnr".to_owned());
-    results.insert(0x124, "tdr".to_owned());
-    results.insert(0x125, "xbnk".to_owned());
-    results.insert(0x127, "vccr".to_owned());
-    results.insert(0x130, "scon0".to_owned());
-    results.insert(0x131, "sbuf0".to_owned());
-    results.insert(0x132, "sbr".to_owned());
-    results.insert(0x134, "scon1".to_owned());
-    results.insert(0x135, "sbuf1".to_owned());
-    results.insert(0x144, "p1".to_owned());
-    results.insert(0x145, "p1ddr".to_owned());
-    results.insert(0x146, "p1fcr".to_owned());
-    results.insert(0x14C, "p3".to_owned());
-    results.insert(0x14D, "p3ddr".to_owned());
-    results.insert(0x14E, "p3int".to_owned());
-    results.insert(0x15C, "p7".to_owned());
-    results.insert(0x15D, "i01cr".to_owned());
-    results.insert(0x15E, "i23cr".to_owned());
-    results.insert(0x15F, "isl".to_owned());
-    results.insert(0x163, "vsel".to_owned());
-    results.insert(0x164, "vrmad1".to_owned());
-    results.insert(0x165, "vrmad2".to_owned());
-    results.insert(0x166, "vtrbf".to_owned());
-    results.insert(0x167, "vlreg".to_owned());
-    results.insert(0x17F, "btcr".to_owned());
-    results.insert(0x180, "xram".to_owned());
-    results
+fn compute_bit_aliases(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
+    names.push_psw_bit("cy",     7);
+    names.push_psw_bit("ac",     6);
+    names.push_psw_bit("irbk1",  4);
+    names.push_psw_bit("irbk0",  3);
+    names.push_psw_bit("ov",     2);
+    names.push_psw_bit("rambk0", 1);
+    names.push_psw_bit("p",      0);
 }
 
-fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String> {
-    let mut results: HashMap<usize,String> = HashMap::new();
-    for pos in instrs.keys() {
-        let instr = &instrs[pos];
+fn compute_aliases(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
+    names.push_alias("acc",    0x100);
+    names.push_alias("psw",    0x101);
+    names.push_alias("b",      0x102);
+    names.push_alias("c",      0x103);
+    names.push_alias("trl",    0x104);
+    names.push_alias("trh",    0x105);
+    names.push_alias("sp",     0x106);
+    names.push_alias("pcon",   0x107);
+    names.push_alias("ie",     0x108);
+    names.push_alias("ip",     0x109);
+    names.push_alias("ext",    0x10D);
+    names.push_alias("ocr",    0x10E);
+    names.push_alias("t0con",  0x110);
+    names.push_alias("t0prr",  0x111);
+    names.push_alias("t0l",    0x112);
+    names.push_alias("t0lr",   0x113);
+    names.push_alias("t0h",    0x114);
+    names.push_alias("t0hr",   0x115);
+    names.push_alias("t1cnt",  0x118);
+    names.push_alias("t1lc",   0x11A);
+    names.push_alias("t1l",    0x11B);
+    names.push_alias("t1lr",   0x11B);
+    names.push_alias("t1hc",   0x11C);
+    names.push_alias("t1h",    0x11D);
+    names.push_alias("t1hr",   0x11D);
+    names.push_alias("mcr",    0x120);
+    names.push_alias("stad",   0x122);
+    names.push_alias("cnr",    0x123);
+    names.push_alias("tdr",    0x124);
+    names.push_alias("xbnk",   0x125);
+    names.push_alias("vccr",   0x127);
+    names.push_alias("scon0",  0x130);
+    names.push_alias("sbuf0",  0x131);
+    names.push_alias("sbr",    0x132);
+    names.push_alias("scon1",  0x134);
+    names.push_alias("sbuf1",  0x135);
+    names.push_alias("p1",     0x144);
+    names.push_alias("p1ddr",  0x145);
+    names.push_alias("p1fcr",  0x146);
+    names.push_alias("p3",     0x14C);
+    names.push_alias("p3ddr",  0x14D);
+    names.push_alias("p3int",  0x14E);
+    names.push_alias("p7",     0x15C);
+    names.push_alias("i01cr",  0x15D);
+    names.push_alias("i23cr",  0x15E);
+    names.push_alias("isl",    0x15F);
+    names.push_alias("vsel",   0x163);
+    names.push_alias("vrmad1", 0x164);
+    names.push_alias("vrmad2", 0x165);
+    names.push_alias("vtrbf",  0x166);
+    names.push_alias("vlreg",  0x167);
+    names.push_alias("btcr",   0x17F);
+    names.push_alias("xram",   0x180);
+}
+
+fn compute_labels(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
+    for pos in graph.instrs().keys() {
+        let instr = &graph.instrs()[pos];
         let size = instr.size();
         let next = pos + size;
         use instruction::Instr::*;
@@ -569,189 +300,100 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
                 let top_bits = next & 0xF000;
                 let bottom_bits = (*abs as usize) & 0x0FFF;
                 let address = (top_bits | bottom_bits) as usize;
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Jmpf(abs) => {
                 let address = *abs as usize;
-                if !results.contains_key(&address) {
-                    if address == 0x31C2 {
-                        println!("printing label {:04X}: {:?}", address, instr);
+                let mut gen_label = true;
+                if *pos >= 2 {
+                    // If the previous instruction was `not1 ext,0`,
+                    // then this jmpf is jumping to flash, not to the
+                    // same ROM. So don't use a label here.
+                    if let Some(Instr::Not1(0x10D, 0)) = graph.instrs().get(&(pos - 2)) {
+                        if graph.instr_arrived_from(*pos, *pos - 2) {
+                            gen_label = false;
+                        }
                     }
-                    results.insert(address, format!("label_{:04X}", address));
+                }
+                if gen_label {
+                    names.gen_label(address);
                 }
             },
 
             Br(rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Brf(rel) => {
                 let address = rel16(*rel, next);
-                println!("brf {:04X}", address);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Bz(rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Bnz(rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Bp(_dir, _b3, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Bpc(_dir, _b3, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Bn(_dir, _b3, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Dbnz_d9(_dir, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Dbnz_Ri(_ind, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Be_i8(_imm, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Be_d9(_dir, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Be_Rj(_ind, _imm, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Bne_i8(_imm, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Bne_d9(_dir, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
-
+                names.gen_label(address);
             },
             Bne_Rj(_ind, _imm, rel) => {
                 let address = rel8(*rel, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
 
             Call(a12) => {
                 let top_bits = next & 0xF000;
                 let bottom_bits = (*a12 as usize) & 0x0FFF;
                 let address = (top_bits | bottom_bits) as usize;
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Callf(a16) => {
                 let address = *a16 as usize;
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
             Callr(r16) => {
                 let address = rel16(*r16, next);
-                if address == 0x31C2 {
-                    println!("printing label {:04X}: {:?}", address, instr);
-                }
-                if !results.contains_key(&address) {
-                    results.insert(address, format!("label_{:04X}", address));
-                }
+                names.gen_label(address);
             },
 
             Ret => (),
@@ -766,221 +408,268 @@ fn compute_labels(instrs: &HashMap<usize,Instr<i32,u8>>) -> HashMap<usize,String
             Stf => ()
         }
     }
-    results
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
-enum Pos {
-    One(usize),
-    Two(usize, usize),
-    None
-}
-
-fn follow(
-    pos: usize,
-    seen: &mut Vec<bool>,
-    instrs: &mut HashMap<usize,Instr<i32,u8>>,
-    bytes: &[u8]) -> Result<Pos,DisasmError> {
-    if pos >= bytes.len() || seen[pos] {
-        println!("{:04X} ++ exit because seen", pos);
-        return Ok(Pos::None);
-    }
-    println!("follow({:04X})", pos);
-    seen[pos] = true;
-
-    let decoded = Instr::<i32,u8>::decode(&bytes[pos..bytes.len()]);
-    if pos == 12750 || pos == 12752 {
-        println!("{:04X} -- {:?}", pos, decoded);
-    }
-    match decoded {
-        Some(instr) => {
-            let size = instr.size();
-            let next = pos + size;
-            if let Instr::Ld_d9(92) = instr {
-                println!("{:05X} XYZ {:?}", pos, instr);
-            }
-            instrs.insert(pos, instr.clone());
-            for idx in 0..size {
-                println!("{:04X} && {:04X} - {:?}", pos, pos + idx, instr);
-                seen[pos + idx] = true;
-            }
-            use instruction::Instr::*;
-            let results = match instr {
-                Add_i8(_) => Ok(Pos::One(next)),
-                Add_d9(_) => Ok(Pos::One(next)),
-                Add_Ri(_) => Ok(Pos::One(next)),
-
-                Addc_i8(_) => Ok(Pos::One(next)),
-                Addc_d9(_) => Ok(Pos::One(next)),
-                Addc_Ri(_) => Ok(Pos::One(next)),
-
-                Sub_i8(_) => Ok(Pos::One(next)),
-                Sub_d9(_) => Ok(Pos::One(next)),
-                Sub_Ri(_) => Ok(Pos::One(next)),
-
-                Subc_i8(_) => Ok(Pos::One(next)),
-                Subc_d9(_) => Ok(Pos::One(next)),
-                Subc_Ri(_) => Ok(Pos::One(next)),
-
-                Inc_d9(_) => Ok(Pos::One(next)),
-                Inc_Ri(_) => Ok(Pos::One(next)),
-
-                Dec_d9(_) => Ok(Pos::One(next)),
-                Dec_Ri(_) => Ok(Pos::One(next)),
-
-                Mul => Ok(Pos::One(next)),
-                Div => Ok(Pos::One(next)),
-
-                And_i8(_) => Ok(Pos::One(next)),
-                And_d9(_) => Ok(Pos::One(next)),
-                And_Ri(_) => Ok(Pos::One(next)),
-
-                Or_i8(_) => Ok(Pos::One(next)),
-                Or_d9(_) => Ok(Pos::One(next)),
-                Or_Ri(_) => Ok(Pos::One(next)),
-
-                Xor_i8(_) => Ok(Pos::One(next)),
-                Xor_d9(_) => Ok(Pos::One(next)),
-                Xor_Ri(_) => Ok(Pos::One(next)),
-
-                Rol => Ok(Pos::One(next)),
-                Rolc => Ok(Pos::One(next)),
-
-                Ror => Ok(Pos::One(next)),
-                Rorc => Ok(Pos::One(next)),
-
-                Ld_d9(_) => Ok(Pos::One(next)),
-                Ld_Ri(_) => Ok(Pos::One(next)),
-
-                St_d9(_) => Ok(Pos::One(next)),
-                St_Ri(_) => Ok(Pos::One(next)),
-
-                Mov_d9(_, _) => Ok(Pos::One(next)),
-                Mov_Rj(_, _) => Ok(Pos::One(next)),
-
-                Ldc => Ok(Pos::One(next)),
-
-                Push(_) => Ok(Pos::One(next)),
-                Pop(_) => Ok(Pos::One(next)),
-
-                Xch_d9(_) => Ok(Pos::One(next)),
-                Xch_Ri(_) => Ok(Pos::One(next)),
-
-                Jmp(abs) => {
-                    let top_bits = next & 0xF000;
-                    let bottom_bits = (abs as usize) & 0x0FFF;
-                    let address = top_bits | bottom_bits;
-                    Ok(Pos::One(address))
-                },
-                Jmpf(abs) => {
-                    if pos >= 2 {
-                        // If the previous instruction was `not1 ext,0`,
-                        // then this jmpf is jumping to flash, not to the
-                        // same ROM. So don't follow the address.
-                        if let Some(Instr::Not1(0x10D, 0)) = instrs.get(&(pos - 2)) {
-                        // if let Some(Instr::Not1(0x10D, 0)) = Instr::<i32,u8>::decode(&bytes[(pos - 2)..]) {
-                            println!("Skipping {:04X}", abs as usize);
-                            return Ok(Pos::None)
-                        }
-                    }
-                    let address = abs as usize;
-                    Ok(Pos::One(address))
-                },
-
-                Br(rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::One(address as usize))
-                },
-                Brf(rel) => {
-                    let address = rel8(rel, next);
-                    println!("{:04X} flw brf {:04X}", pos, address);
-                    Ok(Pos::One(address as usize))
-                },
-                Bz(rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Bnz(rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Bp(_dir, _b3, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Bpc(_dir, _b3, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Bn(_dir, _b3, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Dbnz_d9(_dir, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Dbnz_Ri(_ind, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Be_i8(_imm, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Be_d9(_dir, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Be_Rj(_ind, _imm, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Bne_i8(_imm, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Bne_d9(_dir, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-                Bne_Rj(_ind, _imm, rel) => {
-                    let address = rel8(rel, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-
-                Call(a12) => {
-                    let top_bits = next & 0xF000;
-                    let bottom_bits = (a12 as usize) & 0x0FFF;
-                    let address = top_bits | bottom_bits;
-                    Ok(Pos::Two(address, next))
-                },
-                Callf(a16) => {
-                    let address = a16 as usize;
-                    Ok(Pos::Two(address, next))
-                },
-                Callr(r16) => {
-                    let address = rel16(r16, next);
-                    Ok(Pos::Two(address as usize, next))
-                },
-
-                Ret => Ok(Pos::None),
-                Reti => Ok(Pos::None),
-
-                Clr1(_dir, _b3) => Ok(Pos::One(next)),
-                Set1(_dir, _b3) => Ok(Pos::One(next)),
-                Not1(_dir, _b3) => Ok(Pos::One(next)),
-
-                Nop => Ok(Pos::One(next)),
-                Ldf => Ok(Pos::One(next)),
-                Stf => Ok(Pos::One(next))
-            };
-            if let Instr::Ld_d9(92) = instr {
-                println!("{:04X} {:?}, {:?}", pos, instr, results);
-            }
-            results
+fn lift_instr(pos: usize, graph: &InstructionGraph<i32,u8>, instr: &Instr<i32,u8>, names: &Names) -> Instr<Expr,IndirectionMode> {
+    let next = pos + instr.size();
+    use instruction::Instr::*;
+    match instr {
+        Add_i8(imm) => Add_i8(Expr::num(*imm)),
+        Add_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Add_d9(expr)
         },
-        None => Err(DisasmError::NoInstruction(pos, bytes[pos]))
+        Add_Ri(ri) => Add_Ri(IndirectionMode::from(*ri)),
+
+        Addc_i8(imm) => Addc_i8(Expr::num(*imm)),
+        Addc_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Addc_d9(expr)
+        },
+        Addc_Ri(ri) => Addc_Ri(IndirectionMode::from(*ri)),
+
+        Sub_i8(imm) => Sub_i8(Expr::num(*imm)),
+        Sub_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Sub_d9(expr)
+        },
+        Sub_Ri(ri) => Sub_Ri(IndirectionMode::from(*ri)),
+
+        Subc_i8(imm) => Subc_i8(Expr::num(*imm)),
+        Subc_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Subc_d9(expr)
+        },
+        Subc_Ri(ri) => Subc_Ri(IndirectionMode::from(*ri)),
+
+        Inc_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Inc_d9(expr)
+        },
+        Inc_Ri(ri) => Inc_Ri(IndirectionMode::from(*ri)),
+
+        Dec_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Dec_d9(expr)
+        },
+        Dec_Ri(ri) => Dec_Ri(IndirectionMode::from(*ri)),
+
+        Mul => Mul,
+        Div => Div,
+
+        And_i8(imm) => And_i8(Expr::num(*imm)),
+        And_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            And_d9(expr)
+        },
+        And_Ri(ri) => And_Ri(IndirectionMode::from(*ri)),
+
+        Or_i8(imm) => Or_i8(Expr::num(*imm)),
+        Or_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Or_d9(expr)
+        },
+        Or_Ri(ri) => Or_Ri(IndirectionMode::from(*ri)),
+
+        Xor_i8(imm) => Xor_i8(Expr::num(*imm)),
+        Xor_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Xor_d9(expr)
+        },
+        Xor_Ri(ri) => Xor_Ri(IndirectionMode::from(*ri)),
+
+        Rol => Rol,
+        Rolc => Rolc,
+
+        Ror => Ror,
+        Rorc => Rorc,
+
+        Ld_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Ld_d9(expr)
+        },
+        Ld_Ri(ri) => Ld_Ri(IndirectionMode::from(*ri)),
+
+        St_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            St_d9(expr)
+        },
+        St_Ri(ri) => St_Ri(IndirectionMode::from(*ri)),
+
+        Mov_d9(imm, d9) => {
+            let expr = mem_expr(names, *d9);
+            Mov_d9(Expr::num(*imm), expr)
+        },
+        Mov_Rj(imm, ri) => Mov_Rj(Expr::num(*imm), IndirectionMode::from(*ri)),
+
+        Ldc => Ldc,
+
+        Push(d9) => {
+            let expr = mem_expr(names, *d9);
+            Push(expr)
+        },
+        Pop(d9) => {
+            let expr = mem_expr(names, *d9);
+            Pop(expr)
+        },
+
+        Xch_d9(d9) => {
+            let expr = mem_expr(names, *d9);
+            Xch_d9(expr)
+        },
+        Xch_Ri(ri) => Xch_Ri(IndirectionMode::from(*ri)),
+
+        Jmp(abs) => {
+            let top_bits = next & 0xF000;
+            let bottom_bits = (*abs as usize) & 0x0FFF;
+            let address = (top_bits | bottom_bits) as usize;
+            let addr_expr = label_expr(names, address);
+            Jmp(addr_expr)
+        },
+        Jmpf(abs) => {
+            let address = *abs as usize;
+            if pos >= 2 {
+                // If the previous instruction was `not1 ext,0`,
+                // then this jmpf is jumping to flash, not to the
+                // same ROM. So don't use a label here.
+                if let Some(Not1(0x10D, 0)) = graph.instrs().get(&(pos - 2)) {
+                    if graph.instr_arrived_from(pos, pos - 2) {
+                        return Jmpf(Expr::num(address as i32))
+                    }
+                }
+            }
+            let addr_expr = label_expr(names, address);
+            Jmpf(addr_expr)
+        },
+
+        Br(rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            Br(addr_expr)
+        },
+        Brf(rel) => {
+            let address = rel16(*rel, next);
+            let addr_expr = label_expr(names, address);
+            Brf(addr_expr)
+        },
+        Bz(rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            Bz(addr_expr)
+        },
+        Bnz(rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            Bnz(addr_expr)
+        },
+        Bp(dir, b3, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let d9 = mem_expr(names, *dir);
+            let bits = bits_expr(names, *dir, *b3);
+            Bp(d9, bits, addr_expr)
+        },
+        Bpc(dir, b3, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let d9 = mem_expr(names, *dir);
+            let bits = bits_expr(names, *dir, *b3);
+            Bpc(d9, bits, addr_expr)
+        },
+        Bn(dir, b3, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let d9 = mem_expr(names, *dir);
+            let bits = bits_expr(names, *dir, *b3);
+            Bn(d9, bits, addr_expr)
+        },
+        Dbnz_d9(dir, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let d9 = mem_expr(names, *dir);
+            Dbnz_d9(d9, addr_expr)
+        },
+        Dbnz_Ri(ind, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let im = IndirectionMode::from(*ind);
+            Dbnz_Ri(im, addr_expr)
+        },
+        Be_i8(imm, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            Be_i8(Expr::num(*imm), addr_expr)
+        },
+        Be_d9(dir, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let d9 = mem_expr(names, *dir);
+            Be_d9(d9, addr_expr)
+        },
+        Be_Rj(ind, imm, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let im = IndirectionMode::from(*ind);
+            Be_Rj(im, Expr::num(*imm), addr_expr)
+        },
+        Bne_i8(imm, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            Bne_i8(Expr::num(*imm), addr_expr)
+        },
+        Bne_d9(dir, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let d9 = mem_expr(names, *dir);
+            Bne_d9(d9, addr_expr)
+        },
+        Bne_Rj(ind, imm, rel) => {
+            let address = rel8(*rel, next);
+            let addr_expr = label_expr(names, address);
+            let im = IndirectionMode::from(*ind);
+            Bne_Rj(im, Expr::num(*imm), addr_expr)
+        },
+
+        Call(a12) => {
+            let top_bits = next & 0xF000;
+            let bottom_bits = (*a12 as usize) & 0x0FFF;
+            let address = (top_bits | bottom_bits) as usize;
+            let addr_expr = label_expr(names, address);
+            Call(addr_expr)
+        },
+        Callf(a16) => {
+            let address = *a16 as usize;
+            let addr_expr = label_expr(names, address);
+            Callf(addr_expr)
+        },
+        Callr(r16) => {
+            let address = rel16(*r16, next);
+            let addr_expr = label_expr(names, address);
+            Callr(addr_expr)
+        },
+
+        Ret => Ret,
+        Reti => Reti,
+
+        Clr1(dir, b3) => {
+            let d9 = mem_expr(names, *dir);
+            let bits = bits_expr(names, *dir, *b3);
+            Clr1(d9, bits)
+        },
+        Set1(dir, b3) => {
+            let d9 = mem_expr(names, *dir);
+            let bits = bits_expr(names, *dir, *b3);
+            Set1(d9, bits)
+        },
+        Not1(dir, b3) => {
+            let d9 = mem_expr(names, *dir);
+            let bits = bits_expr(names, *dir, *b3);
+            Not1(d9, bits)
+        },
+
+        Nop => Nop,
+        Ldf => Ldf,
+        Stf => Stf
     }
 }
 
@@ -992,7 +681,7 @@ fn rel8(rel: i32, next: usize) -> usize {
     (rel + (next as i32)) as usize
 }
 
-fn targets(pos: usize, instr: &Instr<i32,u8>) -> Vec<usize> {
+fn targets(pos: usize, instr: &Instr<i32,u8>, graph: &InstructionGraph<i32,u8>) -> Vec<usize> {
     let next = pos + instr.size();
     use instruction::Instr::*;
     match instr {
@@ -1063,15 +752,16 @@ fn targets(pos: usize, instr: &Instr<i32,u8>) -> Vec<usize> {
             vec![address]
         },
         Jmpf(abs) => {
-            // if pos >= 2 {
-            //     // If the previous instruction was `not1 ext,0`,
-            //     // then this jmpf is jumping to flash, not to the
-            //     // same ROM. So don't follow the address.
-            //     if let Some(Instr::Not1(0x10D, 0)) = instrs.get(&(pos - 2)) {
-            //         // if let Some(Instr::Not1(0x10D, 0)) = Instr::<i32,u8>::decode(&bytes[(pos - 2)..]) {
-            //         return Ok(vec![])
-            //     }
-            // }
+            if pos >= 2 {
+                // If the previous instruction was `not1 ext,0`,
+                // then this jmpf is jumping to flash, not to the
+                // same ROM. So don't follow the address.
+                if let Some(Instr::Not1(0x10D, 0)) = graph.instrs().get(&(pos - 2)) {
+                    if graph.instr_arrived_from(pos, pos - 2) {
+                        return vec![]
+                    }
+                }
+            }
             let address = *abs as usize;
             vec![address]
         },
@@ -1081,7 +771,7 @@ fn targets(pos: usize, instr: &Instr<i32,u8>) -> Vec<usize> {
             vec![address]
         },
         Brf(rel) => {
-            let address = rel8(*rel, next);
+            let address = rel16(*rel, next);
             vec![address]
         },
         Bz(rel) => {
@@ -1165,20 +855,22 @@ fn targets(pos: usize, instr: &Instr<i32,u8>) -> Vec<usize> {
     }
 }
 
-fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionGraph {
+fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionGraph<i32,u8> {
     let mut positions: Vec<usize> = entry_points.iter().map(|x| *x).collect();
     let mut locs = vec![];
-    let mut graph = InstructionGraph::new(bytes.len());
+    let mut graph = InstructionGraph::<i32,u8>::new(bytes.len());
     while !positions.is_empty() {
         locs.clear();
         locs.append(&mut positions);
 
         for pos in locs.iter() {
+            println!("** IG {:04X} **", *pos);
             let decoded = Instr::<i32,u8>::decode(&bytes[*pos..bytes.len()]);
             match decoded {
                 Some(instr) => {
-                    let targets = targets(*pos, &instr);
+                    let targets = targets(*pos, &instr, &graph);
                     for target in targets.iter() {
+                        println!("  Jump To {:04X}", *target);
                         graph.jump_to(*pos, *target);
                     }
                     graph.instr(*pos, instr);
@@ -1195,14 +887,97 @@ fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionG
     graph
 }
 
-struct InstructionGraph {
-    instrs: HashMap<usize,Instr<i32,u8>>,
+struct Names {
+    labels: HashMap<usize,String>,
+    psw_bits: HashMap<usize,String>,
+    aliases: HashMap<usize,String>
+}
+
+impl Names {
+    pub fn new() -> Names {
+        Names {
+            labels: HashMap::new(),
+            psw_bits: HashMap::new(),
+            aliases: HashMap::new()
+        }
+    }
+
+    pub fn sorted_psw_bits(&self) -> Vec<(String,usize)> {
+        let mut results = vec![];
+        for key in self.psw_bits.keys() {
+            results.push((self.psw_bits[key].clone(), *key));
+        }
+        results.sort_unstable_by_key(|pair| pair.1);
+        results
+    }
+
+    pub fn sorted_aliases(&self) -> Vec<(String,usize)> {
+        let mut results = vec![];
+        for key in self.aliases.keys() {
+            results.push((self.aliases[key].clone(), *key));
+        }
+        results.sort_unstable_by_key(|pair| pair.1);
+        results
+    }
+
+    pub fn push_psw_bit(&mut self, name: &str, pos: usize) {
+        self.psw_bits.insert(pos, name.to_owned());
+    }
+
+    pub fn push_alias(&mut self, name: &str, pos: usize) {
+        self.aliases.insert(pos, name.to_owned());
+    }
+
+    pub fn contains_label(&self, pos: usize) -> bool {
+        self.labels.contains_key(&pos)
+    }
+
+    pub fn push_label(&mut self, name: &str, pos: usize) {
+        self.labels.insert(pos, name.to_owned());
+    }
+
+    pub fn gen_label(&mut self, pos: usize) {
+        if !self.contains_label(pos) {
+            self.labels.insert(pos, format!("label_{:04X}", pos));
+        }
+    }
+
+    pub fn alias(&self, pos: usize) -> Option<&str> {
+        self.aliases.get(&pos).map(|string| string.as_str())
+    }
+
+    pub fn psw_bit(&self, pos: usize) -> Option<&str> {
+        self.psw_bits.get(&pos).map(|string| string.as_str())
+    }
+
+    pub fn label(&self, pos: usize) -> Option<&str> {
+        self.labels.get(&pos).map(|string| string.as_str())
+    }
+}
+
+struct InstructionGraph<Ex,IM> {
+    instrs: HashMap<usize,Instr<Ex,IM>>,
     jump_to: HashMap<usize,HashSet<usize>>,
     jump_from: HashMap<usize,HashSet<usize>>
 }
 
-impl InstructionGraph {
-    pub fn new(num_bytes: usize) -> InstructionGraph {
+impl InstructionGraph<i32,u8> {
+    pub fn lift_instrs<F>(self, lift: F, names: &Names) -> InstructionGraph<Expr,IndirectionMode>
+    where F: Fn(usize, &InstructionGraph<i32,u8>, &Instr<i32,u8>, &Names) -> Instr<Expr,IndirectionMode> {
+        let mut results = HashMap::new();
+        for key in self.instrs.keys() {
+            results.insert(*key, lift(*key, &self, &self.instrs[key], names));
+        }
+        InstructionGraph {
+            instrs: results,
+            jump_to: self.jump_to,
+            jump_from: self.jump_from
+        }
+    }
+}
+
+impl<Ex,IM> InstructionGraph<Ex,IM> {
+    pub fn new(num_bytes: usize) -> InstructionGraph<i32,u8> {
         InstructionGraph {
             instrs: HashMap::new(),
             jump_to: HashMap::new(),
@@ -1210,7 +985,41 @@ impl InstructionGraph {
         }
     }
 
-    pub fn instr(&mut self, pos: usize, instr: Instr<i32,u8>) -> &Instr<i32,u8> {
+    pub fn find_overlaps(&self, pos: usize) -> Vec<usize> {
+        let mut overlaps = vec![];
+        if let Some(instr) = self.instrs.get(&pos) {
+            for idx in 1..2 {
+                if pos >= idx {
+                    let loc = pos - idx;
+                    if let Some(instr2) = self.instrs.get(&loc) {
+                        if instr2.size() + loc - 1 >= pos {
+                            overlaps.push(loc);
+                        }
+                    }
+                }
+            }
+            for idx in 1..instr.size() {
+                let loc = idx + pos;
+                if self.instrs.contains_key(&loc) {
+                    overlaps.push(loc);
+                }
+            }
+        }
+        overlaps
+    }
+
+    pub fn instr_arrived_from(&self, instr_pos: usize, pos: usize) -> bool {
+        match self.jump_from.get(&instr_pos) {
+            Some(set) => set.contains(&pos),
+            None => false
+        }
+    }
+
+    pub fn instrs(&self) -> &HashMap<usize,Instr<Ex,IM>> {
+        &self.instrs
+    }
+
+    pub fn instr(&mut self, pos: usize, instr: Instr<Ex,IM>) -> &Instr<Ex,IM> {
         self.instrs.insert(pos, instr);
         self.instrs.get(&pos).unwrap()
     }
