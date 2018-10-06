@@ -125,16 +125,16 @@ fn disassemble_cmd(xor_byte: Option<u8>, positions: bool, arrived_from: bool, fi
     let statements = disasm::disassemble(xor_byte, arrived_from, &entry_points, &bytes)?;
 
     let mut outfile = File::create(output_file).unwrap();
-    for (loc, stmt, cmt) in statements {
+    for dstmt in statements.to_vec() {
         if positions {
-            if let Some(pos) = loc {
+            if let Some(pos) = dstmt.pos() {
                 write!(outfile, "{:04X}| ", pos).unwrap();
             } else {
                 write!(outfile, "    | ").unwrap();
             }
         }
-        write!(outfile, "{}", stmt).unwrap();
-        if let Some(comment) = cmt {
+        write!(outfile, "{}", dstmt.statement()).unwrap();
+        if let Some(comment) = dstmt.cmt() {
             write!(outfile, " ; {}", comment).unwrap();
         }
         writeln!(outfile, "").unwrap();

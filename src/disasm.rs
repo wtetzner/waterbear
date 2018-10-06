@@ -17,7 +17,7 @@ pub fn disassemble(
     xor_byte: Option<u8>,
     arrived_from: bool,
     entry_points: &[usize],
-    bytes: &[u8]) -> Result<Vec<(Option<usize>,Statement,Option<String>)>,DisasmError> {
+    bytes: &[u8]) -> Result<DStatements,DisasmError> {
     let new_bytes = {
         let mut results: Vec<u8> = Vec::with_capacity(bytes.len());
         for (idx, byte) in bytes.iter().enumerate() {
@@ -39,7 +39,7 @@ pub fn disassemble(
     };
     let bytes = new_bytes.as_slice();
     let (graph, names) = {
-        let graph = build_instruction_graph(entry_points, bytes);
+        let graph = build_instruction_graph(entry_points, bytes)?;
         let names = build_names(&graph);
         (graph.lift_instrs(lift_instr, &names), names)
     };
@@ -51,19 +51,20 @@ pub fn disassemble(
         results
     };
 
-    let mut stmts = vec![];
+    let mask = build_byte_mask(bytes, &graph);
+
+    let mut stmts = DStatements::new();
     for pos in 0..bytes.len() {
         if entry_points.contains(&pos) {
-            stmts.push((None, Statement::comment(""), None));
-            stmts.push((None, Statement::comment("Entry point"), None));
-            stmts.push((Some(pos), org(pos), None));
+            stmts.push_comment("");
+            stmts.push_comment("Entry point");
+            stmts.push_org(pos);
         }
         if names.contains_label(pos) {
-            stmts.push((None, Statement::label(names.label(pos).unwrap()), None));
+            stmts.push_label(names.label(pos).unwrap());
         }
-        println!("{:04X}:", pos);
+
         if let Some(instr) = graph.instrs().get(&pos) {
-            println!("  {}", instr);
             let overlaps = graph.find_overlaps(pos);
             if !overlaps.is_empty() {
                 let mut comment = "Overlaps with: ".to_owned();
@@ -76,7 +77,7 @@ pub fn disassemble(
                     }
                     comment.push_str(format!("{:04X}", overlap).as_str());
                 }
-                stmts.push((None, Statement::comment(comment.as_str()), None));
+                stmts.push_comment(comment.as_str());
             }
             let comment = if let Some(set) = graph.jump_from.get(&pos) {
                 if arrived_from && !set.is_empty() {
@@ -99,28 +100,28 @@ pub fn disassemble(
             } else {
                 None
             };
-            stmts.push((Some(pos), Statement::instr(instr.clone()), comment));
+            stmts.push_instr(pos, instr.clone());
+        } else {
+            if !mask[pos] {
+                stmts.push_bytes(pos, &bytes[pos..(pos + 1)]);
+            }
         }
     }
 
-    stmts.push((None, Statement::comment("\nPad size of binary"), None));
-    stmts.push((None, Statement::Directive(Directive::Cnop(Span::default(), Expr::num((bytes.len() % 0x200) as i32), Expr::num(0x200))), None));
+    stmts.push_comment("\nPad size of binary");
+    stmts.push_cnop(bytes.len() % 0x200, 0x200);
 
-    stmts.push((None, Statement::comment("\nPSW bits"), None));
+    stmts.push_comment("\nPSW bits");
     for (name, value) in names.sorted_psw_bits() {
-        stmts.push((None, Statement::Alias(Span::default(), name, Expr::num(value as i32)), None));
+        stmts.push_alias(name.as_str(), Expr::num(value as i32));
     }
 
-    stmts.push((None, Statement::comment("\nSpecial Function Registers"), None));
+    stmts.push_comment("\nSpecial Function Registers");
     for (name, value) in names.sorted_aliases() {
-        stmts.push((None, Statement::Alias(Span::default(), name, Expr::num(value as i32)), None));
+        stmts.push_alias(name.as_str(), Expr::num(value as i32));
     }
 
     Ok(stmts)
-}
-
-fn org(pos: usize) -> Statement {
-    Statement::Directive(Directive::Org(Span::default(), pos))
 }
 
 fn make_bytes(bytes: &[u8]) -> Vec<(Option<usize>,Statement,Option<String>)> {
@@ -153,6 +154,18 @@ fn bits_expr(names: &Names, mem: i32, addr: i32) -> Expr {
     } else {
         Expr::num(addr as i32)
     }
+}
+
+fn build_byte_mask<Ex,IM>(bytes: &[u8], graph: &InstructionGraph<Ex,IM>) -> Vec<bool> {
+    let mut seen: Vec<bool> = vec![false; bytes.len()];
+    for pos in 0..bytes.len() {
+        if let Some(instr) = graph.instrs().get(&pos) {
+            for idx in 0..instr.size() {
+                seen[pos + idx] = true;
+            }
+        }
+    }
+    seen
 }
 
 fn build_names(graph: &InstructionGraph<i32,u8>) -> Names {
@@ -864,7 +877,7 @@ fn targets(pos: usize, instr: &Instr<i32,u8>, graph: &InstructionGraph<i32,u8>) 
     }
 }
 
-fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionGraph<i32,u8> {
+fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> Result<InstructionGraph<i32,u8>,DisasmError> {
     let mut positions: Vec<usize> = entry_points.iter().map(|x| *x).collect();
     let mut locs = vec![];
     let mut graph = InstructionGraph::<i32,u8>::new(bytes.len());
@@ -873,13 +886,11 @@ fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionG
         locs.append(&mut positions);
 
         for pos in locs.iter() {
-            println!("** IG {:04X} **", *pos);
             let decoded = Instr::<i32,u8>::decode(&bytes[*pos..bytes.len()]);
             match decoded {
                 Some(instr) => {
                     let targets = targets(*pos, &instr, &graph);
                     for target in targets.iter() {
-                        println!("  Jump To {:04X}", *target);
                         graph.jump_to(*pos, *target);
                     }
                     graph.instr(*pos, instr);
@@ -889,11 +900,13 @@ fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> InstructionG
                         }
                     }
                 },
-                None => eprintln!("No instruction at {:04X}", pos)
+                None => {
+                    return Err(DisasmError::NoInstruction(*pos, bytes[*pos]));
+                }
             }
         }
     }
-    graph
+    Ok(graph)
 }
 
 struct Names {
@@ -1050,5 +1063,137 @@ impl<Ex,IM> InstructionGraph<Ex,IM> {
 
     pub fn contains_instr(&self, pos: usize) -> bool {
         self.instrs.contains_key(&pos)
+    }
+}
+
+pub struct DStatements {
+    statements: Vec<DStatement>
+}
+
+impl DStatements {
+    pub fn new() -> DStatements {
+        DStatements {
+            statements: vec![]
+        }
+    }
+
+    pub fn to_vec(self) -> Vec<DStatement> {
+        self.statements
+    }
+    
+    pub fn push_bytes(&mut self, pos: usize, bytes: &[u8]) {
+        self.statements.push(DStatement::bytes(pos, bytes))
+    }
+
+    pub fn push_cnop(&mut self, add: usize, multiple: usize) {
+        self.statements.push(DStatement::cnop(add, multiple));
+    }
+
+    pub fn push_org(&mut self, pos: usize) {
+        self.statements.push(DStatement::org(pos));
+    }
+
+    pub fn push_label(&mut self, name: &str) {
+        self.statements.push(DStatement::label(name));
+    }
+
+    pub fn push_comment(&mut self, comment: &str) {
+        self.statements.push(DStatement::comment(comment));
+    }
+
+    pub fn push_instr(&mut self, pos: usize, instr: Instr<Expr,IndirectionMode>) {
+        self.statements.push(DStatement::instr(pos, instr));
+    }
+
+    pub fn push_instr_cmt(&mut self, pos: usize, instr: Instr<Expr,IndirectionMode>, comment: String) {
+        self.statements.push(DStatement::instr(pos, instr).plus_comment(comment));
+    }
+
+    pub fn push_alias(&mut self, name: &str, value: Expr) {
+        self.statements.push(DStatement::alias(name, value));
+    }
+}
+
+pub struct DStatement {
+    pos: Option<usize>,
+    statement: Statement,
+    comment: Option<String>
+}
+
+impl DStatement {
+    pub fn new(
+        pos: Option<usize>,
+        statement: Statement,
+        comment: Option<String>) -> DStatement {
+        DStatement {
+            pos,
+            statement,
+            comment
+        }
+    }
+
+    pub fn bytes(pos: usize, bytes: &[u8]) -> DStatement {
+        let mut vec = vec![];
+        for byte in bytes.iter() {
+            vec.push(Expr::num(*byte as i32));
+        }
+        DStatement::new(Some(pos), Statement::Directive(Directive::Byte(Span::default(), vec)), None)
+    }
+
+    pub fn statement(&self) -> &Statement {
+        &self.statement
+    }
+
+    pub fn cmt(&self) -> Option<&str> {
+        self.comment.as_ref().map(|x| x.as_str())
+    }
+
+    pub fn pos(&self) -> Option<usize> {
+        self.pos.map(|x| x)
+    }
+
+    pub fn cnop(add: usize, multiple: usize) -> DStatement {
+        DStatement::new(None, Statement::Directive(Directive::Cnop(Span::default(), Expr::num(add as i32), Expr::num(multiple as i32))), None)
+    }
+
+    pub fn alias(name: &str, value: Expr) -> DStatement {
+        DStatement::new(None, Statement::Alias(Span::default(), name.to_owned(), value), None)
+    }
+
+    pub fn org(pos: usize) -> DStatement {
+        DStatement::new(Some(pos), Statement::Directive(Directive::Org(Span::default(), pos)), None)
+    }
+
+    pub fn comment(comment: &str) -> DStatement {
+        DStatement::new(None, Statement::comment(comment), None)
+    }
+
+    pub fn instr(pos: usize, instr: Instr<Expr,IndirectionMode>) -> DStatement {
+        DStatement::new(Some(pos), Statement::instr(instr), None)
+    }
+
+    pub fn label(name: &str) -> DStatement {
+        DStatement::new(None, Statement::label(name), None)
+    }
+
+    pub fn plus_comment(self, comment: String) -> DStatement {
+        let cmt = if let Some(old) = self.comment {
+            let mut new_comment = old.trim_right().to_owned();
+            if old.trim_right().ends_with(".") {
+                new_comment.push_str(" ");
+                new_comment.push_str(comment.as_str());
+            } else {
+                new_comment.push_str(". ");
+                new_comment.push_str(comment.as_str());
+            }
+            Some(new_comment)
+        } else {
+            Some(comment)
+        };
+        DStatement {
+            pos: self.pos,
+            statement: self.statement,
+            comment: cmt
+        }
     }
 }

@@ -31,7 +31,7 @@ impl Directive {
         } else {
             let mut mult = 0;
             loop {
-                if pos < mult {
+                if pos <= mult {
                     break;
                 }
                 mult = mult + multiple;
