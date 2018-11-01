@@ -931,15 +931,15 @@ mod test {
     fn test_expression_parser() {
         check_expression_parser(
             "fred + 2 * 7 - 21 * (6 + 7)",
-            "(fred + ($2 * $7)) - ($15 * ($6 + $7))"
+            "(fred + (2 * 7)) - ($15 * (6 + 7))"
         );
         check_expression_parser(
             "bob + sam + -12 * 7",
-            "(bob + sam) + ((-$C) * $7)"
+            "(bob + sam) + ((-$0C) * 7)"
         );
         check_expression_parser(
             "bob + sam + -12 * 7 + ->fred - <sam",
-            "(((bob + sam) + ((-$C) * $7)) + (-(>fred))) - (<sam)"
+            "(((bob + sam) + ((-$0C) * 7)) + (-(>fred))) - (<sam)"
         );
     }
 
@@ -977,7 +977,7 @@ mod test {
         let line = ".org $44";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".org $44", printed);
+        assert_eq!(".org $0044", printed);
     }
 
     #[test]

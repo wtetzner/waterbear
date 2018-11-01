@@ -14,30 +14,9 @@ pub enum DisasmError {
 }
 
 pub fn disassemble(
-    xor_byte: Option<u8>,
     arrived_from: bool,
     entry_points: &[usize],
     bytes: &[u8]) -> Result<DStatements,DisasmError> {
-    let new_bytes = {
-        let mut results: Vec<u8> = Vec::with_capacity(bytes.len());
-        for (idx, byte) in bytes.iter().enumerate() {
-            if idx == 0 {
-                results.push(*byte);
-            } else {
-                match xor_byte {
-                    Some(xor) => {
-                        let new_byte: u8 = xor ^ byte;
-                        results.push(new_byte);
-                    },
-                    None => {
-                        results.push(*byte);
-                    }
-                }
-            }
-        }
-        results
-    };
-    let bytes = new_bytes.as_slice();
     let (graph, names) = {
         let graph = build_instruction_graph(entry_points, bytes)?;
         let names = build_names(&graph);
@@ -54,7 +33,8 @@ pub fn disassemble(
     let mask = build_byte_mask(bytes, &graph);
 
     let mut stmts = DStatements::new();
-    for pos in 0..bytes.len() {
+    let mut pos = 0;
+    while pos < bytes.len() {
         if entry_points.contains(&pos) {
             stmts.push_comment("");
             stmts.push_comment("Entry point");
@@ -101,10 +81,19 @@ pub fn disassemble(
                 None
             };
             stmts.push_instr(pos, instr.clone());
+            pos = pos + 1;
         } else {
             if !mask[pos] {
-                stmts.push_bytes(pos, &bytes[pos..(pos + 1)]);
+                let bytes = byte_range(bytes, &mask, pos);
+                let chunk = read_chunk(bytes, 16);
+                if !all_zeros(chunk) {
+                    stmts.push_bytes(pos, chunk);
+                } else {
+                    
+                }
+                pos = pos + chunk.len();
             }
+            pos = pos + 1;
         }
     }
 
@@ -122,6 +111,31 @@ pub fn disassemble(
     }
 
     Ok(stmts)
+}
+
+fn all_zeros(bytes: &[u8]) -> bool {
+    for byte in bytes.iter() {
+        if *byte != 0 {
+            return false;
+        }
+    }
+    true
+}
+
+fn read_chunk<'a>(bytes: &'a [u8], size: usize) -> &'a [u8] {
+    let mut end = 0;
+    while end < bytes.len() && end < size {
+        end = end + 1;
+    }
+    &bytes[0..end]
+}
+
+fn byte_range<'a>(bytes: &'a [u8], mask: &[bool], pos: usize) -> &'a [u8] {
+    let mut end = pos;
+    while end < bytes.len() && !mask[end] {
+        end = end + 1;
+    }
+    &bytes[pos..end]
 }
 
 fn make_bytes(bytes: &[u8]) -> Vec<(Option<usize>,Statement,Option<String>)> {
