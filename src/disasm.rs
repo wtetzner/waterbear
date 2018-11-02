@@ -2,7 +2,7 @@
 use instruction::{Instr,IndirectionMode};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use ast::{Statements,Statement,Directive};
+use ast::{Statement,Directive,ByteValue};
 use location::{Span};
 use expression::{Expr};
 use std;
@@ -159,22 +159,6 @@ fn byte_range<'a>(bytes: &'a [u8], mask: &[bool], pos: usize) -> &'a [u8] {
     &bytes[pos..end]
 }
 
-fn make_bytes(bytes: &[u8]) -> Vec<(Option<usize>,Statement,Option<String>)> {
-    let mut results = vec![];
-    let mut chunk = vec![];
-    for byte in bytes {
-        if chunk.len() == 16 {
-            results.push((None, Statement::Directive(Directive::Byte(Span::default(), chunk.clone())), None));
-            chunk.clear();
-        }
-        chunk.push(Expr::num(*byte as i32));
-    }
-    if chunk.len() > 0 {
-        results.push((None, Statement::Directive(Directive::Byte(Span::default(), chunk.clone())), None));
-    }
-    results
-}
-
 fn label_expr(names: &Names, addr: usize) -> Expr {
     names.label(addr).map(|name| Expr::name(name)).unwrap_or(Expr::num(addr as i32))
 }
@@ -205,13 +189,13 @@ fn build_byte_mask<Ex,IM>(bytes: &[u8], graph: &InstructionGraph<Ex,IM>) -> Vec<
 
 fn build_names(graph: &InstructionGraph<i32,u8>) -> Names {
     let mut names = Names::new();
-    compute_bit_aliases(graph, &mut names);
-    compute_aliases(graph, &mut names);
+    compute_bit_aliases(&mut names);
+    compute_aliases(&mut names);
     compute_labels(graph, &mut names);
     names
 }
 
-fn compute_bit_aliases(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
+fn compute_bit_aliases(names: &mut Names) {
     names.push_psw_bit("cy",     7);
     names.push_psw_bit("ac",     6);
     names.push_psw_bit("irbk1",  4);
@@ -221,7 +205,7 @@ fn compute_bit_aliases(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
     names.push_psw_bit("p",      0);
 }
 
-fn compute_aliases(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
+fn compute_aliases(names: &mut Names) {
     names.push_alias("acc",    0x100);
     names.push_alias("psw",    0x101);
     names.push_alias("b",      0x102);
@@ -915,7 +899,7 @@ fn targets(pos: usize, instr: &Instr<i32,u8>, graph: &InstructionGraph<i32,u8>) 
 fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> Result<InstructionGraph<i32,u8>,DisasmError> {
     let mut positions: Vec<usize> = entry_points.iter().map(|x| *x).collect();
     let mut locs = vec![];
-    let mut graph = InstructionGraph::<i32,u8>::new(bytes.len());
+    let mut graph = InstructionGraph::<i32,u8>::new();
     while !positions.is_empty() {
         locs.clear();
         locs.append(&mut positions);
@@ -1001,10 +985,6 @@ impl Names {
         self.labels.contains_key(&pos)
     }
 
-    pub fn push_label(&mut self, name: &str, pos: usize) {
-        self.labels.insert(pos, name.to_owned());
-    }
-
     pub fn gen_label(&mut self, pos: usize) {
         if !self.contains_label(pos) {
             self.labels.insert(pos, format!("label_{:04X}", pos));
@@ -1046,7 +1026,7 @@ impl InstructionGraph<i32,u8> {
 }
 
 impl<Ex,IM> InstructionGraph<Ex,IM> {
-    pub fn new(num_bytes: usize) -> InstructionGraph<i32,u8> {
+    pub fn new() -> InstructionGraph<i32,u8> {
         InstructionGraph {
             instrs: HashMap::new(),
             jump_to: HashMap::new(),
@@ -1178,7 +1158,7 @@ impl DStatement {
     pub fn bytes(pos: usize, bytes: &[u8]) -> DStatement {
         let mut vec = vec![];
         for byte in bytes.iter() {
-            vec.push(Expr::num(*byte as i32));
+            vec.push(ByteValue::Expr(Expr::num(*byte as i32)));
         }
         DStatement::new(Some(pos), Statement::Directive(Directive::Byte(Span::default(), vec)), None)
     }

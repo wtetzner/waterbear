@@ -1,6 +1,6 @@
 
 use location::{Location,Span,Positioned};
-use ast::{Statement,Statements,Directive};
+use ast::{Statement,Statements,Directive,ByteValue};
 use lexer::{Token,TokenType,LexerError};
 use lexer;
 use expression::Expr;
@@ -506,6 +506,10 @@ impl Parser {
         self.parse_list(tokens, |toks| self.parse_expr(toks))
     }
 
+    fn parse_byte_vals(&self, tokens: &mut TokenStream) -> Result<Vec<ByteValue>,ParseError> {
+        self.parse_list(tokens, |toks| self.parse_byte_value(toks))
+    }
+
     fn parse_list<T,F>(
         &self,
         tokens: &mut TokenStream,
@@ -526,24 +530,27 @@ impl Parser {
         }
     }
 
+    fn parse_byte_value(&self, tokens: &mut TokenStream) -> Result<ByteValue,ParseError> {
+        if tokens.check(Token::is_string) {
+            let (sspan, string) = tokens.read_string()?;
+            Ok(ByteValue::String(sspan, string.bytes().collect()))
+        } else {
+            self.parse_expr(tokens).map(|expr| ByteValue::Expr(expr))
+        }
+    }
+
     fn parse_directive(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
         let peeked = tokens.peek().map(|t| t.clone());
         match peeked {
             Some(tok) => {
                 if tok.has_name(".byte") {
                     let ident = tokens.next()?;
-                    if tokens.check(Token::is_string) {
-                        let (sspan, string) = tokens.read_string()?;
-                        let span = Span::from(ident.span(), &sspan);
-                        Ok(Some(Statement::Directive(Directive::ByteString(span, string.bytes().collect()))))
+                    let vals = self.parse_byte_vals(tokens)?;
+                    if vals.is_empty() {
+                        Err(ParseError::MissingBytes(ident.span().clone()))
                     } else {
-                        let exprs = self.parse_exprs(tokens)?;
-                        if exprs.is_empty() {
-                            Err(ParseError::MissingBytes(ident.span().clone()))
-                        } else {
-                            let span = Span::from(ident.span(), &exprs.last().unwrap().span());
-                            Ok(Some(Statement::Directive(Directive::Byte(span, exprs))))
-                        }
+                        let span = Span::from(ident.span(), &vals.last().unwrap().span());
+                        Ok(Some(Statement::Directive(Directive::Byte(span, vals))))
                     }
                 } else if tok.has_name(".org") {
                     let ident = tokens.next()?;

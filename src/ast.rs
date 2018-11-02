@@ -5,9 +5,23 @@ use std::fmt;
 use location::{Span, Positioned};
 
 #[derive(Debug,Clone)]
+pub enum ByteValue {
+    Expr(Expr),
+    String(Span, Vec<u8>)
+}
+
+impl ByteValue {
+    pub fn span(&self) -> Span {
+        match self {
+            ByteValue::Expr(expr) => expr.span(),
+            ByteValue::String(span, _) => span.clone()
+        }
+    }
+}
+
+#[derive(Debug,Clone)]
 pub enum Directive {
-    Byte(Span, Vec<Expr>),
-    ByteString(Span, Vec<u8>),
+    Byte(Span, Vec<ByteValue>),
     Org(Span, usize),
     Word(Span, Vec<Expr>),
     Include(Span, String),
@@ -43,8 +57,16 @@ impl Directive {
     pub fn size(&self, pos: i32) -> Result<i32,EvaluationError> {
         use self::Directive::*;
         match self {
-            Byte(_, bytes) => Ok(bytes.len() as i32),
-            ByteString(_, bytes) => Ok(bytes.len() as i32),
+            Byte(_, bytes) => {
+                let mut count: usize = 0;
+                for item in bytes.iter() {
+                    match item {
+                        ByteValue::Expr(_) => count = count + 1,
+                        ByteValue::String(_, vals) => count = count + vals.len()
+                    }
+                }
+                Ok(count as i32)
+            },
             Org(_, location) => Ok((*location as i32) - pos),
             Word(_, words) => Ok((words.len() * 2) as i32),
             Include(_,_) => Ok(0),
@@ -56,7 +78,6 @@ impl Directive {
         use self::Directive::*;
         match self {
             Byte(span, _) => span.clone(),
-            ByteString(span, _) => span.clone(),
             Org(span, _) => span.clone(),
             Word(span, _) => span.clone(),
             Include(span, _) => span.clone(),
@@ -70,11 +91,24 @@ impl Positioned for Directive {
         use self::Directive::*;
         match self {
             Byte(span, _) => span.clone(),
-            ByteString(span, _) => span.clone(),
             Org(span, _) => span.clone(),
             Word(span, _) => span.clone(),
             Include(span,_) => span.clone(),
             Cnop(span, _, _) => span.clone()
+        }
+    }
+}
+
+impl fmt::Display for ByteValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ByteValue::Expr(expr) => match expr {
+                Expr::Number(_, num) => write!(f, "${:02X}", num),
+                _ => write!(f, "{}", self)
+            },
+            ByteValue::String(_, vec) => {
+                write!(f, "\"{}\"", escape_string(vec))
+            }
         }
     }
 }
@@ -97,18 +131,9 @@ impl fmt::Display for Directive {
                     } else {
                         write!(f, ", ")?;
                     }
-                    match b {
-                        Expr::Number(_, num) =>  {
-                            write!(f, "${:02X}", num)?;
-                        },
-                        _ => write!(f, "{}", b)?
-                    }
+                    write!(f, "{}", b)?;
                 }
                 write!(f, "")
-            },
-            Directive::ByteString(_, vec) => {
-                write!(f, ".byte \"")?;
-                write!(f, "{}\"", escape_string(vec))
             },
             Directive::Org(_, num) => if *num == 0 {
                 write!(f, ".org {}", num)

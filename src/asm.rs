@@ -3,7 +3,7 @@ use std;
 use lexer;
 use parser;
 use std::path::Path;
-use ast::{Statements,Statement,Directive};
+use ast::{Statements,Statement,Directive,ByteValue};
 use expression::{EvaluationError};
 use std::collections::HashMap;
 use location::{Span, Positioned, Location};
@@ -66,16 +66,30 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                 match dir {
                     Byte(_, bytes) => {
                         let env = names.as_env("Name", &current_global);
-                        for expr in bytes.iter() {
-                            let b: u8 = (expr.eval(&env)? & 0xFF) as u8;
-                            output[pos] = b;
-                            pos = pos + 1;
-                        }
-                    },
-                    ByteString(_, bytes) => {
-                        for b in bytes.iter() {
-                            output[pos] = *b;
-                            pos = pos + 1;
+                        for item in bytes.iter() {
+                            match item {
+                                ByteValue::Expr(expr) => {
+                                    let value = expr.eval(&env)?;
+                                    if value < (std::i8::MIN as i32)
+                                        || value > (std::u8::MAX as i32) {
+                                            return Err(
+                                                AssemblyError::ByteOutOfRange {
+                                                    span: expr.span(),
+                                                    value: value
+                                                }
+                                            );
+                                        }
+                                    let b: u8 = (value & 0xFF) as u8;
+                                    output[pos] = b;
+                                    pos = pos + 1;
+                                },
+                                ByteValue::String(_, vec) => {
+                                    for byte in vec.iter() {
+                                        output[pos] = *byte;
+                                        pos = pos + 1;
+                                    }
+                                }
+                            }
                         }
                     },
                     Org(span, location) => {
@@ -130,6 +144,10 @@ pub enum AssemblyError {
     NumOutOfRange {
         span: Span,
         bits: usize,
+        value: i32
+    },
+    ByteOutOfRange {
+        span: Span,
         value: i32
     },
     SignedNumOutOfRange {

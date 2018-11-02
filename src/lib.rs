@@ -219,6 +219,18 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .newline();
             highlight_line(&span, "", files, stdout);
         },
+        ByteOutOfRange {
+            span,
+            value
+        } => {
+            stdout
+                .write("Byte out of range: ")
+                .bold()
+                .writeln(value)
+                .reset()
+                .newline();
+            highlight_line(&span, "", files, stdout);
+        },
         SignedNumOutOfRange {
             span,
             bits,
@@ -502,16 +514,6 @@ fn end_of_line(pos: usize, text: &str) -> usize {
         loc += 1;
     }
     loc
-}
-
-fn parse_byte(text: &str) -> u8 {
-    if text.starts_with("0x") {
-        u8::from_str_radix(&text[2..], 16).unwrap()
-    } else if text.starts_with("$") {
-        u8::from_str_radix(&text[1..], 16).unwrap()
-    } else {
-        u8::from_str_radix(text, 10).unwrap()
-    }
 }
 
 struct ColorWriter {
