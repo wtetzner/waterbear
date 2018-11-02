@@ -31,6 +31,7 @@ pub fn disassemble(
     };
 
     let mask = build_byte_mask(bytes, &graph);
+    let mut written_mask = vec![false; bytes.len()];
 
     let mut stmts = DStatements::new();
     let mut pos = 0;
@@ -40,11 +41,17 @@ pub fn disassemble(
             stmts.push_comment("Entry point");
             stmts.push_org(pos);
         }
-        if names.contains_label(pos) {
-            stmts.push_label(names.label(pos).unwrap());
-        }
 
         if let Some(instr) = graph.instrs().get(&pos) {
+            if pos > 0 && !mask[pos - 1] && !entry_points.contains(&pos) {
+                stmts.push_comment("");
+                if !written_mask[pos - 1] {
+                    stmts.push_org(pos);
+                }
+            }
+            if names.contains_label(pos) {
+                stmts.push_label(names.label(pos).unwrap());
+            }
             let overlaps = graph.find_overlaps(pos);
             if !overlaps.is_empty() {
                 let mut comment = "Overlaps with: ".to_owned();
@@ -80,20 +87,34 @@ pub fn disassemble(
             } else {
                 None
             };
-            stmts.push_instr(pos, instr.clone());
+            match comment {
+                Some(cmt) => stmts.push_instr_cmt(pos, instr.clone(), cmt),
+                None => stmts.push_instr(pos, instr.clone())
+            }
             pos = pos + 1;
         } else {
             if !mask[pos] {
                 let bytes = byte_range(bytes, &mask, pos);
                 let chunk = read_chunk(bytes, 16);
                 if !all_zeros(chunk) {
+                    if pos > 0 && mask[pos - 1] {
+                        stmts.push_comment("");
+                    }
+                    if pos > 0 && !written_mask[pos - 1] && !mask[pos - 1] {
+                        stmts.push_comment("");
+                        stmts.push_org(pos);
+                    }
                     stmts.push_bytes(pos, chunk);
+                    for (idx, _) in chunk.iter().enumerate() {
+                        written_mask[pos + idx] = true;
+                    }
                 } else {
                     
                 }
                 pos = pos + chunk.len();
+            } else {
+                pos = pos + 1;
             }
-            pos = pos + 1;
         }
     }
 
@@ -900,9 +921,17 @@ fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> Result<Instr
         locs.append(&mut positions);
 
         for pos in locs.iter() {
+            if *pos == bytes.len() {
+                continue;
+            }
+            if *pos > bytes.len() {
+                eprintln!("Invalid instruction position found: {}", pos);
+                continue;
+            }
             let decoded = Instr::<i32,u8>::decode(&bytes[*pos..bytes.len()]);
             match decoded {
                 Some(instr) => {
+                    println!("{:04X}: decoded: {:?}", *pos, instr);
                     let targets = targets(*pos, &instr, &graph);
                     for target in targets.iter() {
                         graph.jump_to(*pos, *target);

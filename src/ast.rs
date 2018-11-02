@@ -97,7 +97,12 @@ impl fmt::Display for Directive {
                     } else {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", b)?;
+                    match b {
+                        Expr::Number(_, num) =>  {
+                            write!(f, "${:02X}", num)?;
+                        },
+                        _ => write!(f, "{}", b)?
+                    }
                 }
                 write!(f, "")
             },
