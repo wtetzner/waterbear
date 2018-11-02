@@ -231,6 +231,18 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .newline();
             highlight_line(&span, "", files, stdout);
         },
+        WordOutOfRange {
+            span,
+            value
+        } => {
+            stdout
+                .write("Word out of range: ")
+                .bold()
+                .writeln(value)
+                .reset()
+                .newline();
+            highlight_line(&span, "", files, stdout);
+        },
         SignedNumOutOfRange {
             span,
             bits,

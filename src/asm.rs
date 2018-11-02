@@ -72,13 +72,13 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                                     let value = expr.eval(&env)?;
                                     if value < (std::i8::MIN as i32)
                                         || value > (std::u8::MAX as i32) {
-                                            return Err(
-                                                AssemblyError::ByteOutOfRange {
-                                                    span: expr.span(),
-                                                    value: value
-                                                }
-                                            );
-                                        }
+                                        return Err(
+                                            AssemblyError::ByteOutOfRange {
+                                                span: expr.span(),
+                                                value: value
+                                            }
+                                        );
+                                    }
                                     let b: u8 = (value & 0xFF) as u8;
                                     output[pos] = b;
                                     pos = pos + 1;
@@ -101,7 +101,17 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                     Word(_, words) => {
                         let env = names.as_env("Name", &current_global);
                         for expr in words.iter() {
-                            let w: u16 = (expr.eval(&env)? & 0xFFFF) as u16;
+                            let value = expr.eval(&env)?;
+                            if value < (std::i16::MIN as i32)
+                                || value > (std::u16::MAX as i32) {
+                                return Err(
+                                    AssemblyError::WordOutOfRange {
+                                        span: expr.span(),
+                                        value: value
+                                    }
+                                );
+                            }
+                            let w: u16 = (value & 0xFFFF) as u16;
                             output[pos] = (w & 0xFF) as u8;
                             pos = pos + 1;
                             output[pos] = ((w >> 8) & 0xFF) as u8;
@@ -147,6 +157,10 @@ pub enum AssemblyError {
         value: i32
     },
     ByteOutOfRange {
+        span: Span,
+        value: i32
+    },
+    WordOutOfRange {
         span: Span,
         value: i32
     },
