@@ -46,7 +46,7 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, statements: &State
                     }
                 },
                 IncludeType::Bytes => {
-                    let bytes = files::load_bytes(&path)?;
+                    let bytes = files::load_bytes(&files.path(&path))?;
                     let mut byte_vals = vec![];
                     for byte in bytes.iter() {
                         byte_vals.push(ByteValue::Expr(Expr::num(*byte as i32)));

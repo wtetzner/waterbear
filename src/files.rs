@@ -96,12 +96,16 @@ impl SourceFiles {
         }
     }
 
-    pub fn load(&mut self, filename: &str) -> Result<&SourceFile,FileLoadError> {
-        let path = if self.working_dir.is_empty() {
+    pub fn path(&self, filename: &str) -> String {
+        if self.working_dir.is_empty() {
             filename.to_owned()
         } else {
             format!("{}/{}", self.working_dir, filename)
-        };
+        }
+    }
+
+    pub fn load(&mut self, filename: &str) -> Result<&SourceFile,FileLoadError> {
+        let path = self.path(filename);
         match self.get_id(&path) {
             Some(id) => Ok(&self.files[id.value]),
             None => {
