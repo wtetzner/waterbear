@@ -1,6 +1,6 @@
 [package]
 name = "waterbear"
-description = "Assembler for the Dreamcast VMU"
+description = "Assembler/Disassembler for the Dreamcast VMU"
 version = "0.2.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 

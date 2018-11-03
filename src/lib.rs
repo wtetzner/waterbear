@@ -1,5 +1,4 @@
 
-#[macro_use]
 extern crate clap;
 extern crate termcolor;
 extern crate atty;
@@ -7,9 +6,7 @@ extern crate atty;
 extern crate unicode_segmentation;
 extern crate unicode_categories;
 extern crate regex;
-#[macro_use]
 extern crate lazy_static;
-#[macro_use]
 extern crate instruction_derive;
 
 pub mod instruction;
@@ -42,12 +39,16 @@ use atty::Stream;
 
 use expression::{EvaluationError};
 use files::{SourceFiles};
+use clap::clap_app;
+use lazy_static::lazy_static;
 
 pub use asm::{assemble_file,assemble};
 
 const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
 const NAME: &'static str = env!("CARGO_PKG_NAME");
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const RUSTC: &'static str = env!("RUSTC_VERSION");
+const CARGO: &'static str = env!("CARGO_VERSION");
 
 pub fn run_command(args: &[String]) {
     let matches = clap_app!(
@@ -56,16 +57,22 @@ pub fn run_command(args: &[String]) {
             (version: VERSION)
             (about: DESCRIPTION)
             (@subcommand assemble =>
+              (version: VERSION)
               (about: "Assembler for the Dreamcast VMU")
               (@arg INPUT: +required "Sets the input file to assemble")
               (@arg OUTPUT: -o --output +required +takes_value "Output file")
              )
             (@subcommand disassemble =>
+              (version: VERSION)
               (about: "Disassembler for the Dreamcast VMU")
               (@arg INPUT: +required "Sets the input file to assemble")
               (@arg OUTPUT: -o --output +required +takes_value "Output file")
               (@arg POSITIONS: -p --positions "Output byte positions")
               (@arg ARRIVED_FROM: -a --arrived_from "Output instruction locations that target each instruction.")
+             )
+            (@subcommand version =>
+              (version: VERSION)
+              (about: "Version info about this build")
              )
     ).get_matches_from(args);
 
@@ -105,6 +112,9 @@ pub fn run_command(args: &[String]) {
                 println!("ERROR: {:?}", err);
             }
         }
+    } else if let Some(matches) = matches.subcommand_matches("version") {
+        println!("Rust Compiler: {}", RUSTC);
+        println!("Cargo: {}", CARGO);
     } else {
         eprintln!("No subcommand specified");
         std::process::exit(1);

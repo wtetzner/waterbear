@@ -2,6 +2,7 @@
 use input::Input;
 use regex::Regex;
 use location::{Location,Span};
+use lazy_static::lazy_static;
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum TokenType {

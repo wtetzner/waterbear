@@ -4,6 +4,7 @@ use std::ops::Deref;
 use regex::Regex;
 use files::FileID;
 use location::Location;
+use lazy_static::lazy_static;
 
 #[derive(Debug,Clone)]
 pub struct Input<'b> {

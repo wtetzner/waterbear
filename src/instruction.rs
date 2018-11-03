@@ -3,6 +3,7 @@ use expression::{Expr,EvaluationError};
 use location::{Positioned,Span};
 use env::{Names,Env};
 use std::fmt;
+use instruction_derive::Instruction;
 
 #[derive(Debug)]
 pub enum EncodingError {

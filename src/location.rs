@@ -48,15 +48,23 @@ impl fmt::Display for Location {
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub struct Span {
     start: Location,
-    end: Location
+    end: Location,
+    parent: Option<Box<Span>>
 }
 
 impl Span {
     pub fn new(start: Location, end: Location) -> Span {
         Span {
             start: start,
-            end: end
+            end: end,
+            parent: None
         }
+    }
+
+    pub fn with_parent(&self, parent: Span) -> Span {
+        let mut new_span = self.clone();
+        new_span.parent = Some(Box::new(parent));
+        new_span
     }
 
     pub fn default() -> Span {
