@@ -10,6 +10,11 @@ fn main() {
     let cargo = std::env::var("CARGO").unwrap_or("<unknown>".to_owned());
     let cargo_version = version(cargo).unwrap_or("<unknown>".to_owned());
     println!("cargo:rustc-env=CARGO_VERSION={}", cargo_version);
+
+    let gitsha = gitsha().unwrap_or("<unknown>".to_owned());
+    println!("cargo:rustc-env=GITSHA={}", gitsha);
+
+    println!("cargo:rustc-env=GITDIRTY={}", git_dirty());
 }
 
 fn version<P: AsRef<ffi::OsStr>>(command: P) -> Option<String> {
@@ -20,5 +25,31 @@ fn version<P: AsRef<ffi::OsStr>>(command: P) -> Option<String> {
             Some(v)
         },
         Err(_) => None
+    }
+}
+
+fn gitsha() -> Option<String> {
+    match process::Command::new("git").arg("rev-parse").arg("HEAD").output() {
+        Ok(o) => {
+            let mut v = String::from_utf8(o.stdout).unwrap();
+            v.pop();
+            Some(v)
+        },
+        Err(_) => None
+    }
+}
+
+fn git_dirty() -> bool {
+    let status = process::Command::new("git")
+        .arg("diff-index")
+        .arg("--quiet")
+        .arg("HEAD")
+        .arg("--")
+        .status();
+    match status {
+        Ok(s) => {
+            !s.success()
+        },
+        Err(_) => false
     }
 }
