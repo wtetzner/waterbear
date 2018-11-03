@@ -112,9 +112,9 @@ pub fn run_command(args: &[String]) {
                 println!("ERROR: {:?}", err);
             }
         }
-    } else if let Some(matches) = matches.subcommand_matches("version") {
-        println!("Rust Compiler: {}", RUSTC);
-        println!("Cargo: {}", CARGO);
+    } else if let Some(_) = matches.subcommand_matches("version") {
+        println!("Compiler: {}", RUSTC);
+        println!("Cargo:    {}", CARGO);
     } else {
         eprintln!("No subcommand specified");
         std::process::exit(1);

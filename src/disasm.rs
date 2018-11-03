@@ -915,7 +915,6 @@ fn build_instruction_graph(entry_points: &[usize], bytes: &[u8]) -> Result<Instr
             let decoded = Instr::<i32,u8>::decode(&bytes[*pos..bytes.len()]);
             match decoded {
                 Some(instr) => {
-                    println!("{:04X}: decoded: {:?}", *pos, instr);
                     let targets = targets(*pos, &instr, &graph);
                     for target in targets.iter() {
                         graph.jump_to(*pos, *target);
