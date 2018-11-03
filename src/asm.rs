@@ -3,8 +3,8 @@ use std;
 use lexer;
 use parser;
 use std::path::Path;
-use ast::{Statements,Statement,Directive,ByteValue};
-use expression::{EvaluationError};
+use ast::{Statements,Statement,Directive,ByteValue,IncludeType};
+use expression::{EvaluationError,Expr};
 use std::collections::HashMap;
 use location::{Span, Positioned, Location};
 use env::{Env,Names};
@@ -12,6 +12,7 @@ use instruction::{EncodingError};
 use lexer::{Token,LexerError};
 use parser::{ParseError,ArgType,Parser};
 use files::{FileLoadError,SourceFiles};
+use files;
 use input::Input;
 
 pub fn assemble_file(mut files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
@@ -31,15 +32,27 @@ pub fn assemble_file(mut files: &mut SourceFiles, filename: &str) -> Result<Vec<
 fn replace_includes(parser: &Parser, files: &mut SourceFiles, statements: &Statements) -> Result<Statements,AssemblyError> {
     let mut results = vec![];
     for statement in statements.statements.iter() {
-        if let Statement::Directive(Directive::Include(_, path)) = statement {
-            let tokens = {
-                let file = files.load(&path)?;
-                let input = Input::new(file.id(), file.contents());
-                lexer::lex_input(&input)?
-            };
-            let statements = replace_includes(parser, files, &parser.parse(&tokens)?)?;
-            for stmt in statements.statements.iter() {
-                results.push(stmt.clone());
+        if let Statement::Directive(Directive::Include(span, typ, path)) = statement {
+            match typ {
+                IncludeType::Asm => {
+                    let tokens = {
+                        let file = files.load(&path)?;
+                        let input = Input::new(file.id(), file.contents());
+                        lexer::lex_input(&input)?
+                    };
+                    let statements = replace_includes(parser, files, &parser.parse(&tokens)?)?;
+                    for stmt in statements.statements.iter() {
+                        results.push(stmt.clone());
+                    }
+                },
+                IncludeType::Bytes => {
+                    let bytes = files::load_bytes(&path)?;
+                    let mut byte_vals = vec![];
+                    for byte in bytes.iter() {
+                        byte_vals.push(ByteValue::Expr(Expr::num(*byte as i32)));
+                    }
+                    results.push(Statement::Directive(Directive::Byte(span.clone(), byte_vals)));
+                }
             }
         } else {
             results.push(statement.clone());
@@ -118,7 +131,7 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                             pos = pos + 1;
                         }
                     },
-                    Include(_, _) => panic!("There should be no .include directives left at this point".to_string()),
+                    Include(_, _, _) => panic!("There should be no .include directives left at this point".to_string()),
                     Cnop(_, _add, _multiple) => {
                         pos += dir.size(pos as i32)? as usize;
                     }

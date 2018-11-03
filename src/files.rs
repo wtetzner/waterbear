@@ -51,11 +51,15 @@ pub struct SourceFiles {
     files: Vec<SourceFile>
 }
 
-pub fn load_file(path: &str) -> Result<String, FileLoadError> {
+pub fn load_bytes(path: &str) -> Result<Vec<u8>, FileLoadError> {
     let mut file = File::open(path).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
     let mut bytes = vec![];
     file.read_to_end(&mut bytes).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
+    Ok(bytes)
+}
 
+pub fn load_file(path: &str) -> Result<String, FileLoadError> {
+    let bytes = load_bytes(path)?;
     let text = String::from_utf8(bytes).map_err(|err| FileLoadError::Utf8Error(path.to_string(), err))?;
     Ok(text)
 }

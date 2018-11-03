@@ -1,6 +1,6 @@
 
 use location::{Location,Span,Positioned};
-use ast::{Statement,Statements,Directive,ByteValue};
+use ast::{Statement,Statements,Directive,ByteValue,IncludeType};
 use lexer::{Token,TokenType,LexerError};
 use lexer;
 use expression::Expr;
@@ -568,9 +568,16 @@ impl Parser {
                     }
                 } else if tok.has_name(".include") {
                     let ident = tokens.next()?;
-                    let (str_span, string) = tokens.read_string()?;
-                    let span = Span::from(ident.span(), &str_span);
-                    Ok(Some(Statement::Directive(Directive::Include(span, string))))
+                    if tokens.check(|tok| tok.is_string()) {
+                        let (str_span, string) = tokens.read_string()?;
+                        let span = Span::from(ident.span(), &str_span);
+                        Ok(Some(Statement::Directive(Directive::Include(span, IncludeType::Asm, string))))
+                    } else {
+                        let (_, inc_type) = tokens.read_include_type()?;
+                        let (str_span, string) = tokens.read_string()?;
+                        let span = Span::from(ident.span(), &str_span);
+                        Ok(Some(Statement::Directive(Directive::Include(span, inc_type, string))))
+                    }
                 } else if tok.has_name(".cnop") {
                     let ident = tokens.next()?;
                     let first = self.parse_expr(tokens)?;
@@ -636,6 +643,19 @@ impl<'a> TokenStream<'a> {
 
     pub fn is_empty(&self) -> bool {
         self.pos >= self.tokens.len() || self.check(Token::is_eof)
+    }
+
+    pub fn read_include_type(&mut self) -> Result<(Span,IncludeType),ParseError> {
+        if self.check(|tok| tok.has_name("asm")) {
+            let tok = self.next()?;
+            Ok((tok.span().clone(), IncludeType::Asm))
+        } else if self.check(|tok| tok.has_name("bytes")) {
+            let tok = self.next()?;
+            Ok((tok.span().clone(), IncludeType::Bytes))
+        } else {
+            let tok = self.current()?;
+            Err(ParseError::ExpectedTokenNotFound("Include Type", tok.clone()))
+        }
     }
 
     pub fn read_string(&mut self) -> Result<(Span,String),ParseError> {

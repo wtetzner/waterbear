@@ -20,11 +20,26 @@ impl ByteValue {
 }
 
 #[derive(Debug,Clone)]
+pub enum IncludeType {
+    Asm,
+    Bytes
+}
+
+impl fmt::Display for IncludeType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            IncludeType::Asm => write!(f, "asm"),
+            IncludeType::Bytes => write!(f, "bytes")
+        }
+    }
+}
+
+#[derive(Debug,Clone)]
 pub enum Directive {
     Byte(Span, Vec<ByteValue>),
     Org(Span, usize),
     Word(Span, Vec<Expr>),
-    Include(Span, String),
+    Include(Span, IncludeType, String),
     Cnop(Span, Expr,Expr)
 }
 
@@ -69,7 +84,7 @@ impl Directive {
             },
             Org(_, location) => Ok((*location as i32) - pos),
             Word(_, words) => Ok((words.len() * 2) as i32),
-            Include(_,_) => Ok(0),
+            Include(_,_,_) => Ok(0),
             Cnop(_, add, multiple) => Ok(Directive::eval_cnop(pos, add, multiple)? - pos)
         }
     }
@@ -80,7 +95,7 @@ impl Directive {
             Byte(span, _) => span.clone(),
             Org(span, _) => span.clone(),
             Word(span, _) => span.clone(),
-            Include(span, _) => span.clone(),
+            Include(span, _, _) => span.clone(),
             Cnop(span, _, _) => span.clone()
         }
     }
@@ -93,7 +108,7 @@ impl Positioned for Directive {
             Byte(span, _) => span.clone(),
             Org(span, _) => span.clone(),
             Word(span, _) => span.clone(),
-            Include(span,_) => span.clone(),
+            Include(span, _,_) => span.clone(),
             Cnop(span, _, _) => span.clone()
         }
     }
@@ -153,7 +168,12 @@ impl fmt::Display for Directive {
                 }
                 write!(f, "")
             },
-            Directive::Include(_, path) => write!(f, ".include \"{}\"", path)
+            Directive::Include(_, typ, path) => {
+                match typ {
+                    IncludeType::Asm => write!(f, ".include \"{}\"", path),
+                    _ => write!(f, ".include {} \"{}\"", typ, path)
+                }
+            }
         }
     }
 }
