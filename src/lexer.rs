@@ -21,6 +21,8 @@ pub enum TokenType {
     UpperByte,
     LowerByte,
     String(String),
+    MacroIdent(String),
+    MacroLabel(String),
     R0,
     R1,
     R2,
@@ -46,6 +48,8 @@ impl TokenType {
             TokenType::UpperByte => "'>'",
             TokenType::LowerByte => "'<'",
             TokenType::String(_) => "String",
+            TokenType::MacroIdent(_) => "Macro Identifier",
+            TokenType::MacroLabel(_) => "Macro Label",
             TokenType::R0 => "'@R0'",
             TokenType::R1 => "'@R1'",
             TokenType::R2 => "'@R2'",
@@ -90,6 +94,13 @@ impl Token {
         }
     }
 
+    pub fn has_macro_name(&self, name: &str) -> bool {
+        match self.token_type() {
+            TokenType::MacroIdent(n) => name == n,
+            _ => false
+        }
+    }
+
     pub fn get_name(&self) -> Option<&str> {
         match self.token_type() {
             TokenType::Name(ref n) => Some(n),
@@ -130,6 +141,14 @@ impl Token {
         use lexer::TokenType::*;
         match self.token_type {
             Hash => true,
+            _ => false
+        }
+    }
+
+    pub fn is_macro_ident(&self) -> bool {
+        use lexer::TokenType::*;
+        match self.token_type {
+            MacroIdent(_) => true,
             _ => false
         }
     }
@@ -293,6 +312,8 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
     lazy_static! {
         static ref MATCHERS: Vec<Matcher> = {
             let ident = "[a-zA-Z_\\.][a-zA-Z\\$0-9_\\.]*";
+            let macro_ident = format!("%{}", ident);
+            let macro_label = format!("{}%", ident);
             let hex_num = "\\$[a-fA-F0-9]+";
             let hex_num2 = "0[xX][a-fA-F0-9]+";
             let bin_num = "%[01]+";
@@ -300,6 +321,8 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
             let oct_num = "0[oO][0-7]+";
             let dec_num = "[0-9]+";
             vec![
+                Matcher::new(&macro_ident, |text| TokenType::MacroIdent(text.to_owned())),
+                Matcher::new(&macro_label, |text| TokenType::MacroLabel(text.to_owned())),
                 Matcher::new(r"\(", |_| TokenType::LeftParen),
                 Matcher::new(r"\)", |_| TokenType::RightParen),
                 Matcher::new("#",   |_| TokenType::Hash),

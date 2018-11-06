@@ -456,6 +456,7 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                             ArgType::A16 |
                             ArgType::R8 |
                             ArgType::R16 |
+                            ArgType::Macro |
                             ArgType::D9 => stdout.write(arg.to_str())
                         };
                     }

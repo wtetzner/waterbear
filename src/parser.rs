@@ -59,7 +59,8 @@ impl<'a> Iterator for LineIterator<'a> {
 enum Arg {
     Imm(Expr),
     Ex(Expr),
-    IM(Span, IndirectionMode)
+    IM(Span, IndirectionMode),
+    MacroArg(Span, String)
 }
 
 impl Arg {
@@ -67,7 +68,8 @@ impl Arg {
         match self {
             Arg::Imm(expr) => expr.span(),
             Arg::Ex(expr) => expr.span(),
-            Arg::IM(span, _) => span.clone()
+            Arg::IM(span, _) => span.clone(),
+            Arg::MacroArg(span, _) => span.clone()
         }
     }
 }
@@ -81,7 +83,8 @@ pub enum ArgType {
     A12,
     A16,
     R8,
-    R16
+    R16,
+    Macro
 }
 
 impl ArgType {
@@ -110,7 +113,8 @@ impl ArgType {
             ArgType::A12 |
             ArgType::A16 |
             ArgType::R8 |
-            ArgType::R16 => true
+            ArgType::R16 => true,
+            ArgType::Macro => false
         }
     }
 
@@ -123,7 +127,8 @@ impl ArgType {
             ArgType::A12 => "a12",
             ArgType::A16 => "a16",
             ArgType::R8 => "r8",
-            ArgType::R16 => "r16"
+            ArgType::R16 => "r16",
+            ArgType::Macro => "%arg"
         }
     }
 }
@@ -594,7 +599,13 @@ impl Parser {
     }
 
     fn parse_arg(&self, tokens: &mut TokenStream) -> Result<Arg,ParseError> {
-        if tokens.check(Token::is_indirection_mode) {
+        if tokens.check(Token::is_macro_ident) {
+            let tok = tokens.next()?;
+            match tok.token_type() {
+                TokenType::MacroIdent(name) => Ok(Arg::MacroArg(tok.span().clone(), name.clone())),
+                _ => Err(ParseError::ExpectedTokenNotFound("Macro Arg", tok.clone()))
+            }
+        } else if tokens.check(Token::is_indirection_mode) {
             let (span, im) = self.parse_im(tokens)?;
             Ok(Arg::IM(span, im))
         } else if tokens.check(Token::is_hash) {
