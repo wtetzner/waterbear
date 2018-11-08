@@ -153,6 +153,14 @@ impl Token {
         }
     }
 
+    pub fn is_macro_label(&self) -> bool {
+        use lexer::TokenType::*;
+        match self.token_type {
+            MacroLabel(_) => true,
+            _ => false
+        }
+    }
+
     pub fn is_indirection_mode(&self) -> bool {
         use lexer::TokenType::*;
         match self.token_type {
@@ -321,8 +329,8 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
             let oct_num = "0[oO][0-7]+";
             let dec_num = "[0-9]+";
             vec![
-                Matcher::new(&macro_ident, |text| TokenType::MacroIdent(text.to_owned())),
-                Matcher::new(&macro_label, |text| TokenType::MacroLabel(text.to_owned())),
+                Matcher::new(&macro_ident, |text| TokenType::MacroIdent(text.to_lowercase())),
+                Matcher::new(&macro_label, |text| TokenType::MacroLabel(text.to_lowercase())),
                 Matcher::new(r"\(", |_| TokenType::LeftParen),
                 Matcher::new(r"\)", |_| TokenType::RightParen),
                 Matcher::new("#",   |_| TokenType::Hash),

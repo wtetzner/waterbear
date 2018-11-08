@@ -114,7 +114,18 @@ pub fn run_command(args: &[String]) {
             }
         }
     } else if let Some(_) = matches.subcommand_matches("version") {
-        stdout.yellow()
+        let git_dirty = GITDIRTY.to_lowercase() == "true";
+        let dirty_tag = if git_dirty { "*" } else { "" };
+        stdout.magenta()
+            .writeln("               _            _")
+            .writeln("              | |          | |")
+            .writeln("__      ____ _| |_ ___ _ __| |__   ___  __ _ _ __ ")
+            .writeln("\\ \\ /\\ / / _` | __/ _ | '__| '_ \\ / _ \\/ _` | '__|")
+            .writeln(" \\ V  V | (_| | ||  __| |  | |_) |  __| (_| | |")
+            .writeln("  \\_/\\_/ \\__,_|\\__\\___|_|  |_.__/ \\___|\\__,_|_|")
+            .reset()
+            .newline()
+            .yellow()
             .write(NAME)
             .reset()
             .space()
@@ -136,7 +147,8 @@ pub fn run_command(args: &[String]) {
             .cyan()
             .write("  git SHA").reset().write(":  ")
             .writeln(GITSHA)
-            .reset();
+            .reset()
+            .newline();
     } else {
         eprintln!("No subcommand specified");
         std::process::exit(1);
@@ -481,6 +493,18 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .write(": ")
                 .writeln(err)
                 .newline();
+        },
+        MacroNameConflictsWithInstruction(span, string) => {
+            stdout.writeln(format!("{:?}", err));
+        },
+        MacroAlreadyExists(span1, span2, string) => {
+            stdout.writeln(format!("{:?}", err));
+        },
+        DuplicateMacroArg(span) => {
+            stdout.writeln(format!("{:?}", err));
+        },
+        InvalidMacroArg(span) => {
+            stdout.writeln(format!("{:?}", err));
         }
     }
 }

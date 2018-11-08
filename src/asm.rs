@@ -205,7 +205,11 @@ pub enum AssemblyError {
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     UnexpectedEof,
     FileLoadFailure(String, std::io::Error),
-    FileUtf8Error(String, std::string::FromUtf8Error)
+    FileUtf8Error(String, std::string::FromUtf8Error),
+    MacroNameConflictsWithInstruction(Span, String),
+    MacroAlreadyExists(Span, Span, String),
+    DuplicateMacroArg(Span),
+    InvalidMacroArg(Span)
 }
 
 impl From<LexerError> for AssemblyError {
@@ -241,6 +245,10 @@ impl From<ParseError> for AssemblyError {
             UnknownDirective(tok) => AssemblyError::UnknownDirective(tok),
             UnknownInstruction(tok) => AssemblyError::UnknownInstruction(tok),
             WrongInstructionArgs(span, name, types) => AssemblyError::WrongInstructionArgs(span, name, types),
+            MacroNameConflictsWithInstruction(span, string) => AssemblyError::MacroNameConflictsWithInstruction(span, string),
+            MacroAlreadyExists(span1, span2, string) => AssemblyError::MacroAlreadyExists(span1, span2, string),
+            DuplicateMacroArg(span) => AssemblyError::DuplicateMacroArg(span),
+            InvalidMacroArg(span) => AssemblyError::InvalidMacroArg(span),
             UnexpectedEof => AssemblyError::UnexpectedEof
         }
     }
