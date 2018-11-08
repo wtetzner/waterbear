@@ -4,7 +4,7 @@ use ast::{Statement,Statements,Directive,ByteValue,IncludeType};
 use lexer::{Token,TokenType,LexerError};
 use lexer;
 use expression::Expr;
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use instruction::{IndirectionMode,Instr};
 
 #[derive(Debug)]
@@ -19,6 +19,10 @@ pub enum ParseError {
     UnknownDirective(Token),
     UnknownInstruction(Token),
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
+    MacroNameConflictsWithInstruction(Span, String),
+    MacroAlreadyExists(Span, Span, String),
+    DuplicateMacroArg(Span),
+    InvalidMacroArg(Span),
     UnexpectedEof
 }
 
@@ -72,6 +76,36 @@ impl Arg {
             Arg::MacroArg(span, _) => span.clone()
         }
     }
+}
+
+type Macros = HashMap<String,MacroDefinition>;
+
+#[derive(Debug,Clone)]
+enum MacroStatement {
+    Instr(Span, String, Vec<Arg>),
+    Label(Span, String),
+    MacroLabel(Span, String)
+}
+
+#[derive(Debug,Clone)]
+struct MacroDefinition {
+    span: Span,
+    name: String,
+    args: Vec<String>,
+    body: Vec<MacroStatement>
+}
+
+impl MacroDefinition {
+    // fn expand(&self, span: Span, name: String, args: Vec<Arg>) -> Result<Vec<Statement>,ParseError> {
+    //     let mut statements = vec![];
+    //     for stmt in self.body.iter() {
+    //         use parser::MacroStatement::*;
+    //         match stmt {
+    //             Instr(span, name, args) => {},
+    //         }
+    //     }
+    //     Ok(statements)
+    // }
 }
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
@@ -183,6 +217,94 @@ impl Parser {
             expr_parser
         }
     }
+
+    fn parse_macro_statement(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<MacroStatement,ParseError> {
+        if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
+            let tok = tokens.next()?;
+            if let TokenType::Name(name) = tok.token_type() {
+                let colon = tokens.next()?;
+                let span = Span::from(tok.span(), colon.span());
+                return Ok(MacroStatement::Label(span, name.to_owned()));
+            }
+        }
+
+        if tokens.check(Token::is_macro_label) && tokens.check_at(1, Token::is_colon) {
+            let tok = tokens.next()?;
+            if let TokenType::MacroLabel(name) = tok.token_type() {
+                let colon = tokens.next()?;
+                let span = Span::from(tok.span(), colon.span());
+                return Ok(MacroStatement::MacroLabel(span, name.to_owned()));
+            }
+        }
+
+        // Local label on its own line
+        if tokens.check(Token::is_name) && tokens.len() == 1 {
+            let tok = tokens.next()?;
+            if let TokenType::Name(name) = tok.token_type() {
+                if tok.name_matching(|n| n.starts_with(".")) {
+                    let colon = tokens.next()?;
+                    let span = Span::from(tok.span(), colon.span());
+                    return Ok(MacroStatement::Label(span, name.to_owned()));
+                }
+            }
+        }
+
+        if tokens.check(Token::is_name) {
+            let tok = tokens.peek().unwrap().clone();
+            if let TokenType::Name(name) = tok.token_type() {
+                if Instr::<Expr,IndirectionMode>::exists(name)
+                    || macros.get(name).is_some()
+                {
+                    let (span, name, args) = self.parse_gen_instr(tokens)?;
+                    return Ok(MacroStatement::Instr(span, name, args));
+                }
+            }
+        }
+
+        Err(ParseError::UnexpectedToken(tokens.next()?))
+    }
+
+    fn parse_macro_header(&self, macros: &mut Macros, tokens: &mut TokenStream) -> Result<(Span,String,Vec<(Span,String)>),ParseError> {
+        tokens.consume(TokenType::MacroIdent("%macro".to_owned()))?;
+        let (nspan, name) = tokens.read_name()?;
+        if Instr::<Expr,IndirectionMode>::exists(&name) {
+            return Err(ParseError::MacroNameConflictsWithInstruction(nspan.clone(), name.clone()));
+        }
+        if let Some(macro_def) = macros.get(&name) {
+            return Err(ParseError::MacroAlreadyExists(nspan.clone(), macro_def.span.clone(), name.clone()));
+        }
+
+        let args = self.parse_args(tokens)?;
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut arg_names = vec![];
+        for arg in args.iter() {
+            use parser::Arg::*;
+            match arg {
+                MacroArg(span, name) => {
+                    if seen.contains(name) {
+                        return Err(ParseError::DuplicateMacroArg(span.clone()));
+                    } else {
+                        seen.insert(name.clone());
+                        arg_names.push((arg.span().clone(), name.clone()));
+                    }
+                },
+                other => return Err(ParseError::InvalidMacroArg(arg.span()))
+            }
+        }
+
+        Ok((nspan.clone(), name.clone(), arg_names))
+    }
+
+    // fn parse_macros(&self, lines: &[Token]) -> Result<Macros,ParseError> {
+    //     let mut macros: Macros = HashMap::new();
+    //     let (nspan, name, args) = self.parse_macro_header(macros, tokens)?;
+    //     Ok(MacroDefinition {
+    //         span: nspan.clone(),
+    //         name: name.clone(),
+    //         args: args,
+    //         body: Vec<MacroStatement>
+    //     })
+    // }
 
     pub fn parse(&self, tokens: &[Token]) -> Result<Statements,ParseError> {
         let mut statements = vec![];
@@ -486,7 +608,6 @@ impl Parser {
                 ("stf", _) => wrong_args(span, "stf", vec![]),
                 _ => unreachable!()
             }
-
         } else {
             Ok(None)
         }
@@ -650,6 +771,10 @@ impl<'a> TokenStream<'a> {
             pos: 0,
             tokens: tokens
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.tokens.len() - self.pos
     }
 
     pub fn is_empty(&self) -> bool {
