@@ -13,8 +13,6 @@ fn main() {
 
     let gitsha = gitsha().unwrap_or("<unknown>".to_owned());
     println!("cargo:rustc-env=GITSHA={}", gitsha);
-
-    println!("cargo:rustc-env=GITDIRTY={}", git_dirty());
 }
 
 fn version<P: AsRef<ffi::OsStr>>(command: P) -> Option<String> {
@@ -39,17 +37,3 @@ fn gitsha() -> Option<String> {
     }
 }
 
-fn git_dirty() -> bool {
-    let status = process::Command::new("git")
-        .arg("diff-index")
-        .arg("--quiet")
-        .arg("HEAD")
-        .arg("--")
-        .status();
-    match status {
-        Ok(s) => {
-            !s.success()
-        },
-        Err(_) => false
-    }
-}

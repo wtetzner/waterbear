@@ -50,7 +50,6 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const RUSTC: &'static str = env!("RUSTC_VERSION");
 const CARGO: &'static str = env!("CARGO_VERSION");
 const GITSHA: &'static str = env!("GITSHA");
-const GITDIRTY: &'static str = env!("GITDIRTY");
 
 pub fn run_command(args: &[String]) {
     let matches = clap_app!(
@@ -115,14 +114,11 @@ pub fn run_command(args: &[String]) {
             }
         }
     } else if let Some(_) = matches.subcommand_matches("version") {
-        let git_dirty = GITDIRTY.to_lowercase() == "true";
-        let dirty_tag = if git_dirty { "*" } else { "" };
         stdout.yellow()
             .write(NAME)
             .reset()
             .space()
             .bold()
-            .write(dirty_tag)
             .write("v")
             .writeln(VERSION)
             .reset()
@@ -139,7 +135,6 @@ pub fn run_command(args: &[String]) {
             .writeln(CARGO)
             .cyan()
             .write("  git SHA").reset().write(":  ")
-            .write(dirty_tag)
             .writeln(GITSHA)
             .reset();
     } else {
