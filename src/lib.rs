@@ -114,8 +114,6 @@ pub fn run_command(args: &[String]) {
             }
         }
     } else if let Some(_) = matches.subcommand_matches("version") {
-        let git_dirty = GITDIRTY.to_lowercase() == "true";
-        let dirty_tag = if git_dirty { "*" } else { "" };
         stdout.magenta()
             .writeln("               _            _")
             .writeln("              | |          | |")
