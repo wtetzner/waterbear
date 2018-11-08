@@ -6,12 +6,13 @@ rust:
 os:
 - linux
 - osx
+- windows
 script:
 - cargo build --verbose --release
 - cargo test --verbose
 matrix:
   fast_finish: true
-before_deploy: cp target/release/waterbear target/release/waterbear-$TRAVIS_OS_NAME
+before_deploy: if [ "$TRAVIS_OS_NAME" == "windows" ]; then cp target/release/waterbear.exe target/release/waterbear-${TRAVIS_OS_NAME}.exe; else cp target/release/waterbear target/release/waterbear-$TRAVIS_OS_NAME; fi
 deploy:
   provider: releases
   api_key:
