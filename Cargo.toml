@@ -12,6 +12,7 @@ clap = "*"
 regex = "*"
 termcolor = "1"
 atty = "0.2"
+uuid = { version = "*", features = ["v4"] }
 
 # custom derives
 instruction-derive = { path = "instruction-derive" }

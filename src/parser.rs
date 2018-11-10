@@ -1,6 +1,16 @@
 
 use location::{Location,Span,Positioned};
-use ast::{Statement,Statements,Directive,ByteValue,IncludeType};
+use ast::{
+    Statement,
+    Statements,
+    Directive,
+    ByteValue,
+    IncludeType,
+    Arg,
+    ArgType,
+    MacroDefinition,
+    MacroStatement
+};
 use lexer::{Token,TokenType,LexerError};
 use lexer;
 use expression::Expr;
@@ -17,7 +27,7 @@ pub enum ParseError {
     MissingBytes(Span),
     MissingWords(Span),
     UnknownDirective(Token),
-    UnknownInstruction(Token),
+    UnknownInstruction(Span),
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     MacroNameConflictsWithInstruction(Span, String),
     MacroAlreadyExists(Span, Span, String),
@@ -59,113 +69,7 @@ impl<'a> Iterator for LineIterator<'a> {
     }
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
-enum Arg {
-    Imm(Expr),
-    Ex(Expr),
-    IM(Span, IndirectionMode),
-    MacroArg(Span, String)
-}
-
-impl Arg {
-    fn span(&self) -> Span {
-        match self {
-            Arg::Imm(expr) => expr.span(),
-            Arg::Ex(expr) => expr.span(),
-            Arg::IM(span, _) => span.clone(),
-            Arg::MacroArg(span, _) => span.clone()
-        }
-    }
-}
-
 type Macros = HashMap<String,MacroDefinition>;
-
-#[derive(Debug,Clone)]
-enum MacroStatement {
-    Instr(Span, String, Vec<Arg>),
-    Label(Span, String),
-    MacroLabel(Span, String)
-}
-
-#[derive(Debug,Clone)]
-struct MacroDefinition {
-    span: Span,
-    name: String,
-    args: Vec<String>,
-    body: Vec<MacroStatement>
-}
-
-impl MacroDefinition {
-    // fn expand(&self, span: Span, name: String, args: Vec<Arg>) -> Result<Vec<Statement>,ParseError> {
-    //     let mut statements = vec![];
-    //     for stmt in self.body.iter() {
-    //         use parser::MacroStatement::*;
-    //         match stmt {
-    //             Instr(span, name, args) => {},
-    //         }
-    //     }
-    //     Ok(statements)
-    // }
-}
-
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
-pub enum ArgType {
-    Imm,
-    D9,
-    IM,
-    B3,
-    A12,
-    A16,
-    R8,
-    R16,
-    Macro
-}
-
-impl ArgType {
-    pub fn is_immediate(&self) -> bool {
-        if let ArgType::Imm = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_indirection_mode(&self) -> bool {
-        if let ArgType::IM = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_mem(&self) -> bool {
-        match self {
-            ArgType::Imm => false,
-            ArgType::IM => false,
-            ArgType::D9 |
-            ArgType::B3 |
-            ArgType::A12 |
-            ArgType::A16 |
-            ArgType::R8 |
-            ArgType::R16 => true,
-            ArgType::Macro => false
-        }
-    }
-
-    pub fn to_str(&self) -> &str {
-        match self {
-            ArgType::Imm => "#i8",
-            ArgType::D9 => "d9",
-            ArgType::IM => "@Ri",
-            ArgType::B3 => "b3",
-            ArgType::A12 => "a12",
-            ArgType::A16 => "a16",
-            ArgType::R8 => "r8",
-            ArgType::R16 => "r16",
-            ArgType::Macro => "%arg"
-        }
-    }
-}
 
 fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
     LineIterator {
@@ -264,14 +168,14 @@ impl Parser {
         Err(ParseError::UnexpectedToken(tokens.next()?))
     }
 
-    fn parse_macro_header(&self, macros: &mut Macros, tokens: &mut TokenStream) -> Result<(Span,String,Vec<(Span,String)>),ParseError> {
-        tokens.consume(TokenType::MacroIdent("%macro".to_owned()))?;
+    fn parse_macro_header(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<(Span,String,Vec<(Span,String)>),ParseError> {
+        tokens.read_macro_name()?;
         let (nspan, name) = tokens.read_name()?;
         if Instr::<Expr,IndirectionMode>::exists(&name) {
             return Err(ParseError::MacroNameConflictsWithInstruction(nspan.clone(), name.clone()));
         }
         if let Some(macro_def) = macros.get(&name) {
-            return Err(ParseError::MacroAlreadyExists(nspan.clone(), macro_def.span.clone(), name.clone()));
+            return Err(ParseError::MacroAlreadyExists(nspan.clone(), macro_def.span().clone(), name.clone()));
         }
 
         let args = self.parse_args(tokens)?;
@@ -292,36 +196,91 @@ impl Parser {
             }
         }
 
+        if !tokens.is_empty() {
+            return Err(ParseError::UnexpectedToken(tokens.next()?));
+        }
+
         Ok((nspan.clone(), name.clone(), arg_names))
     }
 
-    // fn parse_macros(&self, lines: &[Token]) -> Result<Macros,ParseError> {
-    //     let mut macros: Macros = HashMap::new();
-    //     let (nspan, name, args) = self.parse_macro_header(macros, tokens)?;
-    //     Ok(MacroDefinition {
-    //         span: nspan.clone(),
-    //         name: name.clone(),
-    //         args: args,
-    //         body: Vec<MacroStatement>
-    //     })
-    // }
+    fn parse_macros<'a>(&self, tokens: &'a [Token]) -> Result<(Vec<&'a [Token]>,Macros),ParseError> {
+        let mut macros: Macros = HashMap::new();
+        let lines: Vec<&[Token]> = {
+            let mut results = vec![];
+            for line in lines(tokens) {
+                results.push(line);
+            }
+            results
+        };
+        let mut macro_lines: Vec<bool> = vec![false; lines.len()];
 
-    pub fn parse(&self, tokens: &[Token]) -> Result<Statements,ParseError> {
-        let mut statements = vec![];
-        for line in lines(tokens) {
-            let mut token_stream = TokenStream::from(line);
-            self.parse_line(&mut token_stream, &mut statements)?;
+        let mut idx = 0;
+        while idx < lines.len() {
+            let line = lines[idx];
+            let mut tokens = TokenStream::from(line);
+
+            if tokens.check(|tok| tok.has_macro_name("%macro")) {
+                let (nspan, name, args) = self.parse_macro_header(&macros, &mut tokens)?;
+                macro_lines[idx] = true;
+                idx = idx + 1;
+                let mut statements = vec![];
+                while idx < lines.len() {
+                    let line = lines[idx];
+                    let mut tokens = TokenStream::from(line);
+                    if tokens.check(|tok| tok.has_macro_name("%end")) {
+                        tokens.next()?;
+                        macro_lines[idx] = true;
+                        if !tokens.is_empty() {
+                            return Err(ParseError::UnexpectedToken(tokens.next()?));
+                        } else {
+                            idx = idx + 1;
+                            break;
+                        }
+                    } else {
+                        let stmt = self.parse_macro_statement(&macros, &mut tokens)?;
+                        statements.push(stmt);
+                        macro_lines[idx] = true;
+                    }
+                    idx = idx + 1;
+                }
+                macros.insert(name.clone(), MacroDefinition::new(
+                    nspan.clone(),
+                    name.clone(),
+                    args,
+                    statements
+                ));
+            } else {
+                idx = idx + 1;
+            }
         }
-        Ok(Statements { statements: statements })
+
+        let mut new_lines = vec![];
+        for idx in 0..lines.len() {
+            if !macro_lines[idx] {
+                new_lines.push(lines[idx].clone());
+            }
+        }
+
+        Ok((new_lines, macros))
     }
 
-    fn parse_line(&self, tokens: &mut TokenStream, results: &mut Vec<Statement>) -> Result<(),ParseError> {
+    pub fn parse(&self, tokens: &[Token]) -> Result<Statements,ParseError> {
+        let (lines, macros) = self.parse_macros(tokens)?;
+        let mut statements = vec![];
+        for line in lines.iter() {
+            let mut token_stream = TokenStream::from(line);
+            self.parse_line(&macros, &mut token_stream, &mut statements)?;
+        }
+        Ok(Statements::new(macros, statements))
+    }
+
+    fn parse_line(&self, macros: &Macros, tokens: &mut TokenStream, results: &mut Vec<Statement>) -> Result<(),ParseError> {
         if !tokens.is_empty() {
-            let stmt = self.parse_statement(tokens)?;
+            let stmt = self.parse_statement(macros, tokens)?;
             let is_label = stmt.is_label();
             results.push(stmt);
             if is_label && !tokens.is_empty() {
-                match self.parse_instr(tokens)? {
+                match self.parse_instr(macros, tokens)? {
                     Some(instr) => {
                         results.push(instr);
                     },
@@ -337,7 +296,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_statement(&self, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
+    fn parse_statement(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
         if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
             let tok = tokens.next()?;
             if let TokenType::Name(name) = tok.token_type() {
@@ -348,7 +307,7 @@ impl Parser {
         }
 
         // Parse instruction
-        if let Some(instr) = self.parse_instr(tokens)? {
+        if let Some(instr) = self.parse_instr(macros, tokens)? {
             return Ok(instr);
         }
 
@@ -384,230 +343,25 @@ impl Parser {
             return Err(ParseError::UnknownDirective(tok));
         }
         if tok.is_name() {
-            return Err(ParseError::UnknownInstruction(tok));
+            return Err(ParseError::UnknownInstruction(tok.span().clone()));
         }
         Err(ParseError::UnexpectedToken(tok))
     }
 
-    fn parse_instr(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
+    fn parse_instr(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
         let tok = tokens.peek().map(|t| t.token_type().clone());
         if let Some(TokenType::Name(n)) = tok {
             if !Instr::<Expr,IndirectionMode>::exists(&n) {
-                return Ok(None);
+                if macros.contains_key(&n) {
+                    let (span, name, args) = self.parse_gen_instr(tokens)?;
+                    return Ok(Some(Statement::MacroCall(span, name, args)));
+                } else {
+                    return Ok(None);
+                }
             }
             let (span, name, args) = self.parse_gen_instr(tokens)?;
 
-            use parser::Arg::*;
-            use instruction::Instr::*;
-            match (name.as_str(), args.as_slice()) {
-                ("add", [Imm(imm)]) => instr(span, Add_i8(imm.clone())),
-                ("add", [Ex(mem)]) => instr(span, Add_d9(mem.clone())),
-                ("add", [IM(_, im)]) => instr(span, Add_Ri(im.clone())),
-                ("add", _) => wrong_args(span, "add", vec![
-                    vec![ArgType::Imm],
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("addc", [Imm(imm)]) => instr(span, Addc_i8(imm.clone())),
-                ("addc", [Ex(mem)]) => instr(span, Addc_d9(mem.clone())),
-                ("addc", [IM(_, im)]) => instr(span, Addc_Ri(im.clone())),
-                ("addc", _) => wrong_args(span, "addc", vec![
-                    vec![ArgType::Imm],
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("sub", [Imm(imm)]) => instr(span, Sub_i8(imm.clone())),
-                ("sub", [Ex(mem)]) => instr(span, Sub_d9(mem.clone())),
-                ("sub", [IM(_, im)]) => instr(span, Sub_Ri(im.clone())),
-                ("sub", _) => wrong_args(span, "sub", vec![
-                    vec![ArgType::Imm],
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("subc", [Imm(imm)]) => instr(span, Subc_i8(imm.clone())),
-                ("subc", [Ex(mem)]) => instr(span, Subc_d9(mem.clone())),
-                ("subc", [IM(_, im)]) => instr(span, Subc_Ri(im.clone())),
-                ("subc", _) => wrong_args(span, "subc", vec![
-                    vec![ArgType::Imm],
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("inc", [Ex(mem)]) => instr(span, Inc_d9(mem.clone())),
-                ("inc", [IM(_, im)]) => instr(span, Inc_Ri(im.clone())),
-                ("inc", _) => wrong_args(span, "inc", vec![
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("dec", [Ex(mem)]) => instr(span, Dec_d9(mem.clone())),
-                ("dec", [IM(_, im)]) => instr(span, Dec_Ri(im.clone())),
-                ("dec", _) => wrong_args(span, "dec", vec![
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("mul", []) => instr(span, Mul),
-                ("mul", _) => wrong_args(span, "mul", vec![]),
-                ("div", []) => instr(span, Div),
-                ("div", _) => wrong_args(span, "div", vec![]),
-                ("and", [Imm(imm)]) => instr(span, And_i8(imm.clone())),
-                ("and", [Ex(mem)]) => instr(span, And_d9(mem.clone())),
-                ("and", [IM(_, im)]) => instr(span, And_Ri(im.clone())),
-                ("and", _) => wrong_args(span, "and", vec![
-                    vec![ArgType::Imm],
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("or", [Imm(imm)]) => instr(span, Or_i8(imm.clone())),
-                ("or", [Ex(mem)]) => instr(span, Or_d9(mem.clone())),
-                ("or", [IM(_, im)]) => instr(span, Or_Ri(im.clone())),
-                ("or", _) => wrong_args(span, "or", vec![
-                    vec![ArgType::Imm],
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("xor", [Imm(imm)]) => instr(span, Xor_i8(imm.clone())),
-                ("xor", [Ex(mem)]) => instr(span, Xor_d9(mem.clone())),
-                ("xor", [IM(_, im)]) => instr(span, Xor_Ri(im.clone())),
-                ("xor", _) => wrong_args(span, "xor", vec![
-                    vec![ArgType::Imm],
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("rol", []) => instr(span, Rol),
-                ("rol", _) => wrong_args(span, "rol", vec![]),
-                ("rolc", []) => instr(span, Rolc),
-                ("rolc", _) => wrong_args(span, "rolc", vec![]),
-                ("ror", []) => instr(span, Ror),
-                ("ror", _) => wrong_args(span, "ror", vec![]),
-                ("rorc", []) => instr(span, Rorc),
-                ("rorc", _) => wrong_args(span, "rorc", vec![]),
-                ("ld", [Ex(mem)]) => instr(span, Ld_d9(mem.clone())),
-                ("ld", [IM(_, im)]) => instr(span, Ld_Ri(im.clone())),
-                ("ld", _) => wrong_args(span, "ld", vec![
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("st", [Ex(mem)]) => instr(span, St_d9(mem.clone())),
-                ("st", [IM(_, im)]) => instr(span, St_Ri(im.clone())),
-                ("st", _) => wrong_args(span, "st", vec![
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("mov", [Imm(imm), Ex(mem)]) => instr(span, Mov_d9(imm.clone(), mem.clone())),
-                ("mov", [Imm(imm), IM(_, im)]) => instr(span, Mov_Rj(imm.clone(), im.clone())),
-                ("mov", _) => wrong_args(span, "mov", vec![
-                    vec![ArgType::Imm, ArgType::D9],
-                    vec![ArgType::Imm, ArgType::IM]
-                ]),
-                ("ldc", []) => instr(span, Ldc),
-                ("ldc", _) => wrong_args(span, "ldc", vec![]),
-                ("push", [Ex(mem)]) => instr(span, Push(mem.clone())),
-                ("push", _) => wrong_args(span, "push", vec![
-                    vec![ArgType::D9]
-                ]),
-                ("pop", [Ex(mem)]) => instr(span, Pop(mem.clone())),
-                ("pop", _) => wrong_args(span, "pop", vec![
-                    vec![ArgType::D9]
-                ]),
-                ("xch", [Ex(mem)]) => instr(span, Xch_d9(mem.clone())),
-                ("xch", [IM(_, im)]) => instr(span, Xch_Ri(im.clone())),
-                ("xch", _) => wrong_args(span, "xch", vec![
-                    vec![ArgType::D9],
-                    vec![ArgType::IM]
-                ]),
-                ("jmp", [Ex(mem)]) => instr(span, Jmp(mem.clone())),
-                ("jmp", _) => wrong_args(span, "jmp", vec![
-                    vec![ArgType::A12]
-                ]),
-                ("jmpf", [Ex(mem)]) => instr(span, Jmpf(mem.clone())),
-                ("jmpf", _) => wrong_args(span, "jmpf", vec![
-                    vec![ArgType::A16]
-                ]),
-                ("br", [Ex(mem)]) => instr(span, Br(mem.clone())),
-                ("br", _) => wrong_args(span, "br", vec![
-                    vec![ArgType::R8]
-                ]),
-                ("brf", [Ex(mem)]) => instr(span, Brf(mem.clone())),
-                ("brf", _) => wrong_args(span, "brf", vec![
-                    vec![ArgType::R16]
-                ]),
-                ("bz", [Ex(mem)]) => instr(span, Bz(mem.clone())),
-                ("bz", _) => wrong_args(span, "bz", vec![
-                    vec![ArgType::R8]
-                ]),
-                ("bnz", [Ex(mem)]) => instr(span, Bnz(mem.clone())),
-                ("bnz", _) => wrong_args(span, "bnz", vec![
-                    vec![ArgType::R8]
-                ]),
-                ("bp", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bp(m1.clone(), m2.clone(), m3.clone())),
-                ("bp", _) => wrong_args(span, "bp", vec![
-                    vec![ArgType::D9, ArgType::B3, ArgType::R8]
-                ]),
-                ("bpc", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bpc(m1.clone(), m2.clone(), m3.clone())),
-                ("bpc", _) => wrong_args(span, "bpc", vec![
-                    vec![ArgType::D9, ArgType::B3, ArgType::R8]
-                ]),
-                ("bn", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bn(m1.clone(), m2.clone(), m3.clone())),
-                ("bn", _) => wrong_args(span, "bn", vec![
-                    vec![ArgType::D9, ArgType::B3, ArgType::R8]
-                ]),
-                ("dbnz", [Ex(m1), Ex(m2)]) => instr(span, Dbnz_d9(m1.clone(), m2.clone())),
-                ("dbnz", [IM(_, im), Ex(mem)]) => instr(span, Dbnz_Ri(im.clone(), mem.clone())),
-                ("dbnz", _) => wrong_args(span, "dbnz", vec![
-                    vec![ArgType::D9, ArgType::R8],
-                    vec![ArgType::IM, ArgType::R8]
-                ]),
-                ("be", [Imm(imm), Ex(mem)]) => instr(span, Be_i8(imm.clone(), mem.clone())),
-                ("be", [Ex(m1), Ex(m2)]) => instr(span, Be_d9(m1.clone(), m2.clone())),
-                ("be", [IM(_, im), Imm(imm), Ex(mem)]) => instr(span, Be_Rj(im.clone(), imm.clone(), mem.clone())),
-                ("be", _) => wrong_args(span, "be", vec![
-                    vec![ArgType::Imm, ArgType::R8],
-                    vec![ArgType::D9, ArgType::R8],
-                    vec![ArgType::IM, ArgType::Imm, ArgType::R8]
-                ]),
-                ("bne", [Imm(imm), Ex(mem)]) => instr(span, Bne_i8(imm.clone(), mem.clone())),
-                ("bne", [Ex(m1), Ex(m2)]) => instr(span, Bne_d9(m1.clone(), m2.clone())),
-                ("bne", [IM(_, im), Imm(imm), Ex(mem)]) => instr(span, Bne_Rj(im.clone(), imm.clone(), mem.clone())),
-                ("bne", _) => wrong_args(span, "bne", vec![
-                    vec![ArgType::Imm, ArgType::R8],
-                    vec![ArgType::D9, ArgType::R8],
-                    vec![ArgType::IM, ArgType::Imm, ArgType::R8]
-                ]),
-                ("call", [Ex(mem)]) => instr(span, Call(mem.clone())),
-                ("call", _) => wrong_args(span, "call", vec![
-                    vec![ArgType::A12]
-                ]),
-                ("callf", [Ex(mem)]) => instr(span, Callf(mem.clone())),
-                ("callf", _) => wrong_args(span, "callf", vec![
-                    vec![ArgType::A16]
-                ]),
-                ("callr", [Ex(mem)]) => instr(span, Callr(mem.clone())),
-                ("callr", _) => wrong_args(span, "callr", vec![
-                    vec![ArgType::R16]
-                ]),
-                ("ret", []) => instr(span, Ret),
-                ("ret", _) => wrong_args(span, "ret", vec![]),
-                ("reti", []) => instr(span, Reti),
-                ("reti", _) => wrong_args(span, "reti", vec![]),
-                ("clr1", [Ex(d9), Ex(b3)]) => instr(span, Clr1(d9.clone(), b3.clone())),
-                ("clr1", _) => wrong_args(span, "clr1", vec![
-                    vec![ArgType::D9, ArgType::B3]
-                ]),
-                ("set1", [Ex(d9), Ex(b3)]) => instr(span, Set1(d9.clone(), b3.clone())),
-                ("set1", _) => wrong_args(span, "set1", vec![
-                    vec![ArgType::D9, ArgType::B3]
-                ]),
-                ("not1", [Ex(d9), Ex(b3)]) => instr(span, Not1(d9.clone(), b3.clone())),
-                ("not1", _) => wrong_args(span, "not1", vec![
-                    vec![ArgType::D9, ArgType::B3]
-                ]),
-                ("nop", []) => instr(span, Nop),
-                ("nop", _) => wrong_args(span, "nop", vec![]),
-                ("ldf", []) => instr(span, Ldf),
-                ("ldf", _) => wrong_args(span, "ldf", vec![]),
-                ("stf", []) => instr(span, Stf),
-                ("stf", _) => wrong_args(span, "stf", vec![]),
-                _ => unreachable!()
-            }
+            make_instr(span, name, &args)
         } else {
             Ok(None)
         }
@@ -830,6 +584,18 @@ impl<'a> TokenStream<'a> {
         }
     }
 
+    pub fn read_macro_name(&mut self) -> Result<(Span,String),ParseError> {
+        use lexer::TokenType::*;
+        let tok = self.current()?;
+        match tok.token_type() {
+            MacroIdent(name) => {
+                self.advance();
+                Ok((tok.span().clone(), name.clone()))
+            },
+            _ => Err(ParseError::ExpectedTokenNotFound("Macro Ident", tok.clone()))
+        }
+    }
+
     pub fn advance_by(&mut self, amount: usize) {
         self.pos += amount;
     }
@@ -884,6 +650,224 @@ impl<'a> TokenStream<'a> {
             Some(tok) => Err(ParseError::ExpectedTokenNotFound(token_type.name(), tok.clone())),
             None => Err(ParseError::UnexpectedEof)
         }
+    }
+}
+
+pub fn make_instr(
+    span: Span,
+    name: String,
+    args: &[Arg]
+) -> Result<Option<Statement>,ParseError> {
+    use ast::Arg::*;
+    use instruction::Instr::*;
+    match (name.as_str(), args) {
+        ("add", [Imm(imm)]) => instr(span, Add_i8(imm.clone())),
+        ("add", [Ex(mem)]) => instr(span, Add_d9(mem.clone())),
+        ("add", [IM(_, im)]) => instr(span, Add_Ri(im.clone())),
+        ("add", _) => wrong_args(span, "add", vec![
+            vec![ArgType::Imm],
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("addc", [Imm(imm)]) => instr(span, Addc_i8(imm.clone())),
+        ("addc", [Ex(mem)]) => instr(span, Addc_d9(mem.clone())),
+        ("addc", [IM(_, im)]) => instr(span, Addc_Ri(im.clone())),
+        ("addc", _) => wrong_args(span, "addc", vec![
+            vec![ArgType::Imm],
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("sub", [Imm(imm)]) => instr(span, Sub_i8(imm.clone())),
+        ("sub", [Ex(mem)]) => instr(span, Sub_d9(mem.clone())),
+        ("sub", [IM(_, im)]) => instr(span, Sub_Ri(im.clone())),
+        ("sub", _) => wrong_args(span, "sub", vec![
+            vec![ArgType::Imm],
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("subc", [Imm(imm)]) => instr(span, Subc_i8(imm.clone())),
+        ("subc", [Ex(mem)]) => instr(span, Subc_d9(mem.clone())),
+        ("subc", [IM(_, im)]) => instr(span, Subc_Ri(im.clone())),
+        ("subc", _) => wrong_args(span, "subc", vec![
+            vec![ArgType::Imm],
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("inc", [Ex(mem)]) => instr(span, Inc_d9(mem.clone())),
+        ("inc", [IM(_, im)]) => instr(span, Inc_Ri(im.clone())),
+        ("inc", _) => wrong_args(span, "inc", vec![
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("dec", [Ex(mem)]) => instr(span, Dec_d9(mem.clone())),
+        ("dec", [IM(_, im)]) => instr(span, Dec_Ri(im.clone())),
+        ("dec", _) => wrong_args(span, "dec", vec![
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("mul", []) => instr(span, Mul),
+        ("mul", _) => wrong_args(span, "mul", vec![]),
+        ("div", []) => instr(span, Div),
+        ("div", _) => wrong_args(span, "div", vec![]),
+        ("and", [Imm(imm)]) => instr(span, And_i8(imm.clone())),
+        ("and", [Ex(mem)]) => instr(span, And_d9(mem.clone())),
+        ("and", [IM(_, im)]) => instr(span, And_Ri(im.clone())),
+        ("and", _) => wrong_args(span, "and", vec![
+            vec![ArgType::Imm],
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("or", [Imm(imm)]) => instr(span, Or_i8(imm.clone())),
+        ("or", [Ex(mem)]) => instr(span, Or_d9(mem.clone())),
+        ("or", [IM(_, im)]) => instr(span, Or_Ri(im.clone())),
+        ("or", _) => wrong_args(span, "or", vec![
+            vec![ArgType::Imm],
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("xor", [Imm(imm)]) => instr(span, Xor_i8(imm.clone())),
+        ("xor", [Ex(mem)]) => instr(span, Xor_d9(mem.clone())),
+        ("xor", [IM(_, im)]) => instr(span, Xor_Ri(im.clone())),
+        ("xor", _) => wrong_args(span, "xor", vec![
+            vec![ArgType::Imm],
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("rol", []) => instr(span, Rol),
+        ("rol", _) => wrong_args(span, "rol", vec![]),
+        ("rolc", []) => instr(span, Rolc),
+        ("rolc", _) => wrong_args(span, "rolc", vec![]),
+        ("ror", []) => instr(span, Ror),
+        ("ror", _) => wrong_args(span, "ror", vec![]),
+        ("rorc", []) => instr(span, Rorc),
+        ("rorc", _) => wrong_args(span, "rorc", vec![]),
+        ("ld", [Ex(mem)]) => instr(span, Ld_d9(mem.clone())),
+        ("ld", [IM(_, im)]) => instr(span, Ld_Ri(im.clone())),
+        ("ld", _) => wrong_args(span, "ld", vec![
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("st", [Ex(mem)]) => instr(span, St_d9(mem.clone())),
+        ("st", [IM(_, im)]) => instr(span, St_Ri(im.clone())),
+        ("st", _) => wrong_args(span, "st", vec![
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("mov", [Imm(imm), Ex(mem)]) => instr(span, Mov_d9(imm.clone(), mem.clone())),
+        ("mov", [Imm(imm), IM(_, im)]) => instr(span, Mov_Rj(imm.clone(), im.clone())),
+        ("mov", _) => wrong_args(span, "mov", vec![
+            vec![ArgType::Imm, ArgType::D9],
+            vec![ArgType::Imm, ArgType::IM]
+        ]),
+        ("ldc", []) => instr(span, Ldc),
+        ("ldc", _) => wrong_args(span, "ldc", vec![]),
+        ("push", [Ex(mem)]) => instr(span, Push(mem.clone())),
+        ("push", _) => wrong_args(span, "push", vec![
+            vec![ArgType::D9]
+        ]),
+        ("pop", [Ex(mem)]) => instr(span, Pop(mem.clone())),
+        ("pop", _) => wrong_args(span, "pop", vec![
+            vec![ArgType::D9]
+        ]),
+        ("xch", [Ex(mem)]) => instr(span, Xch_d9(mem.clone())),
+        ("xch", [IM(_, im)]) => instr(span, Xch_Ri(im.clone())),
+        ("xch", _) => wrong_args(span, "xch", vec![
+            vec![ArgType::D9],
+            vec![ArgType::IM]
+        ]),
+        ("jmp", [Ex(mem)]) => instr(span, Jmp(mem.clone())),
+        ("jmp", _) => wrong_args(span, "jmp", vec![
+            vec![ArgType::A12]
+        ]),
+        ("jmpf", [Ex(mem)]) => instr(span, Jmpf(mem.clone())),
+        ("jmpf", _) => wrong_args(span, "jmpf", vec![
+            vec![ArgType::A16]
+        ]),
+        ("br", [Ex(mem)]) => instr(span, Br(mem.clone())),
+        ("br", _) => wrong_args(span, "br", vec![
+            vec![ArgType::R8]
+        ]),
+        ("brf", [Ex(mem)]) => instr(span, Brf(mem.clone())),
+        ("brf", _) => wrong_args(span, "brf", vec![
+            vec![ArgType::R16]
+        ]),
+        ("bz", [Ex(mem)]) => instr(span, Bz(mem.clone())),
+        ("bz", _) => wrong_args(span, "bz", vec![
+            vec![ArgType::R8]
+        ]),
+        ("bnz", [Ex(mem)]) => instr(span, Bnz(mem.clone())),
+        ("bnz", _) => wrong_args(span, "bnz", vec![
+            vec![ArgType::R8]
+        ]),
+        ("bp", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bp(m1.clone(), m2.clone(), m3.clone())),
+        ("bp", _) => wrong_args(span, "bp", vec![
+            vec![ArgType::D9, ArgType::B3, ArgType::R8]
+        ]),
+        ("bpc", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bpc(m1.clone(), m2.clone(), m3.clone())),
+        ("bpc", _) => wrong_args(span, "bpc", vec![
+            vec![ArgType::D9, ArgType::B3, ArgType::R8]
+        ]),
+        ("bn", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bn(m1.clone(), m2.clone(), m3.clone())),
+        ("bn", _) => wrong_args(span, "bn", vec![
+            vec![ArgType::D9, ArgType::B3, ArgType::R8]
+        ]),
+        ("dbnz", [Ex(m1), Ex(m2)]) => instr(span, Dbnz_d9(m1.clone(), m2.clone())),
+        ("dbnz", [IM(_, im), Ex(mem)]) => instr(span, Dbnz_Ri(im.clone(), mem.clone())),
+        ("dbnz", _) => wrong_args(span, "dbnz", vec![
+            vec![ArgType::D9, ArgType::R8],
+            vec![ArgType::IM, ArgType::R8]
+        ]),
+        ("be", [Imm(imm), Ex(mem)]) => instr(span, Be_i8(imm.clone(), mem.clone())),
+        ("be", [Ex(m1), Ex(m2)]) => instr(span, Be_d9(m1.clone(), m2.clone())),
+        ("be", [IM(_, im), Imm(imm), Ex(mem)]) => instr(span, Be_Rj(im.clone(), imm.clone(), mem.clone())),
+        ("be", _) => wrong_args(span, "be", vec![
+            vec![ArgType::Imm, ArgType::R8],
+            vec![ArgType::D9, ArgType::R8],
+            vec![ArgType::IM, ArgType::Imm, ArgType::R8]
+        ]),
+        ("bne", [Imm(imm), Ex(mem)]) => instr(span, Bne_i8(imm.clone(), mem.clone())),
+        ("bne", [Ex(m1), Ex(m2)]) => instr(span, Bne_d9(m1.clone(), m2.clone())),
+        ("bne", [IM(_, im), Imm(imm), Ex(mem)]) => instr(span, Bne_Rj(im.clone(), imm.clone(), mem.clone())),
+        ("bne", _) => wrong_args(span, "bne", vec![
+            vec![ArgType::Imm, ArgType::R8],
+            vec![ArgType::D9, ArgType::R8],
+            vec![ArgType::IM, ArgType::Imm, ArgType::R8]
+        ]),
+        ("call", [Ex(mem)]) => instr(span, Call(mem.clone())),
+        ("call", _) => wrong_args(span, "call", vec![
+            vec![ArgType::A12]
+        ]),
+        ("callf", [Ex(mem)]) => instr(span, Callf(mem.clone())),
+        ("callf", _) => wrong_args(span, "callf", vec![
+            vec![ArgType::A16]
+        ]),
+        ("callr", [Ex(mem)]) => instr(span, Callr(mem.clone())),
+        ("callr", _) => wrong_args(span, "callr", vec![
+            vec![ArgType::R16]
+        ]),
+        ("ret", []) => instr(span, Ret),
+        ("ret", _) => wrong_args(span, "ret", vec![]),
+        ("reti", []) => instr(span, Reti),
+        ("reti", _) => wrong_args(span, "reti", vec![]),
+        ("clr1", [Ex(d9), Ex(b3)]) => instr(span, Clr1(d9.clone(), b3.clone())),
+        ("clr1", _) => wrong_args(span, "clr1", vec![
+            vec![ArgType::D9, ArgType::B3]
+        ]),
+        ("set1", [Ex(d9), Ex(b3)]) => instr(span, Set1(d9.clone(), b3.clone())),
+        ("set1", _) => wrong_args(span, "set1", vec![
+            vec![ArgType::D9, ArgType::B3]
+        ]),
+        ("not1", [Ex(d9), Ex(b3)]) => instr(span, Not1(d9.clone(), b3.clone())),
+        ("not1", _) => wrong_args(span, "not1", vec![
+            vec![ArgType::D9, ArgType::B3]
+        ]),
+        ("nop", []) => instr(span, Nop),
+        ("nop", _) => wrong_args(span, "nop", vec![]),
+        ("ldf", []) => instr(span, Ldf),
+        ("ldf", _) => wrong_args(span, "ldf", vec![]),
+        ("stf", []) => instr(span, Stf),
+        ("stf", _) => wrong_args(span, "stf", vec![]),
+        _ => unreachable!()
     }
 }
 
@@ -1129,7 +1113,6 @@ mod test {
         let file = FileID::new(7);
         let input = Input::new(file, text);
         let tokens = lexer::lex_input(&input)?;
-        println!("tokens: {:?}", tokens);
         let mut token_stream = TokenStream::from(&tokens);
         let parser = parser::Parser::create();
         parser.parse_expr(&mut token_stream)
@@ -1203,7 +1186,6 @@ mod test {
         let file = FileID::new(7);
         let input = Input::new(file, text);
         let tokens = lexer::lex_input(&input)?;
-        println!("tokens: {:?}", tokens);
         let mut token_stream = TokenStream::from(&tokens);
         let parser = parser::Parser::create();
         parser.parse_statement(&mut token_stream)

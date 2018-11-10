@@ -3,17 +3,27 @@ use std;
 use lexer;
 use parser;
 use std::path::Path;
-use ast::{Statements,Statement,Directive,ByteValue,IncludeType};
+use ast::{
+    Statements,
+    Statement,
+    Directive,
+    ByteValue,
+    IncludeType,
+    ArgType,
+    Arg,
+    MacroDefinition
+};
 use expression::{EvaluationError,Expr};
 use std::collections::HashMap;
 use location::{Span, Positioned, Location};
 use env::{Env,Names};
 use instruction::{EncodingError};
 use lexer::{Token,LexerError};
-use parser::{ParseError,ArgType,Parser};
+use parser::{ParseError,Parser};
 use files::{FileLoadError,SourceFiles};
 use files;
 use input::Input;
+use uuid::Uuid;
 
 pub fn assemble_file(mut files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
     let path = Path::new(filename);
@@ -26,12 +36,14 @@ pub fn assemble_file(mut files: &mut SourceFiles, filename: &str) -> Result<Vec<
     };
     let statements = parser.parse(&tokens)?;
     let statements = replace_includes(&parser, &mut files, &statements)?;
+    let statements = expand_macros(&statements)?;
+    println!("statements: {}", statements);
     assemble(&statements)
 }
 
 fn replace_includes(parser: &Parser, files: &mut SourceFiles, statements: &Statements) -> Result<Statements,AssemblyError> {
     let mut results = vec![];
-    for statement in statements.statements.iter() {
+    for statement in statements.iter() {
         if let Statement::Directive(Directive::Include(span, typ, path)) = statement {
             match typ {
                 IncludeType::Asm => {
@@ -41,7 +53,7 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, statements: &State
                         lexer::lex_input(&input)?
                     };
                     let statements = replace_includes(parser, files, &parser.parse(&tokens)?)?;
-                    for stmt in statements.statements.iter() {
+                    for stmt in statements.iter() {
                         results.push(stmt.clone());
                     }
                 },
@@ -58,7 +70,7 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, statements: &State
             results.push(statement.clone());
         }
     }
-    Ok(Statements { statements: results })
+    Ok(statements.with_statements(results))
 }
 
 pub fn assemble(statements: &Statements) -> Result<Vec<u8>,AssemblyError> {
@@ -71,7 +83,7 @@ pub fn assemble(statements: &Statements) -> Result<Vec<u8>,AssemblyError> {
 fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) -> Result<(),AssemblyError> {
     let mut pos: usize = 0;
     let mut current_global = "".to_owned();
-    for statement in statements.statements.iter() {
+    for statement in statements.iter() {
         use ast::Statement::*;
         match statement {
             Directive(dir) => {
@@ -151,7 +163,10 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                 }
             },
             Variable(_, _, _) | Alias(_, _, _) => {},
-            Comment(_) => {}
+            Comment(_) => {},
+            MacroCall(span, name, args) => {
+                panic!("Shouldn't be any macro calls left: {}:{}:{:?}", span, name, args);
+            }
         }
     }
     Ok(())
@@ -201,7 +216,7 @@ pub enum AssemblyError {
     MissingBytes(Span),
     MissingWords(Span),
     UnknownDirective(Token),
-    UnknownInstruction(Token),
+    UnknownInstruction(Span),
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     UnexpectedEof,
     FileLoadFailure(String, std::io::Error),
@@ -209,7 +224,9 @@ pub enum AssemblyError {
     MacroNameConflictsWithInstruction(Span, String),
     MacroAlreadyExists(Span, Span, String),
     DuplicateMacroArg(Span),
-    InvalidMacroArg(Span)
+    InvalidMacroArg(Span),
+    WrongNumberOfMacroArgs(Span, Span, usize, usize),
+    DuplicateLabel(Span)
 }
 
 impl From<LexerError> for AssemblyError {
@@ -243,7 +260,7 @@ impl From<ParseError> for AssemblyError {
             MissingBytes(span) => AssemblyError::MissingBytes(span),
             MissingWords(span) => AssemblyError::MissingWords(span),
             UnknownDirective(tok) => AssemblyError::UnknownDirective(tok),
-            UnknownInstruction(tok) => AssemblyError::UnknownInstruction(tok),
+            UnknownInstruction(span) => AssemblyError::UnknownInstruction(span),
             WrongInstructionArgs(span, name, types) => AssemblyError::WrongInstructionArgs(span, name, types),
             MacroNameConflictsWithInstruction(span, string) => AssemblyError::MacroNameConflictsWithInstruction(span, string),
             MacroAlreadyExists(span1, span2, string) => AssemblyError::MacroAlreadyExists(span1, span2, string),
@@ -310,7 +327,7 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError>
     let mut local = HashMap::new();
     let mut current_global = "".to_owned();
     let mut pos: i32 = 0;
-    for statement in statements.statements.iter() {
+    for statement in statements.iter() {
         use ast::Statement::*;
         match statement {
             Directive(dir) => {
@@ -332,7 +349,10 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError>
                 pos += instr.size() as i32;
             },
             Variable(_, _name, _expr) | Alias(_, _name, _expr) => {},
-            Comment(_) => {}
+            Comment(_) => {},
+            MacroCall(span, name, args) => {
+                panic!("Shouldn't be any macro calls left: {}:{}:{:?}", span, name, args);
+            }
         }
     }
     if !locals.contains_key(&current_global) {
@@ -347,7 +367,7 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
     let locals = labels.locals;
     let mut pos: i32 = 0;
     let mut max_pos = 0;
-    for statement in statements.statements.iter() {
+    for statement in statements.iter() {
         use ast::Statement::*;
         match statement {
             Directive(dir) => {
@@ -364,7 +384,10 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
                 };
                 add_name(name.to_lowercase(), val, &mut globals)?;
             },
-            Comment(_) => {}
+            Comment(_) => {},
+            MacroCall(span, name, args) => {
+                panic!("Shouldn't be any macro calls left: {}:{}:{:?}", span, name, args);
+            }
         }
         if pos > max_pos {
             max_pos = pos;
@@ -383,6 +406,127 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
         new_locals.insert(key.to_owned(), new_local);
     }
     Ok(((max_pos + 1) as usize, Names { globals: new_globals, locals: new_locals }))
+}
+
+fn expand_macros(statements: &Statements) -> Result<Statements,AssemblyError> {
+    let mut new = vec![];
+    for stmt in statements.iter() {
+        match stmt {
+            Statement::MacroCall(span, name, args) => {
+                let mut stmts = expand(statements, span.clone(), name.to_owned(), args)?;
+                new.append(&mut stmts);
+            },
+            _ => {
+                new.push(stmt.clone());
+            }
+        }
+    }
+    Ok(statements.with_statements(new))
+}
+
+fn replace_args(labels: &HashMap<String,String>, argmap: &HashMap<String,Arg>, args: &[Arg]) -> Result<Vec<Arg>,AssemblyError> {
+    let mut new_args = vec![];
+    for arg in args {
+        match arg {
+            Arg::MacroArg(aspan, aname) => {
+                match argmap.get(aname) {
+                    Some(arg) => {
+                        new_args.push(arg.clone());
+                    },
+                    None => {
+                        return Err(AssemblyError::InvalidMacroArg(aspan.clone()))
+                    }
+                }
+            },
+            Arg::Imm(expr) => {
+                
+            },
+            Arg::Ex(expr) => {
+            },
+            _ => {
+                new_args.push(arg.clone());
+            }
+        }
+    }
+    Ok(new_args)
+}
+
+fn gen_labels(statements: &[MacroStatement]) -> Result<HashMap<String,String>,AssemblyError> {
+    let mut map = HashMap::new();
+    for stmt in statements.iter() {
+        match stmt {
+            MacroStatement::MacroLabel(span, name) => {
+                if !map.contains_key(name) {
+                    let label_name = format!("{}_{}", string.replace("%", ""), Uuid::new_v4().to_string().replace("-", ""));
+                    map.insert(name.to_owned(), label_name)
+                } else {
+                    return Err(AssemblyError::DuplicateLabel(span.clone()));
+                }
+            },
+            _ => {},
+        }
+    }
+
+    statements.push(Statement::Label(span.clone(), label_name));
+    Ok(map)
+}
+
+fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<Vec<Statement>,AssemblyError> {
+    let macrodef = stmts.macro_def(&name).expect("No such macro");
+    if args.len() != macrodef.args().len() {
+        return Err(AssemblyError::WrongNumberOfMacroArgs(
+            span.clone(),
+            macrodef.span().clone(),
+            macrodef.args().len(),
+            args.len()
+        ))
+    }
+    let argmap = {
+        let mut argmap = HashMap::new();
+        let arg_defs = macrodef.args();
+        for idx in 0..args.len() {
+            let (_, name) = arg_defs[idx].clone();
+            let arg = args[idx].clone();
+            argmap.insert(name, arg);
+        }
+        argmap
+    };
+    let labels = gen_labels(macrodef.body())?;
+    let mut statements = vec![];
+    for stmt in macrodef.body().iter() {
+        use ast::MacroStatement::*;
+        match stmt {
+            Instr(ispan, iname, iargs) => {
+                match stmts.macro_def(iname) {
+                    Some(def) => {
+                        let new_args = replace_args(&argmap, iargs)?;
+                        let mut new_stmts = expand(stmts, ispan.with_parent(span.clone()), iname.to_owned(), &new_args)?;
+                        statements.append(&mut new_stmts);
+                    },
+                    None => {
+                        let new_args = replace_args(&argmap, iargs)?;
+                        let instr = parser::make_instr(ispan.with_parent(span.clone()), iname.to_owned(), &new_args)?;
+                        match instr {
+                            Some(ins) => {
+                                statements.push(ins);
+                            },
+                            None => {
+                                return Err(AssemblyError::UnknownInstruction(ispan.with_parent(span.clone())));
+                            }
+                        }
+                    }
+                }
+            },
+            Label(span, string) => {
+                statements.push(Statement::Label(span.clone(), string.clone()));
+            },
+            MacroLabel(span, string) => {
+                let label_name = format!("{}_{}", string, Uuid::new_v4().to_string().replace("-", ""));
+                statements.push(Statement::Label(span.clone(), label_name));
+            }
+        }
+    }
+    Ok(statements)
 }
 
 // Env stuff
@@ -407,4 +551,3 @@ impl<'a,'b> Env<i32> for MapEnv<'a,'b> {
         self.map.get(name).map(|v| v.value)
     }
 }
-

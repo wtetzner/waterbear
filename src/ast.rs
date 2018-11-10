@@ -3,6 +3,138 @@ use instruction::{Instr, IndirectionMode};
 use expression::{Expr, EvaluationError};
 use std::fmt;
 use location::{Span, Positioned};
+use std::collections::HashMap;
+
+#[derive(Debug,Clone)]
+pub enum MacroStatement {
+    Instr(Span, String, Vec<Arg>),
+    Label(Span, String),
+    MacroLabel(Span, String)
+}
+
+#[derive(Debug,Clone)]
+pub struct MacroDefinition {
+    span: Span,
+    name: String,
+    args: Vec<(Span,String)>,
+    body: Vec<MacroStatement>
+}
+
+impl MacroDefinition {
+    pub fn new(
+        span: Span,
+        name: String,
+        args: Vec<(Span,String)>,
+        body: Vec<MacroStatement>
+    ) -> MacroDefinition {
+        MacroDefinition { span, name, args, body }
+    }
+
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn args(&self) -> &[(Span,String)] {
+        self.args.as_slice()
+    }
+
+    pub fn body(&self) -> &[MacroStatement] {
+        self.body.as_slice()
+    }
+}
+
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+pub enum ArgType {
+    Imm,
+    D9,
+    IM,
+    B3,
+    A12,
+    A16,
+    R8,
+    R16,
+    Macro
+}
+
+impl ArgType {
+    pub fn is_immediate(&self) -> bool {
+        if let ArgType::Imm = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_indirection_mode(&self) -> bool {
+        if let ArgType::IM = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_mem(&self) -> bool {
+        match self {
+            ArgType::Imm => false,
+            ArgType::IM => false,
+            ArgType::D9 |
+            ArgType::B3 |
+            ArgType::A12 |
+            ArgType::A16 |
+            ArgType::R8 |
+            ArgType::R16 => true,
+            ArgType::Macro => false
+        }
+    }
+
+    pub fn to_str(&self) -> &str {
+        match self {
+            ArgType::Imm => "#i8",
+            ArgType::D9 => "d9",
+            ArgType::IM => "@Ri",
+            ArgType::B3 => "b3",
+            ArgType::A12 => "a12",
+            ArgType::A16 => "a16",
+            ArgType::R8 => "r8",
+            ArgType::R16 => "r16",
+            ArgType::Macro => "%arg"
+        }
+    }
+}
+
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+pub enum Arg {
+    Imm(Expr),
+    Ex(Expr),
+    IM(Span, IndirectionMode),
+    MacroArg(Span, String)
+}
+
+impl fmt::Display for Arg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Arg::Imm(expr) => write!(f, "asm"),
+            Arg::Ex(expr) => write!(f, "bytes"),
+            Arg::IM(_, im) => write!(f, "{}", im),
+            Arg::MacroArg(_, name) => write!(f, "{}", name)
+        }
+    }
+}
+
+impl Arg {
+    pub fn span(&self) -> Span {
+        match self {
+            Arg::Imm(expr) => expr.span(),
+            Arg::Ex(expr) => expr.span(),
+            Arg::IM(span, _) => span.clone(),
+            Arg::MacroArg(span, _) => span.clone()
+        }
+    }
+}
 
 #[derive(Debug,Clone)]
 pub enum ByteValue {
@@ -185,7 +317,8 @@ pub enum Statement {
     Instr(Span, Instr<Expr,IndirectionMode>),
     Variable(Span, String, Expr),
     Alias(Span, String, Expr),
-    Comment(String)
+    Comment(String),
+    MacroCall(Span, String, Vec<Arg>)
 }
 
 impl Statement {
@@ -218,7 +351,8 @@ impl Positioned for Statement {
             Instr(span,_) => span.clone(),
             Variable(span, _, _) => span.clone(),
             Alias(span, _, _) => span.clone(),
-            Comment(_) => Span::default()
+            Comment(_) => Span::default(),
+            MacroCall(span, name, args) => span.clone()
         }
     }
 }
@@ -248,16 +382,47 @@ impl fmt::Display for Statement {
                 } else {
                     write!(f, "; {}", comment)
                 }
+            },
+            Statement::MacroCall(span, name, args) => {
+                write!(f, "{}", name)?;
+                for arg in args.iter() {
+                    write!(f, " {}", arg)?;
+                }
+                Ok(())
             }
         }
     }
 }
 
-
-
 #[derive(Debug)]
 pub struct Statements {
-    pub statements: Vec<Statement>
+    macros: HashMap<String,MacroDefinition>,
+    statements: Vec<Statement>,
+}
+
+impl Statements {
+    pub fn new(
+        macros: HashMap<String,MacroDefinition>,
+        statements: Vec<Statement>
+    ) -> Statements {
+        Statements { macros, statements }
+    }
+
+    pub fn as_slice(&self) -> &[Statement] {
+        self.statements.as_slice()
+    }
+
+    pub fn macro_def(&self, name: &str) -> Option<&MacroDefinition> {
+        self.macros.get(name)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item=&Statement> {
+        self.statements.iter()
+    }
+
+    pub fn with_statements(&self, stmts: Vec<Statement>) -> Statements {
+        Statements::new(self.macros.clone(), stmts)
+    }
 }
 
 impl fmt::Display for Statements {

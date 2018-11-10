@@ -8,6 +8,7 @@ extern crate unicode_categories;
 extern crate regex;
 extern crate lazy_static;
 extern crate instruction_derive;
+extern crate uuid;
 
 pub mod instruction;
 pub mod parser;
@@ -29,10 +30,10 @@ use std::fs::File;
 use std::io::Write;
 use std::fmt::Display;
 use std::io::Read;
+use ast::ArgType;
 
 use std::path::Path;
 use asm::AssemblyError;
-use parser::ArgType;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use atty::Stream;
@@ -401,10 +402,10 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .newline();
             highlight_line(tok.span(), "", files, stdout);
         },
-        UnknownInstruction(tok) => {
+        UnknownInstruction(span) => {
             stdout.writeln("Unknown Instruction")
                 .newline();
-            highlight_line(tok.span(), "", files, stdout);
+            highlight_line(span, "", files, stdout);
         },
         WrongInstructionArgs(span,name,arg_types) => {
             stdout.write("Wrong arguments for instruction ")
@@ -502,6 +503,9 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
             stdout.writeln(format!("{:?}", err));
         },
         InvalidMacroArg(span) => {
+            stdout.writeln(format!("{:?}", err));
+        },
+        WrongNumberOfMacroArgs(_, _, _, _) => {
             stdout.writeln(format!("{:?}", err));
         }
     }
