@@ -1,6 +1,6 @@
 
-use instruction::{Instr, IndirectionMode};
-use expression::{Expr, EvaluationError};
+use instruction::Instr;
+use expression::{Expr, EvaluationError, Arg, IndirectionMode};
 use std::fmt;
 use location::{Span, Positioned};
 use std::collections::HashMap;
@@ -102,36 +102,6 @@ impl ArgType {
             ArgType::R8 => "r8",
             ArgType::R16 => "r16",
             ArgType::Macro => "%arg"
-        }
-    }
-}
-
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
-pub enum Arg {
-    Imm(Expr),
-    Ex(Expr),
-    IM(Span, IndirectionMode),
-    MacroArg(Span, String)
-}
-
-impl fmt::Display for Arg {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Arg::Imm(expr) => write!(f, "asm"),
-            Arg::Ex(expr) => write!(f, "bytes"),
-            Arg::IM(_, im) => write!(f, "{}", im),
-            Arg::MacroArg(_, name) => write!(f, "{}", name)
-        }
-    }
-}
-
-impl Arg {
-    pub fn span(&self) -> Span {
-        match self {
-            Arg::Imm(expr) => expr.span(),
-            Arg::Ex(expr) => expr.span(),
-            Arg::IM(span, _) => span.clone(),
-            Arg::MacroArg(span, _) => span.clone()
         }
     }
 }

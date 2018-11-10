@@ -1,6 +1,7 @@
 
 use std::fmt;
 use files::FileID;
+use std::ops::Deref;
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub struct Location {
@@ -58,6 +59,13 @@ impl Span {
             start: start,
             end: end,
             parent: None
+        }
+    }
+
+    pub fn parent(&self) -> Option<Span> {
+        match &self.parent {
+            Some(span) => Some((**span).clone()),
+            None => None
         }
     }
 

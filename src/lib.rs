@@ -507,6 +507,24 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
         },
         WrongNumberOfMacroArgs(_, _, _, _) => {
             stdout.writeln(format!("{:?}", err));
+        },
+        DuplicateLabel(_) => {
+            stdout.writeln(format!("{:?}", err));
+        },
+        MacroLabelOutsideOfMacro(_) => {
+            stdout.writeln(format!("{:?}", err));
+        },
+        MacroArgOutsideOfMacro(_) => {
+            stdout.writeln(format!("{:?}", err));
+        },
+        ImmediateValueNotAllowedHere(span) => {
+            stdout.writeln("Immediate value not allowed within an expression or another immediate value.")
+                .newline();
+            highlight_line(span, "", files, stdout);
+            // stdout.writeln(format!("{:?}", err));
+        },
+        IndirectionModeNotAllowedHere(Span) => {
+            stdout.writeln(format!("{:?}", err));
         }
     }
 }
@@ -529,6 +547,19 @@ fn highlight_line(span: &Span, msg: &str, files: &SourceFiles, stdout: &mut Colo
 
     stdout.spaces(2).writeln(line);
     stdout.spaces(2).yellow().writeln(caret(&span, line, msg)).reset();
+
+    match span.parent() {
+        Some(parent) => {
+            stdout.newline()
+                .cyan()
+                .write("Derived From")
+                .reset()
+                .writeln(":")
+                .newline();
+            highlight_line(&parent, msg, files, stdout);
+        },
+        None => {}
+    }
 }
 
 fn caret(span: &Span, line: &str, msg: &str) -> String {

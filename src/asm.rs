@@ -10,10 +10,10 @@ use ast::{
     ByteValue,
     IncludeType,
     ArgType,
-    Arg,
-    MacroDefinition
+    MacroDefinition,
+    MacroStatement
 };
-use expression::{EvaluationError,Expr};
+use expression::{EvaluationError,Expr,Arg};
 use std::collections::HashMap;
 use location::{Span, Positioned, Location};
 use env::{Env,Names};
@@ -226,7 +226,11 @@ pub enum AssemblyError {
     DuplicateMacroArg(Span),
     InvalidMacroArg(Span),
     WrongNumberOfMacroArgs(Span, Span, usize, usize),
-    DuplicateLabel(Span)
+    DuplicateLabel(Span),
+    MacroLabelOutsideOfMacro(Span),
+    MacroArgOutsideOfMacro(Span),
+    ImmediateValueNotAllowedHere(Span),
+    IndirectionModeNotAllowedHere(Span)
 }
 
 impl From<LexerError> for AssemblyError {
@@ -291,7 +295,12 @@ impl From<EvaluationError> for AssemblyError {
         match error {
             NameNotFound(span, name) => AssemblyError::NameNotFound(span.clone(), name.clone()),
             DivideByZero(span, message) => AssemblyError::DivideByZero(span.clone(), message.clone()),
-            MustBeLiteralNumber(span) => AssemblyError::MustBeLiteralNumber(span.clone())
+            MustBeLiteralNumber(span) => AssemblyError::MustBeLiteralNumber(span.clone()),
+            MacroLabelOutsideOfMacro(span) => AssemblyError::MacroLabelOutsideOfMacro(span),
+            MacroArgOutsideOfMacro(span) => AssemblyError::MacroArgOutsideOfMacro(span),
+            ImmediateValueNotAllowedHere(span) => AssemblyError::ImmediateValueNotAllowedHere(span),
+            IndirectionModeNotAllowedHere(span) => AssemblyError::IndirectionModeNotAllowedHere(span),
+            InvalidMacroArg(span) => AssemblyError::InvalidMacroArg(span)
         }
     }
 }
@@ -439,9 +448,10 @@ fn replace_args(labels: &HashMap<String,String>, argmap: &HashMap<String,Arg>, a
                 }
             },
             Arg::Imm(expr) => {
-                
+                new_args.push(Arg::Imm(expr.replace_macro_args(labels, argmap)?));
             },
             Arg::Ex(expr) => {
+                new_args.push(Arg::Ex(expr.replace_macro_args(labels, argmap)?))
             },
             _ => {
                 new_args.push(arg.clone());
@@ -451,14 +461,14 @@ fn replace_args(labels: &HashMap<String,String>, argmap: &HashMap<String,Arg>, a
     Ok(new_args)
 }
 
-fn gen_labels(statements: &[MacroStatement]) -> Result<HashMap<String,String>,AssemblyError> {
+fn gen_labels(macro_name: &str, statements: &[MacroStatement]) -> Result<HashMap<String,String>,AssemblyError> {
     let mut map = HashMap::new();
     for stmt in statements.iter() {
         match stmt {
             MacroStatement::MacroLabel(span, name) => {
                 if !map.contains_key(name) {
-                    let label_name = format!("{}_{}", string.replace("%", ""), Uuid::new_v4().to_string().replace("-", ""));
-                    map.insert(name.to_owned(), label_name)
+                    let label_name = format!("{}_{}_{}", macro_name, name.replace("%", ""), Uuid::new_v4().to_string().replace("-", ""));
+                    map.insert(name.to_owned(), label_name);
                 } else {
                     return Err(AssemblyError::DuplicateLabel(span.clone()));
                 }
@@ -466,8 +476,6 @@ fn gen_labels(statements: &[MacroStatement]) -> Result<HashMap<String,String>,As
             _ => {},
         }
     }
-
-    statements.push(Statement::Label(span.clone(), label_name));
     Ok(map)
 }
 
@@ -491,7 +499,7 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
         }
         argmap
     };
-    let labels = gen_labels(macrodef.body())?;
+    let labels = gen_labels(&name, macrodef.body())?;
     let mut statements = vec![];
     for stmt in macrodef.body().iter() {
         use ast::MacroStatement::*;
@@ -499,13 +507,13 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
             Instr(ispan, iname, iargs) => {
                 match stmts.macro_def(iname) {
                     Some(def) => {
-                        let new_args = replace_args(&argmap, iargs)?;
-                        let mut new_stmts = expand(stmts, ispan.with_parent(span.clone()), iname.to_owned(), &new_args)?;
+                        let new_args = replace_args(&labels, &argmap, iargs)?;
+                        let mut new_stmts = expand(stmts, ispan.with_parent(span.clone()), iname.to_owned(), new_args.as_slice())?;
                         statements.append(&mut new_stmts);
                     },
                     None => {
-                        let new_args = replace_args(&argmap, iargs)?;
-                        let instr = parser::make_instr(ispan.with_parent(span.clone()), iname.to_owned(), &new_args)?;
+                        let new_args = replace_args(&labels, &argmap, iargs)?;
+                        let instr = parser::make_instr(ispan.with_parent(span.clone()), iname.to_owned(), new_args.as_slice())?;
                         match instr {
                             Some(ins) => {
                                 statements.push(ins);
@@ -520,8 +528,8 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
             Label(span, string) => {
                 statements.push(Statement::Label(span.clone(), string.clone()));
             },
-            MacroLabel(span, string) => {
-                let label_name = format!("{}_{}", string, Uuid::new_v4().to_string().replace("-", ""));
+            MacroLabel(span, name) => {
+                let label_name = labels[name].clone();
                 statements.push(Statement::Label(span.clone(), label_name));
             }
         }

@@ -1,10 +1,10 @@
 
-use instruction::{Instr,IndirectionMode};
+use instruction::Instr;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use ast::{Statement,Directive,ByteValue};
 use location::{Span};
-use expression::{Expr};
+use expression::{Expr,IndirectionMode};
 use std;
 
 #[derive(Debug)]
@@ -133,6 +133,9 @@ pub fn disassemble(
 
     Ok(stmts)
 }
+
+// pub fn trace_instr(entry_points: &[usize], bytes: &[u8]) -> Result<,DisasmError> {
+// }
 
 fn all_zeros(bytes: &[u8]) -> bool {
     for byte in bytes.iter() {

@@ -1,5 +1,5 @@
 
-use expression::{Expr,EvaluationError};
+use expression::{Expr,EvaluationError,IndirectionMode};
 use location::{Positioned,Span};
 use env::{Names,Env};
 use std::fmt;
@@ -52,47 +52,6 @@ impl EncodingError {
 impl From<EvaluationError> for EncodingError {
     fn from(error: EvaluationError) -> Self {
         EncodingError::EvalError(error)
-    }
-}
-
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
-pub enum IndirectionMode {
-    R0,
-    R1,
-    R2,
-    R3
-}
-
-impl IndirectionMode {
-    pub fn index(&self) -> u8 {
-        match self {
-            IndirectionMode::R0 => 0,
-            IndirectionMode::R1 => 1,
-            IndirectionMode::R2 => 2,
-            IndirectionMode::R3 => 3
-        }
-    }
-
-    pub fn from(num: u8) -> IndirectionMode {
-        match num {
-            0 => IndirectionMode::R0,
-            1 => IndirectionMode::R1,
-            2 => IndirectionMode::R2,
-            3 => IndirectionMode::R3,
-            _ => panic!("Invalid IndirectionMode: {}", num)
-        }
-    }
-}
-
-impl fmt::Display for IndirectionMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use instruction::IndirectionMode::*;
-        match self {
-            R0 => write!(f, "@R0"),
-            R1 => write!(f, "@R1"),
-            R2 => write!(f, "@R2"),
-            R3 => write!(f, "@R3")
-        }
     }
 }
 

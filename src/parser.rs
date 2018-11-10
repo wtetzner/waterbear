@@ -6,16 +6,15 @@ use ast::{
     Directive,
     ByteValue,
     IncludeType,
-    Arg,
     ArgType,
     MacroDefinition,
     MacroStatement
 };
 use lexer::{Token,TokenType,LexerError};
 use lexer;
-use expression::Expr;
+use expression::{Expr,Arg,IndirectionMode};
 use std::collections::{HashMap,HashSet};
-use instruction::{IndirectionMode,Instr};
+use instruction::Instr;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -96,6 +95,8 @@ impl Parser {
             let mut m: HashMap<ExprTokenType,Box<dyn PrefixParselet>> = HashMap::new();
             m.insert(ExprTokenType::Paren, Box::new(ParenParselet(Precedence::Prefix)));
             m.insert(ExprTokenType::Name, Box::new(NameParselet(Precedence::Prefix)));
+            m.insert(ExprTokenType::MacroLabel, Box::new(MacroLabelParselet(Precedence::Prefix)));
+            m.insert(ExprTokenType::MacroArg, Box::new(MacroArgParselet(Precedence::Prefix)));
             m.insert(ExprTokenType::Number, Box::new(NumberParselet(Precedence::Prefix)));
             m.insert(ExprTokenType::Minus, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
             m.insert(ExprTokenType::UpperByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
@@ -474,19 +475,18 @@ impl Parser {
     }
 
     fn parse_arg(&self, tokens: &mut TokenStream) -> Result<Arg,ParseError> {
-        if tokens.check(Token::is_macro_ident) {
-            let tok = tokens.next()?;
-            match tok.token_type() {
-                TokenType::MacroIdent(name) => Ok(Arg::MacroArg(tok.span().clone(), name.clone())),
-                _ => Err(ParseError::ExpectedTokenNotFound("Macro Arg", tok.clone()))
-            }
-        } else if tokens.check(Token::is_indirection_mode) {
+        if tokens.check(Token::is_indirection_mode) {
             let (span, im) = self.parse_im(tokens)?;
             Ok(Arg::IM(span, im))
         } else if tokens.check(Token::is_hash) {
             Ok(Arg::Imm(self.parse_i8(tokens)?))
         } else {
-            Ok(Arg::Ex(self.parse_expr(tokens)?))
+            let expr = self.parse_expr(tokens)?;
+            match expr {
+                Expr::MacroArg(span, name) =>
+                    Ok(Arg::MacroArg(span.clone(), name.clone())),
+                _ => Ok(Arg::Ex(expr))
+            }
         }
     }
 
@@ -658,7 +658,7 @@ pub fn make_instr(
     name: String,
     args: &[Arg]
 ) -> Result<Option<Statement>,ParseError> {
-    use ast::Arg::*;
+    use expression::Arg::*;
     use instruction::Instr::*;
     match (name.as_str(), args) {
         ("add", [Imm(imm)]) => instr(span, Add_i8(imm.clone())),
@@ -976,6 +976,34 @@ impl PrefixParselet for NameParselet {
     fn precedence(&self) -> i32 { self.0 as i32 }
 }
 
+struct MacroArgParselet(Precedence);
+
+impl PrefixParselet for MacroArgParselet {
+    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
+                 -> Result<Expr,ParseError> {
+        match token.token_type() {
+            TokenType::MacroIdent(name) =>
+                Ok(Expr::MacroArg(token.span().clone(), name.to_owned())),
+            _ => Err(ParseError::ExpectedTokenNotFound("Macro Arg", token.clone()))
+        }
+    }
+    fn precedence(&self) -> i32 { self.0 as i32 }
+}
+
+struct MacroLabelParselet(Precedence);
+
+impl PrefixParselet for MacroLabelParselet {
+    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
+                 -> Result<Expr,ParseError> {
+        match token.token_type() {
+            TokenType::MacroLabel(name) =>
+                Ok(Expr::MacroLabel(token.span().clone(), name.to_owned())),
+            _ => Err(ParseError::ExpectedTokenNotFound("Macro Label", token.clone()))
+        }
+    }
+    fn precedence(&self) -> i32 { self.0 as i32 }
+}
+
 struct NumberParselet(Precedence);
 
 impl PrefixParselet for NumberParselet {
@@ -1042,7 +1070,9 @@ enum ExprTokenType {
     Minus,
     Divide,
     UpperByte,
-    LowerByte
+    LowerByte,
+    MacroLabel,
+    MacroArg
 }
 
 impl lexer::TokenType {
@@ -1058,6 +1088,8 @@ impl lexer::TokenType {
             Divide => Some(ExprTokenType::Divide),
             UpperByte => Some(ExprTokenType::UpperByte),
             LowerByte => Some(ExprTokenType::LowerByte),
+            MacroIdent(_) => Some(ExprTokenType::MacroArg),
+            MacroLabel(_) => Some(ExprTokenType::MacroLabel),
             _ => None
         }
     }

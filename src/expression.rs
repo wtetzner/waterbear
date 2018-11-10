@@ -2,12 +2,18 @@
 use std::fmt;
 use location::{Positioned, Location, Span};
 use env::Env;
+use std::collections::{HashMap};
 
 #[derive(Debug)]
 pub enum EvaluationError {
     NameNotFound(Span,String),
     DivideByZero(Span,String),
-    MustBeLiteralNumber(Span)
+    MustBeLiteralNumber(Span),
+    MacroLabelOutsideOfMacro(Span),
+    MacroArgOutsideOfMacro(Span),
+    ImmediateValueNotAllowedHere(Span),
+    IndirectionModeNotAllowedHere(Span),
+    InvalidMacroArg(Span)
 }
 
 impl EvaluationError {
@@ -16,7 +22,12 @@ impl EvaluationError {
         match self {
             NameNotFound(span, msg) => format!("{}: {}", span, msg),
             DivideByZero(span, msg) => format!("{}: {}", span, msg),
-            MustBeLiteralNumber(span) => format!("{}: Must be a literal integer", span)
+            MustBeLiteralNumber(span) => format!("{}: Must be a literal integer", span),
+            MacroLabelOutsideOfMacro(span) => format!("{}: Macro label ouside of macro", span),
+            MacroArgOutsideOfMacro(span) => format!("{}: Macro arg outside of macro", span),
+            ImmediateValueNotAllowedHere(span) => format!("{}: Immediate value cannot be used within an expression", span),
+            IndirectionModeNotAllowedHere(span) => format!("{}: Indirection Mode cannot be used within an expression", span),
+            InvalidMacroArg(span) => format!("{}: Invalid macro arg", span)
         }
     }
 }
@@ -31,7 +42,9 @@ pub enum Expr {
     Divide(Box<Expr>, Box<Expr>),
     Number(Span, i32),
     UpperByte(Location, Box<Expr>),
-    LowerByte(Location, Box<Expr>)
+    LowerByte(Location, Box<Expr>),
+    MacroLabel(Span, String),
+    MacroArg(Span, String)
 }
 
 impl Expr {
@@ -41,6 +54,64 @@ impl Expr {
 
     pub fn name(name: &str) -> Expr {
         Expr::Name(Span::default(), name.to_owned())
+    }
+
+    pub fn replace_macro_args(
+        &self,
+        labels: &HashMap<String,String>,
+        args: &HashMap<String,Arg>
+    ) -> Result<Expr,EvaluationError> {
+        use expression::Expr::*;
+        match self {
+            Name(span, name) => Ok(Expr::Name(span.clone(), name.clone())),
+            Plus(left, right) => Ok(Expr::Plus(
+                Box::new(left.replace_macro_args(labels, args)?),
+                Box::new(right.replace_macro_args(labels, args)?)
+            )),
+            Minus(left, right) => Ok(Expr::Minus(
+                Box::new(left.replace_macro_args(labels, args)?),
+                Box::new(right.replace_macro_args(labels, args)?)
+            )),
+            UnaryMinus(loc, expr) => Ok(Expr::UnaryMinus(
+                loc.clone(),
+                Box::new(expr.replace_macro_args(labels, args)?)
+            )),
+            Times(left, right) => Ok(Expr::Times(
+                Box::new(left.replace_macro_args(labels, args)?),
+                Box::new(right.replace_macro_args(labels, args)?)
+            )),
+            Divide(left, right) => Ok(Expr::Divide(
+                Box::new(left.replace_macro_args(labels, args)?),
+                Box::new(right.replace_macro_args(labels, args)?)
+            )),
+            Number(span, num) => Ok(Expr::Number(span.clone(), *num)),
+            UpperByte(loc, expr) => Ok(Expr::UpperByte(
+                loc.clone(),
+                Box::new(expr.replace_macro_args(labels, args)?)
+            )),
+            LowerByte(loc, expr) => Ok(Expr::LowerByte(
+                loc.clone(),
+                Box::new(expr.replace_macro_args(labels, args)?)
+            )),
+            MacroLabel(span, name) => {
+                match labels.get(name) {
+                    Some(label) => Ok(Expr::Name(span.clone(), label.clone())),
+                    None => Err(EvaluationError::NameNotFound(span.clone(),name.clone()))
+                }
+            },
+            MacroArg(span, name) => {
+                use expression::Arg::*;
+                match args.get(name) {
+                    Some(arg) => match arg {
+                        Imm(expr) => Err(EvaluationError::ImmediateValueNotAllowedHere(span.with_parent(expr.span()))),
+                        Ex(expr) => expr.replace_macro_args(labels, args),
+                        IM(im_span, _) => Err(EvaluationError::IndirectionModeNotAllowedHere(span.with_parent(im_span.clone()))),
+                        MacroArg(mspan, name) => panic!("There shouldn't be any macro args left at this point; found {} <-> {}; {}", span, mspan, name)
+                    },
+                    None => Err(EvaluationError::InvalidMacroArg(span.clone()))
+                }
+            }
+        }
     }
 }
 
@@ -76,7 +147,9 @@ impl Positioned for Expr {
             Expr::LowerByte(loc, expr) => Span::new(
                 loc.clone(),
                 expr.span().end().clone()
-            )
+            ),
+            Expr::MacroLabel(span, _) => span.clone(),
+            Expr::MacroArg(span, _) => span.clone()
         }
     }
 }
@@ -171,7 +244,9 @@ impl fmt::Display for Expr {
                 write!(f, "{}", expr)?;
                 if paren { write!(f, ")")?; }
                 write!(f, "")
-            }
+            },
+            Expr::MacroLabel(_, name) => write!(f, "{}", name),
+            Expr::MacroArg(_, name) => write!(f, "{}", name)
         }
     }
 }
@@ -187,7 +262,9 @@ impl Expr {
             Expr::Divide(_,_) => true,
             Expr::Number(_,_) => false,
             Expr::UpperByte(_,_) => true,
-            Expr::LowerByte(_,_) => true
+            Expr::LowerByte(_,_) => true,
+            Expr::MacroLabel(_,_) => false,
+            Expr::MacroArg(_,_) => false
         }
     }
 
@@ -219,8 +296,82 @@ impl Expr {
             Expr::LowerByte(_, expr) => {
                 let value = expr.eval(name_lookup)?;
                 Ok(value & 0xFF)
-            }
+            },
+            Expr::MacroLabel(span, _) =>
+                Err(EvaluationError::MacroLabelOutsideOfMacro(span.clone())),
+            Expr::MacroArg(span, _) =>
+                Err(EvaluationError::MacroArgOutsideOfMacro(span.clone()))
         }
     }
 }
 
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+pub enum IndirectionMode {
+    R0,
+    R1,
+    R2,
+    R3
+}
+
+impl IndirectionMode {
+    pub fn index(&self) -> u8 {
+        match self {
+            IndirectionMode::R0 => 0,
+            IndirectionMode::R1 => 1,
+            IndirectionMode::R2 => 2,
+            IndirectionMode::R3 => 3
+        }
+    }
+
+    pub fn from(num: u8) -> IndirectionMode {
+        match num {
+            0 => IndirectionMode::R0,
+            1 => IndirectionMode::R1,
+            2 => IndirectionMode::R2,
+            3 => IndirectionMode::R3,
+            _ => panic!("Invalid IndirectionMode: {}", num)
+        }
+    }
+}
+
+impl fmt::Display for IndirectionMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use expression::IndirectionMode::*;
+        match self {
+            R0 => write!(f, "@R0"),
+            R1 => write!(f, "@R1"),
+            R2 => write!(f, "@R2"),
+            R3 => write!(f, "@R3")
+        }
+    }
+}
+
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+pub enum Arg {
+    Imm(Expr),
+    Ex(Expr),
+    IM(Span, IndirectionMode),
+    MacroArg(Span, String)
+}
+
+impl fmt::Display for Arg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Arg::Imm(expr) => write!(f, "#{}", expr),
+            Arg::Ex(expr) => write!(f, "{}", expr),
+            Arg::IM(_, im) => write!(f, "{}", im),
+            Arg::MacroArg(_, name) => write!(f, "{}", name)
+        }
+    }
+}
+
+impl Arg {
+    pub fn span(&self) -> Span {
+        match self {
+            Arg::Imm(expr) => expr.span(),
+            Arg::Ex(expr) => expr.span(),
+            Arg::IM(span, _) => span.clone(),
+            Arg::MacroArg(span, _) => span.clone()
+        }
+    }
+}
