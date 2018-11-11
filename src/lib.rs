@@ -7,7 +7,7 @@ extern crate unicode_segmentation;
 extern crate unicode_categories;
 extern crate regex;
 extern crate lazy_static;
-extern crate instruction_derive;
+extern crate waterbear_instruction_derive;
 extern crate uuid;
 
 pub mod instruction;

@@ -1,5 +1,5 @@
 [package]
-name = "instruction-derive"
+name = "waterbear-instruction-derive"
 version = "0.1.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 

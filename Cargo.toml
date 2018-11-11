@@ -16,7 +16,7 @@ atty = "0.2"
 uuid = { version = "0.7", features = ["v4"] }
 
 # custom derives
-instruction-derive = { version = "0.1", path = "instruction-derive" }
+waterbear-instruction-derive = { version = "0.1", path = "waterbear-instruction-derive" }
 
 [lib]
 name = "waterbear"

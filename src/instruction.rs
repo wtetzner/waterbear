@@ -3,7 +3,7 @@ use expression::{Expr,EvaluationError,IndirectionMode};
 use location::{Positioned,Span};
 use env::{Names,Env};
 use std::fmt;
-use instruction_derive::Instruction;
+use waterbear_instruction_derive::Instruction;
 
 #[derive(Debug)]
 pub enum EncodingError {
