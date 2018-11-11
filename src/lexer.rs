@@ -131,6 +131,13 @@ impl Token {
         }
     }
 
+    pub fn macro_label_starts_with(&self, starts: &str) -> bool {
+        match self.token_type() {
+            TokenType::MacroLabel(n) => n.starts_with(starts),
+            _ => false
+        }
+    }
+
     pub fn has_macro_name(&self, name: &str) -> bool {
         match self.token_type() {
             TokenType::MacroIdent(n) => name == n,
@@ -186,6 +193,22 @@ impl Token {
         use lexer::TokenType::*;
         match self.token_type {
             MacroIdent(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_local_label_name(&self) -> bool {
+        use lexer::TokenType::*;
+        match &self.token_type {
+            Name(n) => n.starts_with("."),
+            _ => false
+        }
+    }
+
+    pub fn is_local_macro_label(&self) -> bool {
+        use lexer::TokenType::*;
+        match &self.token_type {
+            MacroLabel(n) => n.starts_with("."),
             _ => false
         }
     }

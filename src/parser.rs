@@ -140,14 +140,17 @@ impl Parser {
                 let span = Span::from(tok.span(), colon.span());
                 stmts.push(MacroStatement::MacroLabel(span, name.to_owned()));
             }
-        } else if tokens.check(Token::is_name) && tokens.len() == 1 {
+        } else if tokens.check(Token::is_local_label_name) && tokens.len() == 1 {
             let tok = tokens.next()?;
             if let TokenType::Name(name) = tok.token_type() {
-                if tok.name_matching(|n| n.starts_with(".")) {
-                    let colon = tokens.next()?;
-                    let span = Span::from(tok.span(), colon.span());
-                    stmts.push(MacroStatement::Label(span, name.to_owned()));
-                }
+                let colon = tokens.next()?;
+                let span = Span::from(tok.span(), colon.span());
+                stmts.push(MacroStatement::Label(span, name.to_owned()));
+            }
+        } else if tokens.check(Token::is_local_macro_label) && tokens.len() == 1 {
+            let tok = tokens.next()?;
+            if let TokenType::MacroLabel(name) = tok.token_type() {
+                stmts.push(MacroStatement::MacroLabel(tok.span().clone(), name.to_owned()));
             }
         }
 

@@ -512,13 +512,13 @@ fn replace_args(labels: &HashMap<String,String>, argmap: &HashMap<String,Arg>, a
     Ok(new_args)
 }
 
-fn gen_labels(macro_name: &str, statements: &[MacroStatement]) -> Result<HashMap<String,String>,AssemblyError> {
+fn gen_labels(statements: &[MacroStatement]) -> Result<HashMap<String,String>,AssemblyError> {
     let mut map = HashMap::new();
     for stmt in statements.iter() {
         match stmt {
             MacroStatement::MacroLabel(span, name) => {
                 if !map.contains_key(name) {
-                    let label_name = format!("{}_{}_{}", macro_name, name.replace("%", ""), Uuid::new_v4().to_string().replace("-", ""));
+                    let label_name = format!("{}_{}", name.replace("%", ""), Uuid::new_v4().to_string().replace("-", ""));
                     map.insert(name.to_owned(), label_name);
                 } else {
                     return Err(AssemblyError::DuplicateLabel(span.clone()));
@@ -555,7 +555,7 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
         }
         argmap
     };
-    let labels = gen_labels(&name, macrodef.body())?;
+    let labels = gen_labels(macrodef.body())?;
     let mut statements = vec![];
     for stmt in macrodef.body().iter() {
         use ast::MacroStatement::*;
