@@ -526,27 +526,49 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .writeln(err)
                 .newline();
         },
-        MacroNameConflictsWithInstruction(span, string) => {
-            stdout.writeln(format!("{:?}", err));
+        MacroNameConflictsWithInstruction(span, name) => {
+            stdout.write("Cannot name macro ")
+                .cyan()
+                .write(name)
+                .reset()
+                .writeln(": it conflicts with the instruction of the same name.")
+                .newline();
+            highlight_line(span, "", files, stdout);
         },
-        MacroAlreadyExists(span1, span2, string) => {
-            stdout.writeln(format!("{:?}", err));
+        MacroAlreadyExists(new_span, existing_span, name) => {
+            stdout.write("Macro ")
+                .cyan()
+                .write(name)
+                .reset()
+                .writeln(" already exists.")
+                .newline();
+            stdout.writeln("This macro:");
+            highlight_line(new_span, "", files, stdout);
+            stdout.newline()
+                .writeln("Already exists here:");
+            highlight_line(existing_span, "Existing definition", files, stdout);
+            stdout.newline();
         },
         DuplicateMacroArg(span) => {
-            stdout.writeln(format!("{:?}", err));
+            stdout.writeln("Duplicate macro arg.")
+                .newline();
+            highlight_line(span, "", files, stdout);
         },
         InvalidMacroArg(span) => {
-            stdout.writeln(format!("{:?}", err));
+            stdout.writeln("No such macro argument name.")
+                .newline();
+            highlight_line(span, "", files, stdout);
         },
         WrongNumberOfMacroArgs(inv_span, def_span, def_args, inv_args) => {
             stdout.write("Wrong number of arguments passed to macro. Expected ")
                 .write(def_args)
-                .write(" found ")
+                .write(", found ")
                 .writeln(inv_args)
                 .newline();
             highlight_line(inv_span, &format!("Found {} args", inv_args), files, stdout);
             stdout.newline();
             highlight_line(def_span, &format!("Expected {} args", def_args), files, stdout);
+            stdout.newline();
         },
         DuplicateLabel(span) => {
             stdout.writeln("Found duplicate label")

@@ -96,7 +96,7 @@ impl Expr {
             MacroLabel(span, name) => {
                 match labels.get(name) {
                     Some(label) => Ok(Expr::Name(span.clone(), label.clone())),
-                    None => Err(EvaluationError::NameNotFound(span.clone(),name.clone()))
+                    None => Err(EvaluationError::MacroLabelOutsideOfMacro(span.clone()))
                 }
             },
             MacroArg(span, name) => {
@@ -106,7 +106,7 @@ impl Expr {
                         Imm(expr) => Err(EvaluationError::ImmediateValueNotAllowedHere(span.with_parent(expr.span()))),
                         Ex(expr) => expr.replace_macro_args(labels, args),
                         IM(im_span, _) => Err(EvaluationError::IndirectionModeNotAllowedHere(span.with_parent(im_span.clone()))),
-                        MacroArg(mspan, name) => panic!("There shouldn't be any macro args left at this point; found {} <-> {}; {}", span, mspan, name)
+                        MacroArg(mspan, name) => Err(EvaluationError::MacroArgOutsideOfMacro(mspan.clone()))
                     },
                     None => Err(EvaluationError::InvalidMacroArg(span.clone()))
                 }
