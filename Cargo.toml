@@ -1,7 +1,7 @@
 [package]
 name = "waterbear"
 description = "Assembler/Disassembler for the Dreamcast VMU"
-version = "0.9.0-wip"
+version = "0.9.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 
 [dependencies]
@@ -15,7 +15,7 @@ atty = "0.2"
 uuid = { version = "*", features = ["v4"] }
 
 # custom derives
-instruction-derive = { path = "instruction-derive" }
+instruction-derive = { version = "*", path = "instruction-derive" }
 
 [lib]
 name = "waterbear"
