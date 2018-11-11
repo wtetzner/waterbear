@@ -2,7 +2,6 @@ language: rust
 cache: cargo
 rust:
 - stable
-- beta
 os:
 - linux
 - osx
