@@ -1,4 +1,5 @@
 
+use std::fmt;
 use input::Input;
 use regex::Regex;
 use location::{Location,Span};
@@ -65,6 +66,35 @@ pub struct Token {
     span: Span
 }
 
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.token_type {
+            TokenType::LeftParen => write!(f, "("),
+            TokenType::RightParen => write!(f, ")"),
+            TokenType::Hash => write!(f, "#"),
+            TokenType::Comma => write!(f, ","),
+            TokenType::Colon => write!(f, ":"),
+            TokenType::Name(name) => write!(f, "{}", name),
+            TokenType::Number(num) => write!(f, "{}", num),
+            TokenType::Equals => write!(f, "="),
+            TokenType::Plus => write!(f, "+"),
+            TokenType::Times => write!(f, "*"),
+            TokenType::Minus => write!(f, "-"),
+            TokenType::Divide => write!(f, "/"),
+            TokenType::UpperByte => write!(f, ">"),
+            TokenType::LowerByte => write!(f, "<"),
+            TokenType::String(text) => write!(f, "{}", text),
+            TokenType::MacroIdent(name) => write!(f, "{}", name),
+            TokenType::MacroLabel(name) => write!(f, "{}", name),
+            TokenType::R0 => write!(f, "@R0"),
+            TokenType::R1 => write!(f, "@R1"),
+            TokenType::R2 => write!(f, "@R2"),
+            TokenType::R3 => write!(f, "@R3"),
+            TokenType::EOF => write!(f, "EOF")
+        }
+    }
+}
+
 impl Token {
     pub fn new(token_type: TokenType, span: Span) -> Token {
         Token { token_type: token_type, span: span }
@@ -90,6 +120,13 @@ impl Token {
     pub fn has_name(&self, name: &str) -> bool {
         match self.token_type() {
             TokenType::Name(n) => name == n,
+            _ => false
+        }
+    }
+
+    pub fn name_starts_with(&self, starts: &str) -> bool {
+        match self.token_type() {
+            TokenType::Name(n) => n.starts_with(starts),
             _ => false
         }
     }

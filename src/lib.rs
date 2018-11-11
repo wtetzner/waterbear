@@ -64,6 +64,11 @@ pub fn run_command(args: &[String]) {
               (@arg INPUT: +required "Sets the input file to assemble")
               (@arg OUTPUT: -o --output +required +takes_value "Output file")
              )
+            (@subcommand expand =>
+              (version: VERSION)
+              (about: "Expand macros and output to stdout")
+              (@arg INPUT: +required "Sets the input file to assemble")
+             )
             (@subcommand disassemble =>
               (version: VERSION)
               (about: "Disassembler for the Dreamcast VMU")
@@ -112,6 +117,29 @@ pub fn run_command(args: &[String]) {
             Ok(_) => {},
             Err(ref err) => {
                 println!("ERROR: {:?}", err);
+            }
+        }
+    } else if let Some(matches) = matches.subcommand_matches("expand") {
+        let input_file = matches.value_of("INPUT").unwrap();
+        let path = Path::new(input_file);
+        let dir = path.parent().unwrap_or(Path::new("")).to_str().unwrap();
+
+        let mut files = files::SourceFiles::new(dir.to_owned());
+        match expand_cmd(&mut files, &mut stdout, matches) {
+            Ok(_) => {},
+            Err(ref err) => {
+                stdout.write_error().space()
+                    .write("Failed to expand ")
+                    .cyan()
+                    .write(input_file)
+                    .reset()
+                    .newline()
+                    .newline()
+                    .red()
+                    .write("✘")
+                    .reset()
+                    .space();
+                print_error(&mut files, err, &mut stdout);
             }
         }
     } else if let Some(_) = matches.subcommand_matches("version") {
@@ -181,6 +209,11 @@ fn disassemble_cmd(positions: bool, arrived_from: bool, filename: &str, output_f
     }
 
     Ok(())
+}
+
+fn expand_cmd(mut files: &mut SourceFiles, stdout: &mut ColorWriter, matches: &clap::ArgMatches) -> Result<(),AssemblyError> {
+    let input_file = matches.value_of("INPUT").unwrap();
+    asm::expand_file(&mut files, input_file)
 }
 
 fn assemble_cmd(mut files: &mut SourceFiles, stdout: &mut ColorWriter, matches: &clap::ArgMatches) -> Result<usize, AssemblyError> {
@@ -505,26 +538,49 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
         InvalidMacroArg(span) => {
             stdout.writeln(format!("{:?}", err));
         },
-        WrongNumberOfMacroArgs(_, _, _, _) => {
-            stdout.writeln(format!("{:?}", err));
+        WrongNumberOfMacroArgs(inv_span, def_span, def_args, inv_args) => {
+            stdout.write("Wrong number of arguments passed to macro. Expected ")
+                .write(def_args)
+                .write(" found ")
+                .writeln(inv_args)
+                .newline();
+            highlight_line(inv_span, &format!("Found {} args", inv_args), files, stdout);
+            stdout.newline();
+            highlight_line(def_span, &format!("Expected {} args", def_args), files, stdout);
         },
-        DuplicateLabel(_) => {
-            stdout.writeln(format!("{:?}", err));
+        DuplicateLabel(span) => {
+            stdout.writeln("Found duplicate label")
+                .newline();
+            highlight_line(span, "", files, stdout);
         },
-        MacroLabelOutsideOfMacro(_) => {
-            stdout.writeln(format!("{:?}", err));
+        MacroLabelOutsideOfMacro(span) => {
+            stdout.writeln("Macro label found outside of macro definition.")
+                .newline();
+            highlight_line(span, "", files, stdout);
         },
-        MacroArgOutsideOfMacro(_) => {
-            stdout.writeln(format!("{:?}", err));
+        MacroArgOutsideOfMacro(span) => {
+            stdout.writeln("Macro arg found outside of macro definition.")
+                .newline();
+            highlight_line(span, "", files, stdout);
         },
         ImmediateValueNotAllowedHere(span) => {
             stdout.writeln("Immediate value not allowed within an expression or another immediate value.")
                 .newline();
             highlight_line(span, "", files, stdout);
-            // stdout.writeln(format!("{:?}", err));
         },
-        IndirectionModeNotAllowedHere(Span) => {
-            stdout.writeln(format!("{:?}", err));
+        IndirectionModeNotAllowedHere(span) => {
+            stdout.writeln("Indirection mode not allowed within an expression or immediate value.")
+                .newline();
+            highlight_line(span, "", files, stdout);
+        },
+        NoSuchMacro(span, name) => {
+            stdout.write("No macro definition found for name ")
+                .cyan()
+                .write(name)
+                .reset()
+                .writeln(".")
+                .newline();
+            highlight_line(span, "", files, stdout);
         }
     }
 }

@@ -56,8 +56,9 @@ impl<'a> Iterator for LineIterator<'a> {
         if self.pos < self.tokens.len() {
             let start = self.pos;
             let start_line = self.tokens[start].span().end().line();
+            let start_file = self.tokens[start].span().end().file();
             let mut end = start + 1;
-            while end < self.tokens.len() && start_line == self.tokens[end].span().start().line() {
+            while end < self.tokens.len() && start_line == self.tokens[end].span().start().line() && start_file == self.tokens[end].span().start().file() {
                 end += 1;
             }
             self.pos = end;
@@ -70,7 +71,7 @@ impl<'a> Iterator for LineIterator<'a> {
 
 type Macros = HashMap<String,MacroDefinition>;
 
-fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
+pub fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
     LineIterator {
         pos: 0,
         tokens: tokens
@@ -123,33 +124,29 @@ impl Parser {
         }
     }
 
-    fn parse_macro_statement(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<MacroStatement,ParseError> {
+    fn parse_macro_statement(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<Vec<MacroStatement>,ParseError> {
+        let mut stmts = vec![];
         if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
             let tok = tokens.next()?;
             if let TokenType::Name(name) = tok.token_type() {
                 let colon = tokens.next()?;
                 let span = Span::from(tok.span(), colon.span());
-                return Ok(MacroStatement::Label(span, name.to_owned()));
+                stmts.push(MacroStatement::Label(span, name.to_owned()));
             }
-        }
-
-        if tokens.check(Token::is_macro_label) && tokens.check_at(1, Token::is_colon) {
+        } else if tokens.check(Token::is_macro_label) && tokens.check_at(1, Token::is_colon) {
             let tok = tokens.next()?;
             if let TokenType::MacroLabel(name) = tok.token_type() {
                 let colon = tokens.next()?;
                 let span = Span::from(tok.span(), colon.span());
-                return Ok(MacroStatement::MacroLabel(span, name.to_owned()));
+                stmts.push(MacroStatement::MacroLabel(span, name.to_owned()));
             }
-        }
-
-        // Local label on its own line
-        if tokens.check(Token::is_name) && tokens.len() == 1 {
+        } else if tokens.check(Token::is_name) && tokens.len() == 1 {
             let tok = tokens.next()?;
             if let TokenType::Name(name) = tok.token_type() {
                 if tok.name_matching(|n| n.starts_with(".")) {
                     let colon = tokens.next()?;
                     let span = Span::from(tok.span(), colon.span());
-                    return Ok(MacroStatement::Label(span, name.to_owned()));
+                    stmts.push(MacroStatement::Label(span, name.to_owned()));
                 }
             }
         }
@@ -157,16 +154,21 @@ impl Parser {
         if tokens.check(Token::is_name) {
             let tok = tokens.peek().unwrap().clone();
             if let TokenType::Name(name) = tok.token_type() {
-                if Instr::<Expr,IndirectionMode>::exists(name)
-                    || macros.get(name).is_some()
+                if !name.starts_with(".")
                 {
                     let (span, name, args) = self.parse_gen_instr(tokens)?;
-                    return Ok(MacroStatement::Instr(span, name, args));
+                    stmts.push(MacroStatement::Instr(span, name, args));
+                } else {
+                    return Err(ParseError::UnknownInstruction(tok.span().clone()));
                 }
             }
         }
 
-        Err(ParseError::UnexpectedToken(tokens.next()?))
+        if !tokens.is_empty() {
+            Err(ParseError::UnexpectedToken(tokens.next()?))
+        } else {
+            Ok(stmts)
+        }
     }
 
     fn parse_macro_header(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<(Span,String,Vec<(Span,String)>),ParseError> {
@@ -238,8 +240,8 @@ impl Parser {
                             break;
                         }
                     } else {
-                        let stmt = self.parse_macro_statement(&macros, &mut tokens)?;
-                        statements.push(stmt);
+                        let mut stmts = self.parse_macro_statement(&macros, &mut tokens)?;
+                        statements.append(&mut stmts);
                         macro_lines[idx] = true;
                     }
                     idx = idx + 1;
@@ -307,9 +309,15 @@ impl Parser {
             }
         }
 
-        // Parse instruction
-        if let Some(instr) = self.parse_instr(macros, tokens)? {
-            return Ok(instr);
+        if tokens.check(|tok| tok.is_name())
+            && !(tokens.check_at(1, |tok| tok.has_name("equ"))
+                 || tokens.check_at(1, |tok| tok.is_equ())
+                 || tokens.check(|tok| tok.name_starts_with(".")))
+        {
+            // Parse instruction
+            if let Some(instr) = self.parse_instr(macros, tokens)? {
+                return Ok(instr);
+            }
         }
 
         // Try to parse a directive
@@ -353,7 +361,7 @@ impl Parser {
         let tok = tokens.peek().map(|t| t.token_type().clone());
         if let Some(TokenType::Name(n)) = tok {
             if !Instr::<Expr,IndirectionMode>::exists(&n) {
-                if macros.contains_key(&n) {
+                if !n.starts_with(".") {
                     let (span, name, args) = self.parse_gen_instr(tokens)?;
                     return Ok(Some(Statement::MacroCall(span, name, args)));
                 } else {
@@ -420,7 +428,7 @@ impl Parser {
         }
     }
 
-    fn parse_directive(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
+    pub fn parse_directive(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
         let peeked = tokens.peek().map(|t| t.clone());
         match peeked {
             Some(tok) => {
@@ -514,7 +522,7 @@ impl Parser {
 }
 
 #[derive(Debug,Clone)]
-struct TokenStream<'a> {
+pub struct TokenStream<'a> {
     pos: usize,
     tokens: &'a [Token]
 }
@@ -524,6 +532,14 @@ impl<'a> TokenStream<'a> {
         TokenStream {
             pos: 0,
             tokens: tokens
+        }
+    }
+
+    pub fn remaining(&self) -> &[Token] {
+        if !self.is_empty() {
+            &self.tokens[self.pos..]
+        } else {
+            &self.tokens[self.tokens.len() - 1..]
         }
     }
 

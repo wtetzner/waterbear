@@ -26,36 +26,87 @@ use input::Input;
 use uuid::Uuid;
 
 pub fn assemble_file(mut files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
+    let statements = read_statements(files, filename)?;
+    let statements = expand_macros(&statements)?;
+    assemble(&statements)
+}
+
+pub fn expand_file(mut files: &mut SourceFiles, filename: &str) -> Result<(),AssemblyError> {
+    let statements = read_statements(files, filename)?;
+    let statements = expand_macros(&statements)?;
+    println!("{}", statements);
+    Ok(())
+}
+
+fn read_statements(mut files: &mut SourceFiles, filename: &str) -> Result<Statements,AssemblyError> {
     let path = Path::new(filename);
     let parser = parser::Parser::create();
 
     let tokens = {
-        let file = files.load(path.file_name().expect("expected filename").to_str().unwrap())?;
-        let input = Input::new(file.id(), file.contents());
-        lexer::lex_input(&input)?
+        let tokens = {
+            let file = files.load(path.file_name().expect("expected filename").to_str().unwrap())?;
+            let input = Input::new(file.id(), file.contents());
+            lexer::lex_input(&input)?
+        };
+        replace_includes(&parser, &mut files, &tokens)?
     };
-    let statements = parser.parse(&tokens)?;
-    let statements = replace_includes(&parser, &mut files, &statements)?;
-    let statements = expand_macros(&statements)?;
-    println!("statements: {}", statements);
-    assemble(&statements)
+    let stmts = parser.parse(&tokens)?;
+    let stmts = replace_byte_includes(&parser, &mut files, &stmts)?;
+    Ok(stmts)
 }
 
-fn replace_includes(parser: &Parser, files: &mut SourceFiles, statements: &Statements) -> Result<Statements,AssemblyError> {
+fn replace_includes(parser: &Parser, files: &mut SourceFiles, tokens: &[Token]) -> Result<Vec<Token>,AssemblyError> {
+    let mut results = vec![];
+    for line in parser::lines(tokens) {
+        let mut stream = parser::TokenStream::from(line);
+        match parser.parse_directive(&mut stream) {
+            Ok(Some(stmt)) => match stmt {
+                Statement::Directive(Directive::Include(span, typ, path)) => {
+                    match typ {
+                        IncludeType::Asm => {
+                            let new_tokens = {
+                                let file = files.load(&path)?;
+                                let input = Input::new(file.id(), file.contents());
+                                lexer::lex_input(&input)?
+                            };
+                            let new_tokens = replace_includes(parser, files, &new_tokens)?;
+                            for token in new_tokens.iter() {
+                                results.push(token.clone());
+                            }
+                            if !stream.is_empty() {
+                                return Err(AssemblyError::UnexpectedToken(stream.next()?));
+                            }
+                        },
+                        IncludeType::Bytes => {
+                            for token in line.iter() {
+                                results.push(token.clone());
+                            }
+                        }
+                    }
+                },
+                _ => {
+                    for token in line.iter() {
+                        results.push(token.clone());
+                    }
+                }
+            },
+            _ => {
+                for token in line.iter() {
+                    results.push(token.clone());
+                }
+            }
+        }
+    }
+    Ok(results)
+}
+
+fn replace_byte_includes(parser: &Parser, files: &mut SourceFiles, statements: &Statements) -> Result<Statements,AssemblyError> {
     let mut results = vec![];
     for statement in statements.iter() {
         if let Statement::Directive(Directive::Include(span, typ, path)) = statement {
             match typ {
                 IncludeType::Asm => {
-                    let tokens = {
-                        let file = files.load(&path)?;
-                        let input = Input::new(file.id(), file.contents());
-                        lexer::lex_input(&input)?
-                    };
-                    let statements = replace_includes(parser, files, &parser.parse(&tokens)?)?;
-                    for stmt in statements.iter() {
-                        results.push(stmt.clone());
-                    }
+                    panic!("There should be no ASM .includes at this stage.");
                 },
                 IncludeType::Bytes => {
                     let bytes = files::load_bytes(&files.path(&path))?;
@@ -230,7 +281,8 @@ pub enum AssemblyError {
     MacroLabelOutsideOfMacro(Span),
     MacroArgOutsideOfMacro(Span),
     ImmediateValueNotAllowedHere(Span),
-    IndirectionModeNotAllowedHere(Span)
+    IndirectionModeNotAllowedHere(Span),
+    NoSuchMacro(Span, String)
 }
 
 impl From<LexerError> for AssemblyError {
@@ -480,7 +532,12 @@ fn gen_labels(macro_name: &str, statements: &[MacroStatement]) -> Result<HashMap
 }
 
 fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<Vec<Statement>,AssemblyError> {
-    let macrodef = stmts.macro_def(&name).expect("No such macro");
+    let macrodef = match stmts.macro_def(&name) {
+        Some(def) => def,
+        None => {
+            return Err(AssemblyError::NoSuchMacro(span.clone(), name.clone()));
+        }
+    };
     if args.len() != macrodef.args().len() {
         return Err(AssemblyError::WrongNumberOfMacroArgs(
             span.clone(),
