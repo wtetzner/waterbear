@@ -6,7 +6,7 @@ authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 [dependencies]
 syn = "0.11"
 quote = "0.3"
-regex = "*"
+regex = "1.0"
 lazy_static = "1.0"
 
 [lib]
