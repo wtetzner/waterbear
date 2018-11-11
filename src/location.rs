@@ -1,7 +1,6 @@
 
 use std::fmt;
 use files::FileID;
-use std::ops::Deref;
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub struct Location {

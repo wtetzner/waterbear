@@ -10,7 +10,6 @@ use ast::{
     ByteValue,
     IncludeType,
     ArgType,
-    MacroDefinition,
     MacroStatement
 };
 use expression::{EvaluationError,Expr,Arg};
@@ -25,13 +24,13 @@ use files;
 use input::Input;
 use uuid::Uuid;
 
-pub fn assemble_file(mut files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
+pub fn assemble_file(files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
     let statements = read_statements(files, filename)?;
     let statements = expand_macros(&statements)?;
     assemble(&statements)
 }
 
-pub fn expand_file(mut files: &mut SourceFiles, filename: &str) -> Result<(),AssemblyError> {
+pub fn expand_file(files: &mut SourceFiles, filename: &str) -> Result<(),AssemblyError> {
     let statements = read_statements(files, filename)?;
     let statements = expand_macros(&statements)?;
     println!("{}", statements);
@@ -51,7 +50,7 @@ fn read_statements(mut files: &mut SourceFiles, filename: &str) -> Result<Statem
         replace_includes(&parser, &mut files, &tokens)?
     };
     let stmts = parser.parse(&tokens)?;
-    let stmts = replace_byte_includes(&parser, &mut files, &stmts)?;
+    let stmts = replace_byte_includes(&mut files, &stmts)?;
     Ok(stmts)
 }
 
@@ -61,7 +60,7 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, tokens: &[Token]) 
         let mut stream = parser::TokenStream::from(line);
         match parser.parse_directive(&mut stream) {
             Ok(Some(stmt)) => match stmt {
-                Statement::Directive(Directive::Include(span, typ, path)) => {
+                Statement::Directive(Directive::Include(_span, typ, path)) => {
                     match typ {
                         IncludeType::Asm => {
                             let new_tokens = {
@@ -100,7 +99,7 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, tokens: &[Token]) 
     Ok(results)
 }
 
-fn replace_byte_includes(parser: &Parser, files: &mut SourceFiles, statements: &Statements) -> Result<Statements,AssemblyError> {
+fn replace_byte_includes(files: &mut SourceFiles, statements: &Statements) -> Result<Statements,AssemblyError> {
     let mut results = vec![];
     for statement in statements.iter() {
         if let Statement::Directive(Directive::Include(span, typ, path)) = statement {
@@ -563,7 +562,7 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
         match stmt {
             Instr(ispan, iname, iargs) => {
                 match stmts.macro_def(iname) {
-                    Some(def) => {
+                    Some(_def) => {
                         let new_args = replace_args(&labels, &argmap, iargs)?;
                         let mut new_stmts = expand(stmts, ispan.with_parent(span.clone()), iname.to_owned(), new_args.as_slice())?;
                         statements.append(&mut new_stmts);

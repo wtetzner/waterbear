@@ -125,7 +125,7 @@ pub fn run_command(args: &[String]) {
         let dir = path.parent().unwrap_or(Path::new("")).to_str().unwrap();
 
         let mut files = files::SourceFiles::new(dir.to_owned());
-        match expand_cmd(&mut files, &mut stdout, matches) {
+        match expand_cmd(&mut files, matches) {
             Ok(_) => {},
             Err(ref err) => {
                 stdout.write_error().space()
@@ -211,7 +211,7 @@ fn disassemble_cmd(positions: bool, arrived_from: bool, filename: &str, output_f
     Ok(())
 }
 
-fn expand_cmd(mut files: &mut SourceFiles, stdout: &mut ColorWriter, matches: &clap::ArgMatches) -> Result<(),AssemblyError> {
+fn expand_cmd(mut files: &mut SourceFiles, matches: &clap::ArgMatches) -> Result<(),AssemblyError> {
     let input_file = matches.value_of("INPUT").unwrap();
     asm::expand_file(&mut files, input_file)
 }

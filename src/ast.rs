@@ -322,7 +322,7 @@ impl Positioned for Statement {
             Variable(span, _, _) => span.clone(),
             Alias(span, _, _) => span.clone(),
             Comment(_) => Span::default(),
-            MacroCall(span, name, args) => span.clone()
+            MacroCall(span, _, _) => span.clone()
         }
     }
 }
@@ -353,7 +353,7 @@ impl fmt::Display for Statement {
                     write!(f, "; {}", comment)
                 }
             },
-            Statement::MacroCall(span, name, args) => {
+            Statement::MacroCall(_, name, args) => {
                 write!(f, "{}", name)?;
                 for arg in args.iter() {
                     write!(f, " {}", arg)?;

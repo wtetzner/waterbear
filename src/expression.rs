@@ -106,7 +106,7 @@ impl Expr {
                         Imm(expr) => Err(EvaluationError::ImmediateValueNotAllowedHere(span.with_parent(expr.span()))),
                         Ex(expr) => expr.replace_macro_args(labels, args),
                         IM(im_span, _) => Err(EvaluationError::IndirectionModeNotAllowedHere(span.with_parent(im_span.clone()))),
-                        MacroArg(mspan, name) => Err(EvaluationError::MacroArgOutsideOfMacro(mspan.clone()))
+                        MacroArg(mspan, _) => Err(EvaluationError::MacroArgOutsideOfMacro(mspan.clone()))
                     },
                     None => Err(EvaluationError::InvalidMacroArg(span.clone()))
                 }

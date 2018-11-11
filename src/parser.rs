@@ -124,7 +124,7 @@ impl Parser {
         }
     }
 
-    fn parse_macro_statement(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<Vec<MacroStatement>,ParseError> {
+    fn parse_macro_statement(&self, tokens: &mut TokenStream) -> Result<Vec<MacroStatement>,ParseError> {
         let mut stmts = vec![];
         if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
             let tok = tokens.next()?;
@@ -195,7 +195,7 @@ impl Parser {
                         arg_names.push((arg.span().clone(), name.clone()));
                     }
                 },
-                other => return Err(ParseError::InvalidMacroArg(arg.span()))
+                other => return Err(ParseError::InvalidMacroArg(other.span()))
             }
         }
 
@@ -240,7 +240,7 @@ impl Parser {
                             break;
                         }
                     } else {
-                        let mut stmts = self.parse_macro_statement(&macros, &mut tokens)?;
+                        let mut stmts = self.parse_macro_statement(&mut tokens)?;
                         statements.append(&mut stmts);
                         macro_lines[idx] = true;
                     }
@@ -272,18 +272,18 @@ impl Parser {
         let mut statements = vec![];
         for line in lines.iter() {
             let mut token_stream = TokenStream::from(line);
-            self.parse_line(&macros, &mut token_stream, &mut statements)?;
+            self.parse_line(&mut token_stream, &mut statements)?;
         }
         Ok(Statements::new(macros, statements))
     }
 
-    fn parse_line(&self, macros: &Macros, tokens: &mut TokenStream, results: &mut Vec<Statement>) -> Result<(),ParseError> {
+    fn parse_line(&self, tokens: &mut TokenStream, results: &mut Vec<Statement>) -> Result<(),ParseError> {
         if !tokens.is_empty() {
-            let stmt = self.parse_statement(macros, tokens)?;
+            let stmt = self.parse_statement(tokens)?;
             let is_label = stmt.is_label();
             results.push(stmt);
             if is_label && !tokens.is_empty() {
-                match self.parse_instr(macros, tokens)? {
+                match self.parse_instr(tokens)? {
                     Some(instr) => {
                         results.push(instr);
                     },
@@ -299,7 +299,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_statement(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
+    fn parse_statement(&self, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
         if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
             let tok = tokens.next()?;
             if let TokenType::Name(name) = tok.token_type() {
@@ -315,7 +315,7 @@ impl Parser {
                  || tokens.check(|tok| tok.name_starts_with(".")))
         {
             // Parse instruction
-            if let Some(instr) = self.parse_instr(macros, tokens)? {
+            if let Some(instr) = self.parse_instr(tokens)? {
                 return Ok(instr);
             }
         }
@@ -357,7 +357,7 @@ impl Parser {
         Err(ParseError::UnexpectedToken(tok))
     }
 
-    fn parse_instr(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
+    fn parse_instr(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
         let tok = tokens.peek().map(|t| t.token_type().clone());
         if let Some(TokenType::Name(n)) = tok {
             if !Instr::<Expr,IndirectionMode>::exists(&n) {
