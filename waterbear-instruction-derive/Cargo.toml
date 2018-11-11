@@ -2,6 +2,8 @@
 name = "waterbear-instruction-derive"
 version = "0.1.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
+description = "Helper custom derive for the waterbear package."
+license = "Apache-2.0"
 
 [dependencies]
 syn = "0.11"
