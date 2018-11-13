@@ -484,7 +484,7 @@ fn expand_macros(statements: &Statements) -> Result<Statements,AssemblyError> {
     Ok(statements.with_statements(new))
 }
 
-fn replace_args(labels: &HashMap<String,String>, argmap: &HashMap<String,Arg>, args: &[Arg]) -> Result<Vec<Arg>,AssemblyError> {
+fn replace_args(inv_span: Span, labels: &HashMap<String,String>, argmap: &HashMap<String,Arg>, args: &[Arg]) -> Result<Vec<Arg>,AssemblyError> {
     let mut new_args = vec![];
     for arg in args {
         match arg {
@@ -499,10 +499,10 @@ fn replace_args(labels: &HashMap<String,String>, argmap: &HashMap<String,Arg>, a
                 }
             },
             Arg::Imm(expr) => {
-                new_args.push(Arg::Imm(expr.replace_macro_args(labels, argmap)?));
+                new_args.push(Arg::Imm(expr.replace_macro_args(inv_span.clone(), labels, argmap)?));
             },
             Arg::Ex(expr) => {
-                new_args.push(Arg::Ex(expr.replace_macro_args(labels, argmap)?))
+                new_args.push(Arg::Ex(expr.replace_macro_args(inv_span.clone(), labels, argmap)?))
             },
             _ => {
                 new_args.push(arg.clone());
@@ -563,12 +563,12 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
             Instr(ispan, iname, iargs) => {
                 match stmts.macro_def(iname) {
                     Some(_def) => {
-                        let new_args = replace_args(&labels, &argmap, iargs)?;
+                        let new_args = replace_args(span.clone(), &labels, &argmap, iargs)?;
                         let mut new_stmts = expand(stmts, ispan.with_parent(span.clone()), iname.to_owned(), new_args.as_slice())?;
                         statements.append(&mut new_stmts);
                     },
                     None => {
-                        let new_args = replace_args(&labels, &argmap, iargs)?;
+                        let new_args = replace_args(span.clone(), &labels, &argmap, iargs)?;
                         let instr = parser::make_instr(ispan.with_parent(span.clone()), iname.to_owned(), new_args.as_slice())?;
                         match instr {
                             Some(ins) => {

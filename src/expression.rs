@@ -1,6 +1,6 @@
 
 use std::fmt;
-use location::{Positioned, Location, Span};
+use location::{Positioned, Span};
 use env::Env;
 use std::collections::{HashMap};
 
@@ -35,14 +35,14 @@ impl EvaluationError {
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum Expr {
     Name(Span, String),
-    Plus(Box<Expr>, Box<Expr>),
-    Minus(Box<Expr>, Box<Expr>),
-    UnaryMinus(Location, Box<Expr>),
-    Times(Box<Expr>, Box<Expr>),
-    Divide(Box<Expr>, Box<Expr>),
+    Plus(Span, Box<Expr>, Box<Expr>),
+    Minus(Span, Box<Expr>, Box<Expr>),
+    UnaryMinus(Span, Box<Expr>),
+    Times(Span, Box<Expr>, Box<Expr>),
+    Divide(Span, Box<Expr>, Box<Expr>),
     Number(Span, i32),
-    UpperByte(Location, Box<Expr>),
-    LowerByte(Location, Box<Expr>),
+    UpperByte(Span, Box<Expr>),
+    LowerByte(Span, Box<Expr>),
     MacroLabel(Span, String),
     MacroArg(Span, String)
 }
@@ -56,46 +56,68 @@ impl Expr {
         Expr::Name(Span::default(), name.to_owned())
     }
 
+    pub fn with_span(&self, new_span: Span) -> Expr {
+        use expression::Expr::*;
+        match self {
+            Name(_, name) => Name(new_span, name.clone()),
+            Plus(_, left, right) => Plus(new_span, left.clone(), right.clone()),
+            Minus(_, left, right) => Minus(new_span, left.clone(), right.clone()),
+            UnaryMinus(_, expr) => UnaryMinus(new_span, expr.clone()),
+            Times(_, left, right) => Times(new_span, left.clone(), right.clone()),
+            Divide(_, left, right) => Divide(new_span, left.clone(), right.clone()),
+            Number(_, num) => Number(new_span, *num),
+            UpperByte(_, expr) => UpperByte(new_span, expr.clone()),
+            LowerByte(_, expr) => LowerByte(new_span, expr.clone()),
+            MacroLabel(_, name) => MacroLabel(new_span, name.clone()),
+            MacroArg(_, name) => MacroArg(new_span, name.clone())
+        }
+    }
+
     pub fn replace_macro_args(
         &self,
+        inv_span: Span,
         labels: &HashMap<String,String>,
         args: &HashMap<String,Arg>
     ) -> Result<Expr,EvaluationError> {
         use expression::Expr::*;
         match self {
-            Name(span, name) => Ok(Expr::Name(span.clone(), name.clone())),
-            Plus(left, right) => Ok(Expr::Plus(
-                Box::new(left.replace_macro_args(labels, args)?),
-                Box::new(right.replace_macro_args(labels, args)?)
+            Name(span, name) => Ok(Expr::Name(span.with_parent(inv_span.clone()), name.clone())),
+            Plus(span, left, right) => Ok(Expr::Plus(
+                span.with_parent(inv_span.clone()),
+                Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
+                Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
-            Minus(left, right) => Ok(Expr::Minus(
-                Box::new(left.replace_macro_args(labels, args)?),
-                Box::new(right.replace_macro_args(labels, args)?)
+            Minus(span, left, right) => Ok(Expr::Minus(
+                span.with_parent(inv_span.clone()),
+                Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
+                Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
-            UnaryMinus(loc, expr) => Ok(Expr::UnaryMinus(
-                loc.clone(),
-                Box::new(expr.replace_macro_args(labels, args)?)
+            UnaryMinus(span, expr) => Ok(Expr::UnaryMinus(
+                span.with_parent(inv_span.clone()),
+                Box::new(expr.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
-            Times(left, right) => Ok(Expr::Times(
-                Box::new(left.replace_macro_args(labels, args)?),
-                Box::new(right.replace_macro_args(labels, args)?)
+            Times(span, left, right) => Ok(Expr::Times(
+                span.with_parent(inv_span.clone()),
+                Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
+                Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
-            Divide(left, right) => Ok(Expr::Divide(
-                Box::new(left.replace_macro_args(labels, args)?),
-                Box::new(right.replace_macro_args(labels, args)?)
+            Divide(span, left, right) => Ok(Expr::Divide(
+                span.with_parent(inv_span.clone()),
+                Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
+                Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
-            Number(span, num) => Ok(Expr::Number(span.clone(), *num)),
-            UpperByte(loc, expr) => Ok(Expr::UpperByte(
-                loc.clone(),
-                Box::new(expr.replace_macro_args(labels, args)?)
+            Number(span, num) => Ok(Expr::Number(span.with_parent(inv_span.clone()).clone(), *num)),
+            UpperByte(span, expr) => Ok(Expr::UpperByte(
+                span.with_parent(inv_span.clone()),
+                Box::new(expr.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
-            LowerByte(loc, expr) => Ok(Expr::LowerByte(
-                loc.clone(),
-                Box::new(expr.replace_macro_args(labels, args)?)
+            LowerByte(span, expr) => Ok(Expr::LowerByte(
+                span.with_parent(inv_span.clone()),
+                Box::new(expr.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
             MacroLabel(span, name) => {
                 match labels.get(name) {
-                    Some(label) => Ok(Expr::Name(span.clone(), label.clone())),
+                    Some(label) => Ok(Expr::Name(span.with_parent(inv_span.clone()).clone(), label.clone())),
                     None => Err(EvaluationError::MacroLabelOutsideOfMacro(span.clone()))
                 }
             },
@@ -104,9 +126,9 @@ impl Expr {
                 match args.get(name) {
                     Some(arg) => match arg {
                         Imm(expr) => Err(EvaluationError::ImmediateValueNotAllowedHere(span.with_parent(expr.span()))),
-                        Ex(expr) => expr.replace_macro_args(labels, args),
+                        Ex(expr) => Ok(expr.replace_macro_args(inv_span.clone(), labels, args)?.with_span(expr.span().with_parent(inv_span.clone()))),
                         IM(im_span, _) => Err(EvaluationError::IndirectionModeNotAllowedHere(span.with_parent(im_span.clone()))),
-                        MacroArg(mspan, _) => Err(EvaluationError::MacroArgOutsideOfMacro(mspan.clone()))
+                        MacroArg(mspan, _) => Err(EvaluationError::MacroArgOutsideOfMacro(mspan.with_parent(inv_span.clone())))
                     },
                     None => Err(EvaluationError::InvalidMacroArg(span.clone()))
                 }
@@ -119,35 +141,14 @@ impl Positioned for Expr {
     fn span(&self) -> Span {
         match self {
             Expr::Name(span, _) => span.clone(),
-            Expr::Plus(expr1, expr2) => Span::new(
-                expr1.span().start().clone(),
-                expr2.span().end().clone()
-            ),
-            Expr::Minus(expr1, expr2) => Span::new(
-                expr1.span().start().clone(),
-                expr2.span().end().clone()
-            ),
-            Expr::UnaryMinus(loc, expr) => Span::new(
-                loc.clone(),
-                expr.span().end().clone()
-            ),
-            Expr::Times(expr1, expr2) => Span::new(
-                expr1.span().start().clone(),
-                expr2.span().end().clone()
-            ),
-            Expr::Divide(expr1, expr2) => Span::new(
-                expr1.span().start().clone(),
-                expr2.span().end().clone()
-            ),
+            Expr::Plus(span, _, _) => span.clone(),
+            Expr::Minus(span, _, _) => span.clone(),
+            Expr::UnaryMinus(span, _) => span.clone(),
+            Expr::Times(span, _, _) => span.clone(),
+            Expr::Divide(span, _, _) => span.clone(),
             Expr::Number(span, _) => span.clone(),
-            Expr::UpperByte(loc, expr) => Span::new(
-                loc.clone(),
-                expr.span().end().clone()
-            ),
-            Expr::LowerByte(loc, expr) => Span::new(
-                loc.clone(),
-                expr.span().end().clone()
-            ),
+            Expr::UpperByte(span, _) => span.clone(),
+            Expr::LowerByte(span, _) => span.clone(),
             Expr::MacroLabel(span, _) => span.clone(),
             Expr::MacroArg(span, _) => span.clone()
         }
@@ -158,7 +159,7 @@ impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Expr::Name(_, name) => write!(f, "{}", name),
-            Expr::Plus(left, right) => {
+            Expr::Plus(_, left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -172,7 +173,7 @@ impl fmt::Display for Expr {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            Expr::Minus(left, right) => {
+            Expr::Minus(_, left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -194,7 +195,7 @@ impl fmt::Display for Expr {
                 if paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            Expr::Times(left, right) => {
+            Expr::Times(_, left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -208,7 +209,7 @@ impl fmt::Display for Expr {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            Expr::Divide(left, right) => {
+            Expr::Divide(_, left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
                 if left_paren { write!(f, "(")?; }
@@ -255,11 +256,11 @@ impl Expr {
     pub fn complex(&self) -> bool {
         match self {
             Expr::Name(_,_) => false,
-            Expr::Plus(_,_) => true,
-            Expr::Minus(_,_) => true,
+            Expr::Plus(_,_,_) => true,
+            Expr::Minus(_,_,_) => true,
             Expr::UnaryMinus(_,_) => true,
-            Expr::Times(_,_) => true,
-            Expr::Divide(_,_) => true,
+            Expr::Times(_,_,_) => true,
+            Expr::Divide(_,_,_) => true,
             Expr::Number(_,_) => false,
             Expr::UpperByte(_,_) => true,
             Expr::LowerByte(_,_) => true,
@@ -275,11 +276,11 @@ impl Expr {
                     Some(num) => Ok(num),
                     None => Err(EvaluationError::NameNotFound(self.span(), format!("{} '{}' not found", name_lookup.name(), name)))
                 },
-            Expr::Plus(left, right) => Ok(left.eval(name_lookup)? + right.eval(name_lookup)?),
-            Expr::Minus(left, right) => Ok(left.eval(name_lookup)? - right.eval(name_lookup)?),
+            Expr::Plus(_, left, right) => Ok(left.eval(name_lookup)? + right.eval(name_lookup)?),
+            Expr::Minus(_, left, right) => Ok(left.eval(name_lookup)? - right.eval(name_lookup)?),
             Expr::UnaryMinus(_, expr) => Ok(-1 * expr.eval(name_lookup)?),
-            Expr::Times(left, right) => Ok(left.eval(name_lookup)? * right.eval(name_lookup)?),
-            Expr::Divide(left, right) => {
+            Expr::Times(_, left, right) => Ok(left.eval(name_lookup)? * right.eval(name_lookup)?),
+            Expr::Divide(_, left, right) => {
                 let left_val = left.eval(name_lookup)?;
                 let right_val = right.eval(name_lookup)?;
                 if right_val == 0 {

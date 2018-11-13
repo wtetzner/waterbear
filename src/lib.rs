@@ -386,6 +386,7 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .newline();
 
             highlight_line(&span, "", files, stdout);
+            stdout.newline();
         },
         UnexpectedChar(loc) => {
             stdout.writeln("Unexpected Character").newline();
@@ -436,7 +437,7 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
             highlight_line(tok.span(), "", files, stdout);
         },
         UnknownInstruction(span) => {
-            stdout.writeln("Unknown Instruction")
+            stdout.writeln("Unknown Instruction/Macro")
                 .newline();
             highlight_line(span, "", files, stdout);
         },
@@ -566,7 +567,11 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
                 .writeln(inv_args)
                 .newline();
             highlight_line(inv_span, &format!("Found {} args", inv_args), files, stdout);
-            stdout.newline();
+            stdout.newline()
+                .bold()
+                .writeln("Expected:")
+                .reset()
+                .newline();
             highlight_line(def_span, &format!("Expected {} args", def_args), files, stdout);
             stdout.newline();
         },
@@ -608,10 +613,15 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWrite
 }
 
 fn highlight_line(span: &Span, msg: &str, files: &SourceFiles, stdout: &mut ColorWriter) {
+    highlight_line_indented("", span, msg, files, stdout);
+}
+
+fn highlight_line_indented(indent: &str, span: &Span, msg: &str, files: &SourceFiles, stdout: &mut ColorWriter) {
     let file = files.for_id(span.start().file()).unwrap();
     let line = line_for_pos(span.start().pos(), file.contents());
 
-    stdout.yellow().write(file.name()).reset()
+    stdout.write(indent)
+        .yellow().write(file.name()).reset()
         .write(":")
         .bold().write(span.start().line()).reset()
         .write(":")
@@ -623,18 +633,33 @@ fn highlight_line(span: &Span, msg: &str, files: &SourceFiles, stdout: &mut Colo
 
     stdout.reset().newline();
 
-    stdout.spaces(2).writeln(line);
-    stdout.spaces(2).yellow().writeln(caret(&span, line, msg)).reset();
+    stdout.write(indent).spaces(2).writeln(line);
+    stdout.write(indent).spaces(2).yellow().writeln(caret(&span, line, msg)).reset();
+
+    let new_indent = if indent.len() >= 4 {
+        indent.to_owned()
+    } else {
+        let mut new_indent = String::new();
+        for _ in 0..indent.len() {
+            new_indent.push_str(" ");
+        }
+        new_indent.push_str("  | ");
+        new_indent
+    };
 
     match span.parent() {
         Some(parent) => {
-            stdout.newline()
+            stdout
+                .write(&new_indent)
+                .newline()
+                .write(&new_indent)
                 .cyan()
-                .write("Derived From")
+                .write("...expanded from")
                 .reset()
-                .writeln(":")
+                .newline()
+                .write(&new_indent)
                 .newline();
-            highlight_line(&parent, msg, files, stdout);
+            highlight_line_indented(&new_indent, &parent, "", files, stdout);
         },
         None => {}
     }

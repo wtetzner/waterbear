@@ -886,7 +886,7 @@ pub fn make_instr(
         ("ldf", _) => wrong_args(span, "ldf", vec![]),
         ("stf", []) => instr(span, Stf),
         ("stf", _) => wrong_args(span, "stf", vec![]),
-        _ => unreachable!()
+        _ => Err(ParseError::UnknownInstruction(span))
     }
 }
 
@@ -1044,9 +1044,9 @@ impl PrefixParselet for PrefixOperatorParselet {
         let result = parser.parse(tokens, self.precedence())?;
         use lexer::TokenType::*;
         match token.token_type() {
-            Minus => Ok(Expr::UnaryMinus(token.span().start().clone(), Box::new(result))),
-            UpperByte => Ok(Expr::UpperByte(token.span().start().clone(), Box::new(result))),
-            LowerByte => Ok(Expr::LowerByte(token.span().start().clone(), Box::new(result))),
+            Minus => Ok(Expr::UnaryMinus(token.span().clone(), Box::new(result))),
+            UpperByte => Ok(Expr::UpperByte(token.span().clone(), Box::new(result))),
+            LowerByte => Ok(Expr::LowerByte(token.span().clone(), Box::new(result))),
             _ => Err(ParseError::ExpectedTokenNotFound("PrefixOperator", token.clone()))
         }
     }
@@ -1067,10 +1067,10 @@ impl InfixParselet for BinaryOperatorParselet {
         let right = parser.parse(tokens, self.precedence())?;
         use lexer::TokenType::*;
         match token.token_type() {
-            Plus => Ok(Expr::Plus(Box::new(left), Box::new(right))),
-            Times => Ok(Expr::Times(Box::new(left), Box::new(right))),
-            Minus => Ok(Expr::Minus(Box::new(left), Box::new(right))),
-            Divide => Ok(Expr::Divide(Box::new(left), Box::new(right))),
+            Plus => Ok(Expr::Plus(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
+            Times => Ok(Expr::Times(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
+            Minus => Ok(Expr::Minus(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
+            Divide => Ok(Expr::Divide(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
             _ => Err(ParseError::ExpectedTokenNotFound("Binary Operator", token.clone()))
         }
     }
