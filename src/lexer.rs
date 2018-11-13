@@ -7,6 +7,9 @@ use lazy_static::lazy_static;
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum TokenType {
+    Ampersand,
+    Caret,
+    Pipe,
     LeftParen,
     RightParen,
     Hash,
@@ -34,6 +37,9 @@ pub enum TokenType {
 impl TokenType {
     pub fn name(&self) -> &'static str {
         match self {
+            TokenType::Ampersand => "'&'",
+            TokenType::Caret => "'^'",
+            TokenType::Pipe => "'|'",
             TokenType::LeftParen => "'('",
             TokenType::RightParen => "')'",
             TokenType::Hash => "'#'",
@@ -69,6 +75,9 @@ pub struct Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.token_type {
+            TokenType::Ampersand => write!(f, "&"),
+            TokenType::Caret => write!(f, "^"),
+            TokenType::Pipe => write!(f, "|"),
             TokenType::LeftParen => write!(f, "("),
             TokenType::RightParen => write!(f, ")"),
             TokenType::Hash => write!(f, "#"),
@@ -401,6 +410,9 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
                 Matcher::new(r"\*", |_| TokenType::Times),
                 Matcher::new("-",   |_| TokenType::Minus),
                 Matcher::new("/",   |_| TokenType::Divide),
+                Matcher::new("\\&",   |_| TokenType::Ampersand),
+                Matcher::new("\\|",   |_| TokenType::Pipe),
+                Matcher::new("\\^",   |_| TokenType::Caret),
                 Matcher::new(">",   |_| TokenType::UpperByte),
                 Matcher::new("<",   |_| TokenType::LowerByte),
                 Matcher::new(r#""(\\.|[^"\\])*""#, |text| TokenType::String(clean_str(text))),

@@ -111,6 +111,9 @@ impl Parser {
             m.insert(ExprTokenType::Times, Box::new(BinaryOperatorParselet(Precedence::Product)));
             m.insert(ExprTokenType::Minus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
             m.insert(ExprTokenType::Divide, Box::new(BinaryOperatorParselet(Precedence::Product)));
+            m.insert(ExprTokenType::BitwiseXor, Box::new(BinaryOperatorParselet(Precedence::Bitwise)));
+            m.insert(ExprTokenType::BitwiseAnd, Box::new(BinaryOperatorParselet(Precedence::Bitwise)));
+            m.insert(ExprTokenType::BitwiseOr, Box::new(BinaryOperatorParselet(Precedence::Bitwise)));
             m
         };
 
@@ -894,6 +897,7 @@ pub fn make_instr(
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
 enum Precedence {
+    Bitwise = 1,
     Sum = 3,
     Product = 4,
     Prefix = 6
@@ -1071,6 +1075,9 @@ impl InfixParselet for BinaryOperatorParselet {
             Times => Ok(Expr::Times(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
             Minus => Ok(Expr::Minus(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
             Divide => Ok(Expr::Divide(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
+            Caret => Ok(Expr::BitwiseXor(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
+            Ampersand => Ok(Expr::BitwiseAnd(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
+            Pipe => Ok(Expr::BitwiseOr(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
             _ => Err(ParseError::ExpectedTokenNotFound("Binary Operator", token.clone()))
         }
     }
@@ -1091,7 +1098,10 @@ enum ExprTokenType {
     UpperByte,
     LowerByte,
     MacroLabel,
-    MacroArg
+    MacroArg,
+    BitwiseXor,
+    BitwiseAnd,
+    BitwiseOr
 }
 
 impl lexer::TokenType {
@@ -1109,6 +1119,9 @@ impl lexer::TokenType {
             LowerByte => Some(ExprTokenType::LowerByte),
             MacroIdent(_) => Some(ExprTokenType::MacroArg),
             MacroLabel(_) => Some(ExprTokenType::MacroLabel),
+            Caret => Some(ExprTokenType::BitwiseXor),
+            Ampersand => Some(ExprTokenType::BitwiseAnd),
+            Pipe => Some(ExprTokenType::BitwiseOr),
             _ => None
         }
     }

@@ -44,7 +44,10 @@ pub enum Expr {
     UpperByte(Span, Box<Expr>),
     LowerByte(Span, Box<Expr>),
     MacroLabel(Span, String),
-    MacroArg(Span, String)
+    MacroArg(Span, String),
+    BitwiseXor(Span, Box<Expr>, Box<Expr>),
+    BitwiseAnd(Span, Box<Expr>, Box<Expr>),
+    BitwiseOr(Span, Box<Expr>, Box<Expr>)
 }
 
 impl Expr {
@@ -59,6 +62,9 @@ impl Expr {
     pub fn with_span(&self, new_span: Span) -> Expr {
         use expression::Expr::*;
         match self {
+            BitwiseXor(_, left, right) => BitwiseXor(new_span, left.clone(), right.clone()),
+            BitwiseAnd(_, left, right) => BitwiseAnd(new_span, left.clone(), right.clone()),
+            BitwiseOr(_, left, right) => BitwiseOr(new_span, left.clone(), right.clone()),
             Name(_, name) => Name(new_span, name.clone()),
             Plus(_, left, right) => Plus(new_span, left.clone(), right.clone()),
             Minus(_, left, right) => Minus(new_span, left.clone(), right.clone()),
@@ -81,6 +87,21 @@ impl Expr {
     ) -> Result<Expr,EvaluationError> {
         use expression::Expr::*;
         match self {
+            BitwiseXor(span, left, right) => Ok(Expr::BitwiseXor(
+                span.with_parent(inv_span.clone()),
+                Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
+                Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
+            )),
+            BitwiseAnd(span, left, right) => Ok(Expr::BitwiseAnd(
+                span.with_parent(inv_span.clone()),
+                Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
+                Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
+            )),
+            BitwiseOr(span, left, right) => Ok(Expr::BitwiseOr(
+                span.with_parent(inv_span.clone()),
+                Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
+                Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
+            )),
             Name(span, name) => Ok(Expr::Name(span.with_parent(inv_span.clone()), name.clone())),
             Plus(span, left, right) => Ok(Expr::Plus(
                 span.with_parent(inv_span.clone()),
@@ -140,6 +161,9 @@ impl Expr {
 impl Positioned for Expr {
     fn span(&self) -> Span {
         match self {
+            Expr::BitwiseXor(span, _, _) => span.clone(),
+            Expr::BitwiseAnd(span, _, _) => span.clone(),
+            Expr::BitwiseOr(span, _, _) => span.clone(),
             Expr::Name(span, _) => span.clone(),
             Expr::Plus(span, _, _) => span.clone(),
             Expr::Minus(span, _, _) => span.clone(),
@@ -158,6 +182,48 @@ impl Positioned for Expr {
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Expr::BitwiseXor(_, left, right) => {
+                let left_paren = left.complex();
+                let right_paren = right.complex();
+                if left_paren { write!(f, "(")?; }
+                write!(f, "{}", left)?;
+                if left_paren { write!(f, ")")?; }
+
+                write!(f, " ^ ")?;
+                
+                if right_paren { write!(f, "(")?; }
+                write!(f, "{}", right)?;
+                if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            Expr::BitwiseAnd(_, left, right) => {
+                let left_paren = left.complex();
+                let right_paren = right.complex();
+                if left_paren { write!(f, "(")?; }
+                write!(f, "{}", left)?;
+                if left_paren { write!(f, ")")?; }
+
+                write!(f, " & ")?;
+                
+                if right_paren { write!(f, "(")?; }
+                write!(f, "{}", right)?;
+                if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
+            Expr::BitwiseOr(_, left, right) => {
+                let left_paren = left.complex();
+                let right_paren = right.complex();
+                if left_paren { write!(f, "(")?; }
+                write!(f, "{}", left)?;
+                if left_paren { write!(f, ")")?; }
+
+                write!(f, " | ")?;
+                
+                if right_paren { write!(f, "(")?; }
+                write!(f, "{}", right)?;
+                if right_paren { write!(f, ")")?; }
+                write!(f, "")
+            },
             Expr::Name(_, name) => write!(f, "{}", name),
             Expr::Plus(_, left, right) => {
                 let left_paren = left.complex();
@@ -255,6 +321,9 @@ impl fmt::Display for Expr {
 impl Expr {
     pub fn complex(&self) -> bool {
         match self {
+            Expr::BitwiseXor(_,_,_) => true,
+            Expr::BitwiseAnd(_,_,_) => true,
+            Expr::BitwiseOr(_,_,_) => true,
             Expr::Name(_,_) => false,
             Expr::Plus(_,_,_) => true,
             Expr::Minus(_,_,_) => true,
@@ -271,6 +340,9 @@ impl Expr {
 
     pub fn eval<E: Env<i32>>(&self, name_lookup: &E) -> Result<i32,EvaluationError> {
         match self {
+            Expr::BitwiseXor(_, left, right) => Ok(left.eval(name_lookup)? ^ right.eval(name_lookup)?),
+            Expr::BitwiseAnd(_, left, right) => Ok(left.eval(name_lookup)? & right.eval(name_lookup)?),
+            Expr::BitwiseOr(_, left, right) => Ok(left.eval(name_lookup)? | right.eval(name_lookup)?),
             Expr::Name(_, name) =>
                 match name_lookup.get(&name.to_lowercase()) {
                     Some(num) => Ok(num),
