@@ -323,7 +323,7 @@ fn end_of_line(pos: usize, text: &str) -> bool {
         || pos >= text.len()
 }
 
-fn skip_to_eol<'a>(input: &Input<'a>) -> Input<'a> {
+pub fn skip_to_eol<'a>(input: &Input<'a>) -> Input<'a> {
     let mut skipped = 0;
     let text = input.as_str();
     while !end_of_line(skipped, text) {
@@ -385,7 +385,7 @@ fn to_dec_num(text: &str) -> TokenType {
     TokenType::Number(num)
 }
 
-fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
+fn read_token<'a>(input: &Input<'a>, skip_ws: &fn(&Input<'a>) -> Input<'a>) -> Option<(Input<'a>,Token)> {
     lazy_static! {
         static ref MATCHERS: Vec<Matcher> = {
             let ident = "[a-zA-Z_\\.][a-zA-Z\\$0-9_\\.]*";
@@ -427,7 +427,7 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
             ]
         };
     }
-    let input = skip_whitespace_and_comments(input);
+    let input = skip_ws(input);
     if input.eof() {
         let span = Span::new(input.location(), input.location());
         Some((input.clone(), Token::new(TokenType::EOF, span)))
@@ -442,14 +442,14 @@ fn read_token<'a>(input: &Input<'a>) -> Option<(Input<'a>,Token)> {
     }
 }
 
-pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
+pub fn lex_for_ws<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Result<Vec<Token>,LexerError> {
     let mut results: Vec<Token> = vec![];
     let mut cinput = input.clone();
-    let mut current = read_token(&input);
+    let mut current = read_token(&input, &skip_ws);
     while current.is_some() && current.as_ref().unwrap().1.token_type != TokenType::EOF {
         let (input, token) = current.unwrap();
         results.push(token);
-        current = read_token(&input);
+        current = read_token(&input, &skip_ws);
         cinput = input;
     }
     if current.is_none() {
@@ -457,7 +457,11 @@ pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
     } else {
         results.push(Token::new(TokenType::EOF, Span::new(cinput.location().clone(), cinput.location().clone())));
         Ok(results)
-    }
+    }    
+}
+
+pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
+    lex_for_ws(input, skip_whitespace_and_comments)
 }
 
 #[cfg(test)]

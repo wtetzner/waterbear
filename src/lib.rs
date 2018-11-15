@@ -21,6 +21,7 @@ pub mod files;
 mod asm;
 mod disasm;
 mod env;
+mod cheader;
 
 use disasm::DisasmError;
 use location::{Span};

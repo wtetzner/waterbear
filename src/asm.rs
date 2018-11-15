@@ -23,6 +23,7 @@ use files::{FileLoadError,SourceFiles};
 use files;
 use input::Input;
 use uuid::Uuid;
+use cheader;
 
 pub fn assemble_file(files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
     let statements = read_statements(files, filename)?;
@@ -76,6 +77,14 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, tokens: &[Token]) 
                                 return Err(AssemblyError::UnexpectedToken(stream.next()?));
                             }
                         },
+                        IncludeType::CHeader => {
+                            let mut new_tokens = {
+                                let file = files.load(&path)?;
+                                let input = Input::new(file.id(), file.contents());
+                                cheader::lex_input(&input)?
+                            };
+                            results.append(&mut new_tokens);
+                        },
                         IncludeType::Bytes => {
                             for token in line.iter() {
                                 results.push(token.clone());
@@ -106,6 +115,9 @@ fn replace_byte_includes(files: &mut SourceFiles, statements: &Statements) -> Re
             match typ {
                 IncludeType::Asm => {
                     panic!("There should be no ASM .includes at this stage.");
+                },
+                IncludeType::CHeader => {
+                    panic!("There should be no C Header .includes at this stage.");
                 },
                 IncludeType::Bytes => {
                     let bytes = files::load_bytes(&files.path(&path))?;

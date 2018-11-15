@@ -124,14 +124,16 @@ impl ByteValue {
 #[derive(Debug,Clone)]
 pub enum IncludeType {
     Asm,
-    Bytes
+    Bytes,
+    CHeader
 }
 
 impl fmt::Display for IncludeType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             IncludeType::Asm => write!(f, "asm"),
-            IncludeType::Bytes => write!(f, "bytes")
+            IncludeType::Bytes => write!(f, "bytes"),
+            IncludeType::CHeader => write!(f, "cpp")
         }
     }
 }

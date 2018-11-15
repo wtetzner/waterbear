@@ -504,7 +504,7 @@ impl Parser {
         }
     }
 
-    fn parse_expr(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
+    pub fn parse_expr(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
         self.expr_parser.parse(tokens, 0)
     }
 
@@ -564,6 +564,9 @@ impl<'a> TokenStream<'a> {
         } else if self.check(|tok| tok.has_name("bytes")) {
             let tok = self.next()?;
             Ok((tok.span().clone(), IncludeType::Bytes))
+        } else if self.check(|tok| tok.has_name("cpp")) {
+            let tok = self.next()?;
+            Ok((tok.span().clone(), IncludeType::CHeader))
         } else {
             let tok = self.current()?;
             Err(ParseError::ExpectedTokenNotFound("Include Type", tok.clone()))
