@@ -385,7 +385,7 @@ fn to_dec_num(text: &str) -> TokenType {
     TokenType::Number(num)
 }
 
-fn read_token<'a>(input: &Input<'a>, skip_ws: &fn(&Input<'a>) -> Input<'a>) -> Option<(Input<'a>,Token)> {
+fn read_token<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Option<(Input<'a>,Token)> {
     lazy_static! {
         static ref MATCHERS: Vec<Matcher> = {
             let ident = "[a-zA-Z_\\.][a-zA-Z\\$0-9_\\.]*";
@@ -445,11 +445,11 @@ fn read_token<'a>(input: &Input<'a>, skip_ws: &fn(&Input<'a>) -> Input<'a>) -> O
 pub fn lex_for_ws<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Result<Vec<Token>,LexerError> {
     let mut results: Vec<Token> = vec![];
     let mut cinput = input.clone();
-    let mut current = read_token(&input, &skip_ws);
+    let mut current = read_token(&input, skip_ws);
     while current.is_some() && current.as_ref().unwrap().1.token_type != TokenType::EOF {
         let (input, token) = current.unwrap();
         results.push(token);
-        current = read_token(&input, &skip_ws);
+        current = read_token(&input, skip_ws);
         cinput = input;
     }
     if current.is_none() {
@@ -467,7 +467,7 @@ pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
 #[cfg(test)]
 mod tests {
     use lexer;
-    use lexer::{Token, TokenType, LexerError};
+    use lexer::{Token, TokenType, LexerError, skip_whitespace_and_comments};
     use input::Input;
     use files::FileID;
     use location::{Location, Span};
@@ -488,7 +488,7 @@ mod tests {
             Location::new(file, 0, 1, 0),
             Location::new(file, 3, 1, 3)
         );
-        match lexer::read_token(&input) {
+        match lexer::read_token(&input, skip_whitespace_and_comments) {
             Some((_new_input, token)) => assert!(token == Token::new(TokenType::R3, span)),
             None => panic!("Failed to read token")
         }

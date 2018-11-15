@@ -1,14 +1,12 @@
 
 use lexer;
-use lexer::{LexerError,Token,TokenType};
+use lexer::{Token,TokenType};
 
 use parser;
 use parser::ParseError;
 
 use input::Input;
-use regex::Regex;
-use location::{Location,Span};
-use lazy_static::lazy_static;
+use location::{Span};
 
 fn skip_multiline_comment<'a>(input: &Input<'a>) -> Input<'a> {
     let text = input.as_str();
