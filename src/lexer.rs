@@ -1,8 +1,8 @@
 
 use std::fmt;
-use input::Input;
+use crate::input::Input;
 use regex::Regex;
-use location::{Location,Span};
+use crate::location::{Location,Span};
 use lazy_static::lazy_static;
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
@@ -183,7 +183,7 @@ impl Token {
     }
 
     pub fn is_eof(&self) -> bool {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match self.token_type {
             EOF => true,
             _ => false
@@ -191,7 +191,7 @@ impl Token {
     }
 
     pub fn is_hash(&self) -> bool {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match self.token_type {
             Hash => true,
             _ => false
@@ -199,7 +199,7 @@ impl Token {
     }
 
     pub fn is_macro_ident(&self) -> bool {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match self.token_type {
             MacroIdent(_) => true,
             _ => false
@@ -207,7 +207,7 @@ impl Token {
     }
 
     pub fn is_local_label_name(&self) -> bool {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match &self.token_type {
             Name(n) => n.starts_with("."),
             _ => false
@@ -215,7 +215,7 @@ impl Token {
     }
 
     pub fn is_local_macro_label(&self) -> bool {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match &self.token_type {
             MacroLabel(n) => n.starts_with("."),
             _ => false
@@ -223,7 +223,7 @@ impl Token {
     }
 
     pub fn is_macro_label(&self) -> bool {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match self.token_type {
             MacroLabel(_) => true,
             _ => false
@@ -231,7 +231,7 @@ impl Token {
     }
 
     pub fn is_indirection_mode(&self) -> bool {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match self.token_type {
             R0 | R1 | R2 | R3 => true,
             _ => false
@@ -466,11 +466,11 @@ pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
 
 #[cfg(test)]
 mod tests {
-    use lexer;
-    use lexer::{Token, TokenType, LexerError, skip_whitespace_and_comments};
-    use input::Input;
-    use files::FileID;
-    use location::{Location, Span};
+    use crate::lexer;
+    use crate::lexer::{Token, TokenType, LexerError, skip_whitespace_and_comments};
+    use crate::input::Input;
+    use crate::files::FileID;
+    use crate::location::{Location, Span};
 
     #[test]
     fn test_clean_str() {

@@ -1,10 +1,10 @@
 
-use instruction::Instr;
+use crate::instruction::Instr;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use ast::{Statement,Directive,ByteValue};
-use location::{Span};
-use expression::{Expr,IndirectionMode};
+use crate::ast::{Statement,Directive,ByteValue};
+use crate::location::{Span};
+use crate::expression::{Expr,IndirectionMode};
 use std;
 
 #[derive(Debug)]
@@ -278,7 +278,7 @@ fn compute_labels(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
         let instr = &graph.instrs()[pos];
         let size = instr.size();
         let next = pos + size;
-        use instruction::Instr::*;
+        use crate::instruction::Instr::*;
         match instr {
             Add_i8(_) => (),
             Add_d9(_) => (),
@@ -456,7 +456,7 @@ fn compute_labels(graph: &InstructionGraph<i32,u8>, names: &mut Names) {
 
 fn lift_instr(pos: usize, graph: &InstructionGraph<i32,u8>, instr: &Instr<i32,u8>, names: &Names) -> Instr<Expr,IndirectionMode> {
     let next = pos + instr.size();
-    use instruction::Instr::*;
+    use crate::instruction::Instr::*;
     match instr {
         Add_i8(imm) => Add_i8(Expr::num(*imm)),
         Add_d9(d9) => {
@@ -727,7 +727,7 @@ fn rel8(rel: i32, next: usize) -> usize {
 
 fn targets(pos: usize, instr: &Instr<i32,u8>, graph: &InstructionGraph<i32,u8>) -> Vec<usize> {
     let next = pos + instr.size();
-    use instruction::Instr::*;
+    use crate::instruction::Instr::*;
     match instr {
         Add_i8(_) => vec![next],
         Add_d9(_) => vec![next],

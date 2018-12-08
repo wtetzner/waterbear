@@ -1,6 +1,6 @@
 
-use location::{Location,Span,Positioned};
-use ast::{
+use crate::location::{Location,Span,Positioned};
+use crate::ast::{
     Statement,
     Statements,
     Directive,
@@ -10,11 +10,11 @@ use ast::{
     MacroDefinition,
     MacroStatement
 };
-use lexer::{Token,TokenType,LexerError};
-use lexer;
-use expression::{Expr,Arg,IndirectionMode};
+use crate::lexer::{Token,TokenType,LexerError};
+use crate::lexer;
+use crate::expression::{Expr,Arg,IndirectionMode};
 use std::collections::{HashMap,HashSet};
-use instruction::Instr;
+use crate::instruction::Instr;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -37,7 +37,7 @@ pub enum ParseError {
 
 impl From<LexerError> for ParseError {
     fn from(error: LexerError) -> Self {
-        use lexer::LexerError::*;
+        use crate::lexer::LexerError::*;
         match error {
             UnexpectedChar(loc) => ParseError::UnexpectedChar(loc.clone())
         }
@@ -191,7 +191,7 @@ impl Parser {
         let mut seen: HashSet<String> = HashSet::new();
         let mut arg_names = vec![];
         for arg in args.iter() {
-            use parser::Arg::*;
+            use crate::parser::Arg::*;
             match arg {
                 MacroArg(span, name) => {
                     if seen.contains(name) {
@@ -574,7 +574,7 @@ impl<'a> TokenStream<'a> {
     }
 
     pub fn read_string(&mut self) -> Result<(Span,String),ParseError> {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             String(text) => {
@@ -586,7 +586,7 @@ impl<'a> TokenStream<'a> {
     }
 
     pub fn read_number(&mut self) -> Result<(Span,i32),ParseError> {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             Number(num) => {
@@ -598,7 +598,7 @@ impl<'a> TokenStream<'a> {
     }
 
     pub fn read_name(&mut self) -> Result<(Span,String),ParseError> {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             Name(name) => {
@@ -610,7 +610,7 @@ impl<'a> TokenStream<'a> {
     }
 
     pub fn read_macro_name(&mut self) -> Result<(Span,String),ParseError> {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             MacroIdent(name) => {
@@ -683,8 +683,8 @@ pub fn make_instr(
     name: String,
     args: &[Arg]
 ) -> Result<Option<Statement>,ParseError> {
-    use expression::Arg::*;
-    use instruction::Instr::*;
+    use crate::expression::Arg::*;
+    use crate::instruction::Instr::*;
     match (name.as_str(), args) {
         ("add", [Imm(imm)]) => instr(span, Add_i8(imm.clone())),
         ("add", [Ex(mem)]) => instr(span, Add_d9(mem.clone())),
@@ -1049,7 +1049,7 @@ struct PrefixOperatorParselet(Precedence);
 impl PrefixParselet for PrefixOperatorParselet {
     fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token) -> Result<Expr,ParseError> {
         let result = parser.parse(tokens, self.precedence())?;
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match token.token_type() {
             Minus => Ok(Expr::UnaryMinus(token.span().clone(), Box::new(result))),
             UpperByte => Ok(Expr::UpperByte(token.span().clone(), Box::new(result))),
@@ -1072,7 +1072,7 @@ struct BinaryOperatorParselet(Precedence);
 impl InfixParselet for BinaryOperatorParselet {
     fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, left: Expr, token: Token) -> Result<Expr,ParseError> {
         let right = parser.parse(tokens, self.precedence())?;
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match token.token_type() {
             Plus => Ok(Expr::Plus(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
             Times => Ok(Expr::Times(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
@@ -1109,7 +1109,7 @@ enum ExprTokenType {
 
 impl lexer::TokenType {
     fn expr_type(&self) -> Option<ExprTokenType> {
-        use lexer::TokenType::*;
+        use crate::lexer::TokenType::*;
         match self {
             LeftParen => Some(ExprTokenType::Paren),
             Name(_) => Some(ExprTokenType::Name),
@@ -1132,14 +1132,14 @@ impl lexer::TokenType {
 
 #[cfg(test)]
 mod test {
-    use parser;
-    use parser::{ParseError,TokenStream};
-    use expression::Expr;
-    use lexer;
-    use input::Input;
-    use files::FileID;
+    use crate::parser;
+    use crate::parser::{ParseError,TokenStream};
+    use crate::expression::Expr;
+    use crate::lexer;
+    use crate::input::Input;
+    use crate::files::FileID;
     use std::collections::HashMap;
-    use ast::Statement;
+    use crate::ast::Statement;
 
     #[test]
     fn test_expression_parser() {

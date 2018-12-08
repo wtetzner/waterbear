@@ -2,8 +2,8 @@
 use unicode_segmentation::UnicodeSegmentation;
 use std::ops::Deref;
 use regex::Regex;
-use files::FileID;
-use location::Location;
+use crate::files::FileID;
+use crate::location::Location;
 use lazy_static::lazy_static;
 
 #[derive(Debug,Clone)]
@@ -120,8 +120,8 @@ impl<'b> Deref for Input<'b> {
 
 #[cfg(test)]
 mod tests {
-    use input::Input;
-    use files::FileID;
+    use crate::input::Input;
+    use crate::files::FileID;
 
     #[test]
     fn test_update() {

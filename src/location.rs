@@ -1,6 +1,6 @@
 
 use std::fmt;
-use files::FileID;
+use crate::files::FileID;
 
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub struct Location {

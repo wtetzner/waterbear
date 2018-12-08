@@ -1,7 +1,7 @@
 
 use std::fmt;
-use location::{Positioned, Span};
-use env::Env;
+use crate::location::{Positioned, Span};
+use crate::env::Env;
 use std::collections::{HashMap};
 
 #[derive(Debug)]
@@ -18,7 +18,7 @@ pub enum EvaluationError {
 
 impl EvaluationError {
     pub fn to_string(&self) -> String {
-        use EvaluationError::*;
+        use crate::EvaluationError::*;
         match self {
             NameNotFound(span, msg) => format!("{}: {}", span, msg),
             DivideByZero(span, msg) => format!("{}: {}", span, msg),
@@ -60,7 +60,7 @@ impl Expr {
     }
 
     pub fn with_span(&self, new_span: Span) -> Expr {
-        use expression::Expr::*;
+        use crate::expression::Expr::*;
         match self {
             BitwiseXor(_, left, right) => BitwiseXor(new_span, left.clone(), right.clone()),
             BitwiseAnd(_, left, right) => BitwiseAnd(new_span, left.clone(), right.clone()),
@@ -85,7 +85,7 @@ impl Expr {
         labels: &HashMap<String,String>,
         args: &HashMap<String,Arg>
     ) -> Result<Expr,EvaluationError> {
-        use expression::Expr::*;
+        use crate::expression::Expr::*;
         match self {
             BitwiseXor(span, left, right) => Ok(Expr::BitwiseXor(
                 span.with_parent(inv_span.clone()),
@@ -143,7 +143,7 @@ impl Expr {
                 }
             },
             MacroArg(span, name) => {
-                use expression::Arg::*;
+                use crate::expression::Arg::*;
                 match args.get(name) {
                     Some(arg) => match arg {
                         Imm(expr) => Err(EvaluationError::ImmediateValueNotAllowedHere(span.with_parent(expr.span()))),
@@ -409,7 +409,7 @@ impl IndirectionMode {
 
 impl fmt::Display for IndirectionMode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use expression::IndirectionMode::*;
+        use crate::expression::IndirectionMode::*;
         match self {
             R0 => write!(f, "@R0"),
             R1 => write!(f, "@R1"),

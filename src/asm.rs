@@ -1,9 +1,9 @@
 
 use std;
-use lexer;
-use parser;
+use crate::lexer;
+use crate::parser;
 use std::path::Path;
-use ast::{
+use crate::ast::{
     Statements,
     Statement,
     Directive,
@@ -12,18 +12,18 @@ use ast::{
     ArgType,
     MacroStatement
 };
-use expression::{EvaluationError,Expr,Arg};
+use crate::expression::{EvaluationError,Expr,Arg};
 use std::collections::HashMap;
-use location::{Span, Positioned, Location};
-use env::{Env,Names};
-use instruction::{EncodingError};
-use lexer::{Token,LexerError};
-use parser::{ParseError,Parser};
-use files::{FileLoadError,SourceFiles};
-use files;
-use input::Input;
+use crate::location::{Span, Positioned, Location};
+use crate::env::{Env,Names};
+use crate::instruction::{EncodingError};
+use crate::lexer::{Token,LexerError};
+use crate::parser::{ParseError,Parser};
+use crate::files::{FileLoadError,SourceFiles};
+use crate::files;
+use crate::input::Input;
 use uuid::Uuid;
-use cheader;
+use crate::cheader;
 
 pub fn assemble_file(files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
     let statements = read_statements(files, filename)?;
@@ -146,10 +146,10 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
     let mut pos: usize = 0;
     let mut current_global = "".to_owned();
     for statement in statements.iter() {
-        use ast::Statement::*;
+        use crate::ast::Statement::*;
         match statement {
             Directive(dir) => {
-                use ast::Directive::*;
+                use crate::ast::Directive::*;
                 match dir {
                     Byte(_, bytes) => {
                         let env = names.as_env("Name", &current_global);
@@ -298,7 +298,7 @@ pub enum AssemblyError {
 
 impl From<LexerError> for AssemblyError {
     fn from(error: LexerError) -> Self {
-        use lexer::LexerError::*;
+        use crate::lexer::LexerError::*;
         match error {
             UnexpectedChar(loc) => AssemblyError::UnexpectedChar(loc)
         }
@@ -307,7 +307,7 @@ impl From<LexerError> for AssemblyError {
 
 impl From<FileLoadError> for AssemblyError {
     fn from(error: FileLoadError) -> Self {
-        use files::FileLoadError::*;
+        use crate::files::FileLoadError::*;
         match error {
             FileLoadFailure(file, err) => AssemblyError::FileLoadFailure(file, err),
             Utf8Error(file, err) => AssemblyError::FileUtf8Error(file, err)
@@ -317,7 +317,7 @@ impl From<FileLoadError> for AssemblyError {
 
 impl From<ParseError> for AssemblyError {
     fn from(error: ParseError) -> Self {
-        use parser::ParseError::*;
+        use crate::parser::ParseError::*;
         match error {
             UnexpectedChar(loc) => AssemblyError::UnexpectedChar(loc),
             UnexpectedToken(tok) => AssemblyError::UnexpectedToken(tok),
@@ -340,7 +340,7 @@ impl From<ParseError> for AssemblyError {
 
 impl From<EncodingError> for AssemblyError {
     fn from(error: EncodingError) -> Self {
-        use instruction::EncodingError::*;
+        use crate::instruction::EncodingError::*;
         match error {
             NumOutOfRange { span, bits, value } => AssemblyError::NumOutOfRange { span, bits, value },
             SignedNumOutOfRange { span, bits, value } => AssemblyError::SignedNumOutOfRange { span, bits, value },
@@ -354,7 +354,7 @@ impl From<EncodingError> for AssemblyError {
 
 impl From<EvaluationError> for AssemblyError {
     fn from(error: EvaluationError) -> Self {
-        use expression::EvaluationError::*;
+        use crate::expression::EvaluationError::*;
         match error {
             NameNotFound(span, name) => AssemblyError::NameNotFound(span.clone(), name.clone()),
             DivideByZero(span, message) => AssemblyError::DivideByZero(span.clone(), message.clone()),
@@ -400,7 +400,7 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder,AssemblyError>
     let mut current_global = "".to_owned();
     let mut pos: i32 = 0;
     for statement in statements.iter() {
-        use ast::Statement::*;
+        use crate::ast::Statement::*;
         match statement {
             Directive(dir) => {
                 pos += dir.size(pos)?
@@ -440,7 +440,7 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names),AssemblyError
     let mut pos: i32 = 0;
     let mut max_pos = 0;
     for statement in statements.iter() {
-        use ast::Statement::*;
+        use crate::ast::Statement::*;
         match statement {
             Directive(dir) => {
                 pos += dir.size(pos)?
@@ -570,7 +570,7 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
     let labels = gen_labels(macrodef.body())?;
     let mut statements = vec![];
     for stmt in macrodef.body().iter() {
-        use ast::MacroStatement::*;
+        use crate::ast::MacroStatement::*;
         match stmt {
             Instr(ispan, iname, iargs) => {
                 match stmts.macro_def(iname) {

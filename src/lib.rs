@@ -23,28 +23,28 @@ mod disasm;
 mod env;
 mod cheader;
 
-use disasm::DisasmError;
-use location::{Span};
+use crate::disasm::DisasmError;
+use crate::location::{Span};
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use std::fs::File;
 use std::io::Write;
 use std::fmt::Display;
 use std::io::Read;
-use ast::ArgType;
+use crate::ast::ArgType;
 
 use std::path::Path;
-use asm::AssemblyError;
+use crate::asm::AssemblyError;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use atty::Stream;
 
-use expression::{EvaluationError};
-use files::{SourceFiles};
+use crate::expression::{EvaluationError};
+use crate::files::{SourceFiles};
 use clap::clap_app;
 use lazy_static::lazy_static;
 
-pub use asm::{assemble_file,assemble};
+pub use crate::asm::{assemble_file,assemble};
 
 const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
 const NAME: &'static str = env!("CARGO_PKG_NAME");
@@ -239,7 +239,7 @@ fn assemble_cmd(mut files: &mut SourceFiles, stdout: &mut ColorWriter, matches: 
 }
 
 fn print_error(files: &SourceFiles, err: &AssemblyError, stdout: &mut ColorWriter) {
-    use asm::AssemblyError::*;
+    use crate::asm::AssemblyError::*;
     match err {
         NameNotFound(span,msg) => {
             stdout.writeln(msg);

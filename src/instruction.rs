@@ -1,7 +1,7 @@
 
-use expression::{Expr,EvaluationError,IndirectionMode};
-use location::{Positioned,Span};
-use env::{Names,Env};
+use crate::expression::{Expr,EvaluationError,IndirectionMode};
+use crate::location::{Positioned,Span};
+use crate::env::{Names,Env};
 use std::fmt;
 use waterbear_instruction_derive::Instruction;
 
@@ -232,7 +232,7 @@ impl Instr<i32,u8> {
 
 impl fmt::Display for Instr<Expr,IndirectionMode> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use instruction::Instr::*;
+        use crate::instruction::Instr::*;
         match self {
             Add_i8(imm) => write!(f, "add   #{}", imm),
             Add_d9(d9) => write!(f, "add   {}", d9),
@@ -409,7 +409,7 @@ type EvalResult = EncResult<Instr<i32,u8>>;
 
 impl Instr<Expr,IndirectionMode> {
     pub fn eval(&self, pos: usize, label: &str, names: &Names) -> EvalResult {
-        use instruction::Instr::*;
+        use crate::instruction::Instr::*;
         let nenv = names.as_env("Name", label);
         let venv = names.as_env("Variable", label);
         let lenv = names.as_env("Label", label);
@@ -557,7 +557,7 @@ fn decode_from_raw(instr: Instr<i32,u8>) -> Instr<i32,u8> {
             r8 as i32
         }
     }
-    use instruction::Instr::*;
+    use crate::instruction::Instr::*;
     match instr {
         Add_i8(val) => Add_i8(val),
         Add_d9(val) => Add_d9(val),
@@ -657,7 +657,7 @@ fn decode_from_raw(instr: Instr<i32,u8>) -> Instr<i32,u8> {
 
 #[cfg(test)]
 mod test {
-    use instruction::Instr;
+    use crate::instruction::Instr;
 
     #[test]
     fn test_encode() {

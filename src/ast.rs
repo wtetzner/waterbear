@@ -1,8 +1,8 @@
 
-use instruction::Instr;
-use expression::{Expr, EvaluationError, Arg, IndirectionMode};
+use crate::instruction::Instr;
+use crate::expression::{Expr, EvaluationError, Arg, IndirectionMode};
 use std::fmt;
-use location::{Span, Positioned};
+use crate::location::{Span, Positioned};
 use std::collections::HashMap;
 
 #[derive(Debug,Clone)]
@@ -149,7 +149,7 @@ pub enum Directive {
 
 impl Directive {
     fn eval_cnop_expr(expr: &Expr) -> Result<i32,EvaluationError> {
-        use expression::Expr::*;
+        use crate::expression::Expr::*;
         match expr {
             Number(_, num) => Ok(*num),
             _ => Err(EvaluationError::MustBeLiteralNumber(expr.span()))

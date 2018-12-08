@@ -1,12 +1,12 @@
 
-use lexer;
-use lexer::{Token,TokenType};
+use crate::lexer;
+use crate::lexer::{Token,TokenType};
 
-use parser;
-use parser::ParseError;
+use crate::parser;
+use crate::parser::ParseError;
 
-use input::Input;
-use location::{Span};
+use crate::input::Input;
+use crate::location::{Span};
 
 fn skip_multiline_comment<'a>(input: &Input<'a>) -> Input<'a> {
     let text = input.as_str();
