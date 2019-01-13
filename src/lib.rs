@@ -190,7 +190,7 @@ fn disassemble_cmd(positions: bool, arrived_from: bool, filename: &str, output_f
         file.read_to_end(&mut contents).map_err(|e| DisasmError::NoSuchFile(filename.to_string(), e))?;
         contents
     };
-    let entry_points = vec![0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130, 0x1f0];
+    let entry_points = vec![0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130];
     let statements = disasm::disassemble(arrived_from, &entry_points, &bytes)?;
 
     let mut outfile = File::create(output_file).unwrap();
