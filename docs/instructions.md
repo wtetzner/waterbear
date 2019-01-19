@@ -5,21 +5,34 @@ Instructions
 Syntax
 ------
 
-```
-mnemonic
-```
+Each instruction has a mnemonic (name), and between 0 and 3
+arguments. Arguments are separated by commas.
 
-```
-mnemonic arg
-```
+| Args | Form                        |
+|------|-----------------------------|
+| 0    | `mnemonic`                  |
+| 1    | `mnemonic arg`              |
+| 2    | `mnemonic arg1, arg2`       |
+| 3    | `mnemonic arg1, arg2, arg3` |
 
-```
-mnemonic arg1, arg2
-```
+### Argument Syntax
 
-```
-mnemonic arg1, arg2, arg3
-```
+There are 3 different types of syntax that can be used for arguments.
+
+1. The most obvious form is just a numeric expression, with no
+   additional syntax. This is used for direct memory references, for
+   both absolute and relative addresses. Simple numeric expressions
+   are also used for bit specifiers.
+2. Immediate values start with a `#`, and can be followed by any
+   numeric expression.
+3. Indirect references have special syntax for specifying the mode, of
+   the form `@Ri`.
+
+| Syntax Type | Naming                                | Examples                                   |
+|-------------|---------------------------------------|--------------------------------------------|
+| Direct      | `d9`, `b3`, `a12`, `a16`, `r8`, `r16` | `$45`, `my_label`, `label_foo + 7`         |
+| Immediate   | `i8`                                  | `#$45`, `#my_variable`, `#my_variable + 2` |
+| Indirect    | `@Ri`, `@Rj`                          | `@R0`, `@R1`, `@R2`, `@R3`                 |
 
 Instruction Reference
 =====================
