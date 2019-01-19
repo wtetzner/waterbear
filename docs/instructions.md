@@ -19,13 +19,13 @@ arguments. Arguments are separated by commas.
 
 There are 3 different types of syntax that can be used for arguments.
 
-1. The most obvious form is just a numeric expression, with no
+1. *Direct* The most obvious form is just a numeric expression, with no
    additional syntax. This is used for direct memory references, for
    both absolute and relative addresses. Simple numeric expressions
    are also used for bit specifiers.
-2. Immediate values start with a `#`, and can be followed by any
+2. *Immediate* Immediate values start with a `#`, and can be followed by any
    numeric expression.
-3. Indirect references have special syntax for specifying the mode, of
+3. *Indirect* Indirect references have special syntax for specifying the mode, of
    the form `@Ri`.
 
 | Syntax Type | Naming                                | Examples                                   |
