@@ -5,12 +5,14 @@ Directives
 Directives are used to give directions to the assembler.
 
 <!--ts-->
-   * [.byte](#.byte)
-   * [.word](#.word)
-   * [.org](#.org)
-   * [.include](#.include)
-       * [asm](#Include+Source+Files)
-   * [.cnop](#.cnop)
+   * [`.byte` Directive](#byte)
+   * [`.word` Directive](#word)
+   * [`.org` Directive](#org)
+   * [`.include` Directive](#include)
+       * [asm](#include-source-files)
+       * [bytes](#include-binary-data)
+       * [cpp](#include-c-header-file)
+   * [`.cnop` Directive](#cnop)
 <!--te-->
 
 .byte
