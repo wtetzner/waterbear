@@ -24,10 +24,16 @@ mnemonic arg1, arg2, arg3
 Instruction Reference
 =====================
 
-|               |
-|---------------|
-| [`add`](#add) |
-| [`sub`](#sub) |
+|  Arithmetic     | Bitwise         |
+|-----------------|-----------------|
+| [`add`](#add)   | [`and`](#and)   |
+| [`addc`](#addc) | [`or`](#or)     |
+| [`sub`](#sub)   | [`xor`](#xor)   |
+| [`subc`](#subc) | [`rol`](#rol)   |
+| [`inc`](#inc)   | [`rolc`](#rolc) |
+| [`dec`](#dec)   | [`ror`](#ror)   |
+| [`mul`](#mul)   | [`rorc`](#rorc) |
+| [`div`](#div)   |                 |
 
 add
 ---
