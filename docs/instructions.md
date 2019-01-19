@@ -39,17 +39,17 @@ There are 3 different types of syntax that can be used for arguments.
 Instruction Reference
 =====================
 
-| Arithmetic (8)  | Bitwise (9)     | Memory (7)      | Jump (4)        | Branch (8)      | Call (5)          | NOP (1)       |
-|-----------------|-----------------|-----------------|-----------------|-----------------|-------------------|---------------|
-| [`add`](#add)   | [`and`](#and)   | [`ld`](#ld)     | [`jmp`](#jmp)   | [`bz`](#bz)     | [`call`](#call)   | [`nop`](#nop) |
-| [`addc`](#addc) | [`or`](#or)     | [`st`](#st)     | [`jmpf`](#jmpf) | [`bnz`](#bnz)   | [`callf`](#callf) |               |
-| [`sub`](#sub)   | [`xor`](#xor)   | [`mov`](#mov)   | [`br`](#br)     | [`bp`](#bp)     | [`callr`](#callr) |               |
-| [`subc`](#subc) | [`rol`](#rol)   | [`ldc`](#ldc)   | [`brf`](#brf)   | [`bpc`](#bpc)   | [`ret`](#ret)     |               |
-| [`inc`](#inc)   | [`rolc`](#rolc) | [`push`](#push) |                 | [`bn`](#bn)     | [`reti`](#reti)   |               |
-| [`dec`](#dec)   | [`ror`](#ror)   | [`pop`](#pop)   |                 | [`dbnz`](#dbnz) |                   |               |
-| [`mul`](#mul)   | [`rorc`](#rorc) | [`xch`](#xch)   |                 | [`be`](#be)     |                   |               |
-| [`div`](#div)   | [`clr1`](#clr1) |                 |                 | [`bne`](#bne)   |                   |               |
-|                 | [`set1`](#set1) |                 |                 |                 |                   |               |
+| Arithmetic (8)  | Bitwise (9)     | Memory/Storage (9) | Jump (4)        | Branch (8)      | Call (5)          | NOP (1)       |
+|-----------------|-----------------|--------------------|-----------------|-----------------|-------------------|---------------|
+| [`add`](#add)   | [`and`](#and)   | [`ld`](#ld)        | [`jmp`](#jmp)   | [`bz`](#bz)     | [`call`](#call)   | [`nop`](#nop) |
+| [`addc`](#addc) | [`or`](#or)     | [`st`](#st)        | [`jmpf`](#jmpf) | [`bnz`](#bnz)   | [`callf`](#callf) |               |
+| [`sub`](#sub)   | [`xor`](#xor)   | [`mov`](#mov)      | [`br`](#br)     | [`bp`](#bp)     | [`callr`](#callr) |               |
+| [`subc`](#subc) | [`rol`](#rol)   | [`ldc`](#ldc)      | [`brf`](#brf)   | [`bpc`](#bpc)   | [`ret`](#ret)     |               |
+| [`inc`](#inc)   | [`rolc`](#rolc) | [`push`](#push)    |                 | [`bn`](#bn)     | [`reti`](#reti)   |               |
+| [`dec`](#dec)   | [`ror`](#ror)   | [`pop`](#pop)      |                 | [`dbnz`](#dbnz) |                   |               |
+| [`mul`](#mul)   | [`rorc`](#rorc) | [`xch`](#xch)      |                 | [`be`](#be)     |                   |               |
+| [`div`](#div)   | [`clr1`](#clr1) | [`ldf`](#ldf)      |                 | [`bne`](#bne)   |                   |               |
+|                 | [`set1`](#set1) | [`stf`](#stf)      |                 |                 |                   |               |
 
 add
 ---
