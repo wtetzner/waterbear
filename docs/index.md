@@ -1,4 +1,3 @@
 
-[Instruction Reference](instruction-reference.md)
-
-[Directives](directives.md)
+* [Instructions](instructions.md)
+* [Directives](directives.md)
