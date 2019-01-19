@@ -4,6 +4,15 @@ Directives
 
 Directives are used to give directions to the assembler.
 
+<!--ts-->
+   * [.byte](#.byte)
+   * [.word](#.word)
+   * [.org](#.org)
+   * [.include](#.include)
+       * [asm](#Include+Source+Files)
+   * [.cnop](#.cnop)
+<!--te-->
+
 .byte
 -----
 
@@ -131,8 +140,8 @@ assembly aliases.
 The `.cnop` directive is used to align the assembler output. The
 output is padded in the following manner:
 
-    1. Pad to the smallest multiple of `m` that is larger than or equal to the current position.
-    2. Pad out to an additional `a` bytes.
+1. Pad to the smallest multiple of `m` that is larger than or equal to the current position.
+2. Pad out to an additional `a` bytes.
 
 ### Syntax
 
