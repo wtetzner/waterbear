@@ -24,8 +24,10 @@ mnemonic arg1, arg2, arg3
 Instruction Reference
 =====================
 
-* [`add`](#add)
-* [`sub`](#sub)
+|               |
+|---------------|
+| [`add`](#add) |
+| [`sub`](#sub) |
 
 add
 ---
