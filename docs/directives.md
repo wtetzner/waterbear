@@ -2,7 +2,9 @@
 Directives
 ==========
 
-Directives are used to give directions to the assembler.
+Directives are used to give directions to the assembler. Directive
+names start with a `.`, and each directive must appear on its own
+line.
 
 <!--ts-->
    * [`.byte` Directive](#byte)

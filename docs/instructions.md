@@ -8,6 +8,8 @@ Syntax
 Each instruction has a mnemonic (name), and between 0 and 3
 arguments. Arguments are separated by commas.
 
+Each instruction must appear on its own line.
+
 | Args | Form                        |
 |------|-----------------------------|
 | 0    | `mnemonic`                  |
@@ -37,16 +39,17 @@ There are 3 different types of syntax that can be used for arguments.
 Instruction Reference
 =====================
 
-|  Arithmetic     | Bitwise         |
-|-----------------|-----------------|
-| [`add`](#add)   | [`and`](#and)   |
-| [`addc`](#addc) | [`or`](#or)     |
-| [`sub`](#sub)   | [`xor`](#xor)   |
-| [`subc`](#subc) | [`rol`](#rol)   |
-| [`inc`](#inc)   | [`rolc`](#rolc) |
-| [`dec`](#dec)   | [`ror`](#ror)   |
-| [`mul`](#mul)   | [`rorc`](#rorc) |
-| [`div`](#div)   |                 |
+| Arithmetic (8)  | Bitwise (9)     | Memory (7)      | Jump (4)        | Branch (8)      | Call (5)          | NOP (1)       |
+|-----------------|-----------------|-----------------|-----------------|-----------------|-------------------|---------------|
+| [`add`](#add)   | [`and`](#and)   | [`ld`](#ld)     | [`jmp`](#jmp)   | [`bz`](#bz)     | [`call`](#call)   | [`nop`](#nop) |
+| [`addc`](#addc) | [`or`](#or)     | [`st`](#st)     | [`jmpf`](#jmpf) | [`bnz`](#bnz)   | [`callf`](#callf) |               |
+| [`sub`](#sub)   | [`xor`](#xor)   | [`mov`](#mov)   | [`br`](#br)     | [`bp`](#bp)     | [`callr`](#callr) |               |
+| [`subc`](#subc) | [`rol`](#rol)   | [`ldc`](#ldc)   | [`brf`](#brf)   | [`bpc`](#bpc)   | [`ret`](#ret)     |               |
+| [`inc`](#inc)   | [`rolc`](#rolc) | [`push`](#push) |                 | [`bn`](#bn)     | [`reti`](#reti)   |               |
+| [`dec`](#dec)   | [`ror`](#ror)   | [`pop`](#pop)   |                 | [`dbnz`](#dbnz) |                   |               |
+| [`mul`](#mul)   | [`rorc`](#rorc) | [`xch`](#xch)   |                 | [`be`](#be)     |                   |               |
+| [`div`](#div)   | [`clr1`](#clr1) |                 |                 | [`bne`](#bne)   |                   |               |
+|                 | [`set1`](#set1) |                 |                 |                 |                   |               |
 
 add
 ---
