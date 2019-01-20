@@ -1,9 +1,22 @@
 
+waterbear
+=========
+
+`waterbear` is an assembler/disassembler for the Dreamcast VMU.
+
+Download
+--------
+
+You can download prebuilt binaries from here: [`waterbear` latest release](https://github.com/wtetzner/waterbear/releases/latest).
+
+Documentation
+-------------
+
 * [Instructions](instructions.md)
 * [Directives](directives.md)
 
 Credits
-=======
+-------
 
 These are people who have either directly or indirectly helped with
 the development of waterbear.
