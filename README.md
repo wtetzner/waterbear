@@ -6,6 +6,11 @@ waterbear
 
 Waterbear is an assembler for the Dreamcast VMU. It can be used either as a library or as a command-line program.
 
+Documentation
+=============
+
+The documentation for waterbear can be viewed [here](https://wtetzner.github.io/waterbear/).
+
 Usage
 =====
 
@@ -77,4 +82,4 @@ the development of waterbear.
 | [Marcus Comstedt](http://mc.pp.se/dc/)         | Author of the [aslc86k assembler](http://mc.pp.se/dc/sw.html), [softvms emulator](http://mc.pp.se/dc/sw.html), [hardware documentation](http://mc.pp.se/dc/vms/), and [tetris](http://mc.pp.se/dc/files/tetris.s) VMU game |
 | John Maushammer                                | Author of the [lcdis](http://mc.pp.se/dc/sw.html) disassembler               |
 
-Copyright © 2017-2019 Walter Tetzner
+Copyright © 2015-2019 Walter Tetzner
