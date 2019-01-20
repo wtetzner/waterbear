@@ -50,6 +50,7 @@ Instruction Reference
 | [`mul`](#mul)   | [`rorc`](#rorc) | [`xch`](#xch)      |                 | [`be`](#be)     |                   |               |
 | [`div`](#div)   | [`clr1`](#clr1) | [`ldf`](#ldf)      |                 | [`bne`](#bne)   |                   |               |
 |                 | [`set1`](#set1) | [`stf`](#stf)      |                 |                 |                   |               |
+|                 | [`not1`](#not1) |                    |                 |                 |                   |               |
 
 add
 ---
@@ -253,6 +254,36 @@ value of the `cy` flag is copied to the most significant bit of the
 |--------|-------------|--------|
 | `rorc` | `11010000`  | 1      |
 
+clr1
+----
+
+The `clr1` instruction clears the bit specified by the argument. It
+does not change the value of any of the `psw` flags.
+
+| Form          | Bit Pattern                                              | Cycles |
+|---------------|----------------------------------------------------------|--------|
+| `clr1 d9, b3` | `110[d8]1[b2][b1][b0] [d7][d6][d5][d4][d3][d2][d1][d0]`  | 1      |
+
+set1
+----
+
+The `set1` instruction sets the bit specified by the argument. It does
+not change the value of any of the `psw` flags.
+
+| Form          | Bit Pattern                                              | Cycles |
+|---------------|----------------------------------------------------------|--------|
+| `set1 d9, b3` | `111[d8]1[b2][b1][b0] [d7][d6][d5][d4][d3][d2][d1][d0]`  | 1      |
+
+not1
+----
+
+The `not1` instruction flips the bit specified by the argument. It
+does not change the value of any of the `psw` flags.
+
+| Form          | Bit Pattern                                              | Cycles |
+|---------------|----------------------------------------------------------|--------|
+| `not1 d9, b3` | `101[d8]1[b2][b1][b0] [d7][d6][d5][d4][d3][d2][d1][d0]`  | 1      |
+
 ld
 --
 
@@ -325,7 +356,7 @@ of the `psw` flags.
 
 | Form     | Bit Pattern                                     | Cycles |
 |----------|-------------------------------------------------|--------|
-| `pop d9` | `0111000[a8] [d7][d6][d5][d4][d3][d2][d1][d0]`  | 2      |
+| `pop d9` | `0111000[d8] [d7][d6][d5][d4][d3][d2][d1][d0]`  | 2      |
 
 xch
 ---
@@ -339,3 +370,271 @@ the `psw` flags.
 | `xch d9`  | `1100001[d8] [d7][d6][d5][d4][d3][d2][d1][d0]` | 1      |
 | `xch @Ri` | `110001[r1][r0]`                               | 1      |
 
+ldf
+---
+
+The `ldf` instruction loads a value from flash storage into RAM.
+
+| Form  | Bit Pattern | Cycles |
+|-------|-------------|--------|
+| `ldf` | `01010000`  | ?      |
+
+stf
+---
+
+The `stf` instruction writes a value to flash storage.
+
+| Form  | Bit Pattern | Cycles |
+|-------|-------------|--------|
+| `stf` | `01010001`  | ?      |
+
+jmp
+---
+
+The `jmp` instruction jumps to the address specified by its
+argument. The argument is a 12-bit absolute address. Because addresses
+are 16 bits, the high 4 bits of the address must match the high 4 bits
+of the address of the following instruction. It does not change the
+value of any of the `psw` flags.
+
+| Form      | Bit Pattern                                               | Cycles |
+|-----------|-----------------------------------------------------------|--------|
+| `jmp a12` | `001[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]` | 2      |
+
+jmpf
+----
+
+The `jmpf` instruction jumps to the position specified by its
+argument. The argument is a 16-bit absolute address. It does not
+change the value of any of the `psw` flags.
+
+| Form       | Bit Pattern                                                                        | Cycles |
+|------------|------------------------------------------------------------------------------------|--------|
+| `jmpf a16` | `00100001 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]` | 2      |
+
+br
+--
+
+The `br` instruction jumps to the address specified by its
+argument. The argument is an 8-bit relative address. It's added to the
+address of the following instruction to compute the final
+address. This instruction does not change the value of any of the
+`psw` flags.
+
+| Form | Bit Pattern                                    | Cycles |
+|------|------------------------------------------------|--------|
+| `br r8` | `00000001 [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+
+brf
+---
+
+The `brf` instruction jumps to the address specified by its
+argument. The argument is a 16-bit relative address. The final address
+is computed by adding the argument to the address of the following
+instruction, minus one. The addition is performed modulo 65536. This
+instruction does not change the value of any of the `psw` flags.
+
+| Form | Bit Pattern                                                                             | Cycles |
+|------|-----------------------------------------------------------------------------------------|--------|
+| `brf r16` | `00010001 [r7][r6][r5][r4][r3][r2][r1][r0] [r15][r14][r13][r12][r11][r10][r9][r8]` | 4      |
+
+bz
+--
+
+The `bz` instruction branches to the address specified by its argument
+if the `acc` register is zero. The argument is an 8-bit relative
+address. It's added to the address of the following instruction to
+compute the final address. This instruction does not change the value
+of any of the `psw` flags.
+
+| Form    | Bit Pattern                                 | Cycles |
+|---------|---------------------------------------------|--------|
+| `bz r8` | `10000000 [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+
+bnz
+---
+
+The `bnz` instruction branches to the address specified by its
+argument if the `acc` register is *not* zero. The argument is an 8-bit
+relative address. It's added to the address of the following
+instruction to compute the final address. This instruction does not
+change the value of any of the `psw` flags.
+
+| Form     | Bit Pattern                                 | Cycles |
+|----------|---------------------------------------------|--------|
+| `bnz r8` | `10010000 [a7][a6][a5][a4][a3][a2][a1][a0]` | 2      |
+
+bp
+--
+
+The `bp` instruction branches to the address specified by its argument
+if the specified bit of the given argument is set. The argument is an
+8-bit relative address. It's added to the address of the following
+instruction to compute the final address. This instruction does not
+change the value of any of the `psw` flags.
+
+| Form            | Bit Pattern                                                                              | Cycles |
+|-----------------|------------------------------------------------------------------------------------------|--------|
+| `bp d9, b3, r8` | `011[d8]1[b2][b1][b0] [d7][d6][d5][d4][d3][d2][d1][d0] [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+
+bpc
+---
+
+If the bit specified by the `bpc` instruction is set, it clears the
+bit, and branches to the address specified by its argument. The
+argument is an 8-bit relative address. It's added to the address of
+the following instruction to compute the final address. This
+instruction does not change the value of any of the `psw` flags.
+
+| Form             | Bit Pattern                                                                              | Cycles |
+|------------------|------------------------------------------------------------------------------------------|--------|
+| `bpc d9, b3, r8` | `010[d8]1[b2][b1][b0] [d7][d6][d5][d4][d3][d2][d1][d0] [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+
+bn
+--
+
+The `bn` instruction branches to the address specified by its
+argument if the specified bit of the given argument is cleared. The
+argument is an 8-bit relative address. It's added to the address of
+the following instruction to compute the final address. This
+instruction does not change the value of any of the `psw` flags.
+
+| Form            | Bit Pattern                                                                              | Cycles |
+|-----------------|------------------------------------------------------------------------------------------|--------|
+| `bn d9, b3, r8` | `100[d8]1[b2][b1][b0] [d7][d6][d5][d4][d3][d2][d1][d0] [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+
+dbnz
+----
+
+The `dbnz` instruction decrements the value of its argument, and if
+the result is not zero, branches to the address specified by its
+argument. The argument is an 8-bit relative address. It's added to the
+address of the following instruction to compute the final
+address. This instruction does not change the value of any of the
+`psw` flags.
+
+| Form            | Bit Pattern                                                                     | Cycles |
+|-----------------|---------------------------------------------------------------------------------|--------|
+| `dbnz d9, r8`   | `0101001[d8] [d7][d6][d5][d4][d3][d2][d1][d0] [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+| `dbnz @Ri, r8`  | `010101[R1][R0] [r7][r6][r5][r4][r3][r2][r1][r0]`                               | 2      |
+
+be
+--
+
+The `be` instruction branches if the value of the `acc` register (or
+the indirect argument in the 3-arg form) is equal to the argument
+given. The last argument is an 8-bit relative address. It's added to
+the address of the following instruction to compute the final branch
+address.
+
+| Form              | Bit Pattern                                                                        | Cycles |
+|-------------------|------------------------------------------------------------------------------------|--------|
+| `be #i8, r8`      | `00110001 [i7][i6][i5][i4][i3][i2][i1][i0] [r7][r6][r5][r4][r3][r2][r1][r0]`       | 2      |
+| `be d9, r8`       | `0011001[d8] [d7][d6][d5][d4][d3][d2][d1][d0] [r7][r6][r5][r4][r3][r2][r1][r0]`    | 2      |
+| `be @Ri, #i8, r8` | `001101[R1][R0] [i7][i6][i5][i4][i3][i2][i1][i0] [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+
+| Bit  | Effect                                                            |
+|------|-------------------------------------------------------------------|
+| `cy` | Set to 1 if `acc` (or the indirect arg) is less than the operand. |
+| `ov` | Unchanged                                                         |
+| `ac` | Unchanged                                                         |
+
+bne
+---
+
+The `bne` instruction branches if the value of the `acc` register (or
+the indirect argument in the 3-arg form) is *not* equal to the
+argument given. The last argument is an 8-bit relative address. It's
+added to the address of the following instruction to compute the final
+branch address.
+
+| Form               | Bit Pattern                                                                        | Cycles |
+|--------------------|------------------------------------------------------------------------------------|--------|
+| `bne #i8, r8`      | `01000001 [i7][i6][i5][i4][i3][i2][i1][i0] [r7][r6][r5][r4][r3][r2][r1][r0]`       | 2      |
+| `bne d9, r8`       | `0100001[d8] [d7][d6][d5][d4][d3][d2][d1][d0] [r7][r6][r5][r4][r3][r2][r1][r0]`    | 2      |
+| `bne @Ri, #i8, r8` | `010001[R1][R0] [i7][i6][i5][i4][i3][i2][i1][i0] [r7][r6][r5][r4][r3][r2][r1][r0]` | 2      |
+
+| Bit  | Effect                                                            |
+|------|-------------------------------------------------------------------|
+| `cy` | Set to 1 if `acc` (or the indirect arg) is less than the operand. |
+| `ov` | Unchanged                                                         |
+| `ac` | Unchanged                                                         |
+
+call
+----
+
+The `call` instruction is for calling a function. The argument of the
+instruction is a 12-bit absolute address, which is the address of the
+function to call. Because addresses are 16 bits, the high 4 bits of
+the address must match the high 4 bits of the address of the following
+instruction. The address of the following instruction is pushed to the
+stack, as the return address. First the low 8 bits of the address are
+pushed, then the high 8 bits. This instruction does not change the
+value of any of the `psw` flags.
+
+| Form       | Bit Pattern                                               | Cycles |
+|------------|-----------------------------------------------------------|--------|
+| `call a12` | `000[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]` | 2      |
+
+callf
+-----
+
+The `callf` instruction is for calling a function. The argument of the
+instruction is a 16-bit absolute address. The address of the following
+instruction is pushed to the stack, as the return address. First the
+low 8 bits of the address are pushed, then the high 8 bits. This
+instruction does not change the value of any of the `psw` flags.
+
+| Form        | Bit Pattern                                                                        | Cycles |
+|-------------|------------------------------------------------------------------------------------|--------|
+| `callf a16` | `00100000 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]` | 2      |
+
+callr
+-----
+
+The `callr` instruction is for calling a function. The argument of the
+instruction is a 16-bit relative address. The final address is
+computed by adding the argument to the address of the following
+instruction, minus one. The addition is performed modulo 65536. The
+address of the following instruction is pushed to the stack, as the
+return address. First the low 8 bits of the address are pushed, then
+the high 8 bits. This instruction does not change the value of any of
+the `psw` flags.
+
+| Form        | Bit Pattern                                                                        | Cycles |
+|-------------|------------------------------------------------------------------------------------|--------|
+| `callr r16` | `00010000 [r7][r6][r5][r4][r3][r2][r1][r0] [r15][r14][r13][r12][r11][r10][r9][r8]` | 2      |
+
+ret
+---
+
+The `ret` instruction is intended to be used when returning from a
+function call. The insruction pops the `pc` register is popped from
+the stack: first the high 8 bits, then the low 8 bits. This
+instruction does not change the value of any of the `psw` flags.
+
+| Form  | Bit Pattern | Cycles |
+|-------|-------------|--------|
+| `ret` | `10100000`  | 2      |
+
+reti
+----
+
+The `reti` instruction is intended to be used when returning from an
+interrupt. The insruction pops the `pc` register is popped from the
+stack: first the high 8 bits, then the low 8 bits. This instruction
+does not change the value of any of the `psw` flags.
+
+| Form   | Bit Pattern | Cycles |
+|--------|-------------|--------|
+| `reti` | `10110000`  | 2      |
+
+nop
+---
+
+The `nop` instruction is a no-op, meaning it does nothing. This
+instruction does not change the value of any of the `psw` flags.
+
+| Form  | Bit Pattern | Cycles |
+|-------|-------------|--------|
+| `nop` | `00000000`  | 1      |
