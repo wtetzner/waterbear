@@ -15,7 +15,7 @@ the name of the macro, as well as a comma-separated list of argument
 names, all of which start with `%`.
 
 ```
-%macro double %arg1, %arg2, %arg3
+%macro my_macro %arg1, %arg2, %arg3
 ```
 
 The following lines make up the body of the macro, which can refer to
@@ -69,6 +69,7 @@ be used. It will expand all macros and print the resulting assembly.
 
 ```
 % waterbear expand example.s
+my_var = $48
   add   my_var
   bn    psw, 7, .no_carry_541957e1bc47460b88675e597f900408
   mov   #$FF, acc
@@ -91,6 +92,8 @@ This expands to:
 
 ```
 % waterbear expand example.s
+my_var = $48
+my_var2 = $49
   add   my_var
   bn    psw, 7, .no_carry_f909e567e61249f6853f0c939d50982f
   mov   #$FF, acc
