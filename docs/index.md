@@ -13,6 +13,7 @@ Documentation
 
 * [Instructions](instructions.md)
 * [Directives](directives.md)
+* [Macros](macros.md)
 
 Credits
 =======

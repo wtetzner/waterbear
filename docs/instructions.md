@@ -622,8 +622,9 @@ reti
 
 The `reti` instruction is intended to be used when returning from an
 interrupt. The insruction pops the `pc` register is popped from the
-stack: first the high 8 bits, then the low 8 bits. This instruction
-does not change the value of any of the `psw` flags.
+stack: first the high 8 bits, then the low 8 bits. The VMU then
+resumes interrupt handling. This instruction does not change the value
+of any of the `psw` flags.
 
 | Form   | Bit Pattern | Cycles |
 |--------|-------------|--------|
