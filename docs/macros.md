@@ -45,11 +45,11 @@ value (`$ff`).
 
 ```
 %macro  Safe_8bit_Add   %op
-        ; Adds an 8bit number to acc and prevents overflow by maxing acc
-        ; if detected
-        add     %op
-        bn      psw, 7, .no_carry%
-        mov     #$ff, acc
+  ; Adds an 8bit number to acc and prevents overflow by maxing acc
+  ; if detected
+  add     %op
+  bn      psw, 7, .no_carry%
+  mov     #$ff, acc
 .no_carry%
 %end
 ```
