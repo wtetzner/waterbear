@@ -2,7 +2,7 @@
 edition = "2018" 
 name = "waterbear"
 description = "Assembler/Disassembler for the Dreamcast VMU"
-version = "0.17.0-wip"
+version = "0.17.0"
 authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 license="Apache-2.0"
 
