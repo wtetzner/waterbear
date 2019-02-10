@@ -691,6 +691,20 @@ fn caret(span: &Span, line: &str, msg: &str) -> String {
         }
         col += 1
     }
+    if col <= start {
+        while col < start {
+            result.push_str(" ");
+            col += 1;
+        }
+        if start == end {
+            result.push_str("^");
+        } else {
+            while col < end {
+                result.push_str("^");
+                col += 1;
+            }
+        }
+    }
     if !msg.is_empty() {
         result.push_str(" ");
         result.push_str(msg);
