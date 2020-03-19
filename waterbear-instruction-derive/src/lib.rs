@@ -527,7 +527,7 @@ fn byte_to_tokens(ranges: &[BitRange]) -> quote::Tokens {
             BitRange::Ref { ref name, high, low } => {
                 let ident = syn::Ident::new(name.as_str());
                 let size = (1 + high) - low;
-                let mut mask: u32 = make_mask(size) << ((high + 1) - size);
+                let mask: u32 = make_mask(size) << ((high + 1) - size);
                 let lshift: i32 = (pos as i32) - (size as i32);
                 let shift_amount = (*low as i32) - lshift;
                 if shift_amount == 0 {

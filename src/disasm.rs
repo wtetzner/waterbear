@@ -1203,8 +1203,8 @@ impl DStatement {
 
     pub fn plus_comment(self, comment: String) -> DStatement {
         let cmt = if let Some(old) = self.comment {
-            let mut new_comment = old.trim_right().to_owned();
-            if old.trim_right().ends_with(".") {
+            let mut new_comment = old.trim_end().to_owned();
+            if old.trim_end().ends_with(".") {
                 new_comment.push_str(" ");
                 new_comment.push_str(comment.as_str());
             } else {
