@@ -1,0 +1,17 @@
+[package]
+name = "libwaterbear"
+version = "0.1.0"
+authors = ["Walter Tetzner <walter@waltertetzner.net>"]
+description = "Waterbear as a C library"
+license = "Apache-2.0"
+
+[dependencies]
+waterbear = { version = "0.18.0-wip", path = "../" }
+
+[lib]
+name = "waterbear"
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+
+
