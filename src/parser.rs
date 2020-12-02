@@ -423,7 +423,7 @@ impl Parser {
     pub fn parse_keyval_pairs(&self, tokens: &mut TokenStream) -> Result<HashMap<String, ByteValue>,ParseError> {
         let pairs = self.parse_list(tokens, |t| self.parse_keyval_pair(t))?;
         let mut map = HashMap::new();
-        for ((s, n), b) in pairs {
+        for ((_, n), b) in pairs {
             map.insert(n, b);
         }
         Ok(map)

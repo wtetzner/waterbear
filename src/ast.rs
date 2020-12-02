@@ -136,12 +136,18 @@ impl fmt::Display for IncludeType {
             IncludeType::Bytes => write!(f, "bytes"),
             IncludeType::CHeader => write!(f, "cpp"),
             IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
-                write!(f, "icon");
+                write!(f, "icon")?;
+                let mut comma = false;
                 if let Some(speed) = speed_opt {
-                    write!(f, ", speed = {}", speed);
+                    comma = true;
+                    write!(f, " speed = {}", speed)?;
                 }
                 if let Some(eyecatch) = eyecatch_opt {
-                    write!(f, ", eyecatch = \"{}\"", eyecatch);
+                    if comma {
+                        write!(f, ", eyecatch = \"{}\"", eyecatch)?;
+                    } else {
+                        write!(f, " eyecatch = \"{}\"", eyecatch)?;
+                    }
                 }
                 write!(f, "")
             }
@@ -287,17 +293,17 @@ impl fmt::Display for Directive {
                 match typ {
                     IncludeType::Asm => write!(f, "  .include \"{}\"", path),
                     IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
-                        write!(f, "  .include icon \"{}\"", path);
+                        write!(f, "  .include icon \"{}\"", path)?;
                         let mut comma = false;
                         if let Some(speed) = speed_opt {
-                            write!(f, " speed = {}", speed);
+                            write!(f, " speed = {}", speed)?;
                             comma = true;
                         }
                         if let Some(eyecatch) = eyecatch_opt {
                             if comma {
-                                write!(f, ", eyecatch = {}", eyecatch);
+                                write!(f, ", eyecatch = {}", eyecatch)?;
                             } else {
-                                write!(f, " eyecatch = {}", eyecatch);
+                                write!(f, " eyecatch = {}", eyecatch)?;
                             }
                         }
                         write!(f, "")

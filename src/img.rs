@@ -144,8 +144,6 @@ impl Image {
     }
 
     pub fn to_icon(&self, palette_map: &HashMap<Color,usize>, name: &str) -> crate::ast::Statements {
-        use crate::location::Span;
-        use crate::ast::Statement::*;
         use crate::expression::{Expr};
         use crate::ast::{Statements, Statement, ByteValue};
 
@@ -259,7 +257,7 @@ pub fn load_image(path: &str) -> Result<Image, ImageLoadError> {
 fn load_gif(path: &str) -> Result<Image, ImageLoadError> {
     let file_in = File::open(path)
         .map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
-    let mut decoder = GifDecoder::new(file_in)
+    let decoder = GifDecoder::new(file_in)
         .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
     let frames = decoder.into_frames().collect_frames()
         .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
@@ -276,7 +274,7 @@ fn load_gif(path: &str) -> Result<Image, ImageLoadError> {
 fn load_png(path: &str) -> Result<Image, ImageLoadError> {
     let file_in = File::open(path)
         .map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
-    let mut decoder = PngDecoder::new(file_in)
+    let decoder = PngDecoder::new(file_in)
         .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
     if decoder.is_apng() {
         let frames = decoder.apng().into_frames().collect_frames()
