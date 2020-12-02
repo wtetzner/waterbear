@@ -403,6 +403,32 @@ impl Parser {
         self.parse_list(tokens, |toks| self.parse_byte_value(toks))
     }
 
+    pub fn parse_keyval_pair(&self, tokens: &mut TokenStream) -> Result<((Span,String),ByteValue), ParseError> {
+        if tokens.check(|tok| tok.is_name()) {
+            let name = tokens.read_name()?;
+            if tokens.check(|tok| tok.is_equ()) {
+                tokens.next()?;
+                let bval = self.parse_byte_value(tokens)?;
+                Ok((name, bval))
+            } else {
+                let tok = tokens.current()?;
+                Err(ParseError::ExpectedTokenNotFound("=", tok.clone()))
+            }
+        } else {
+            let tok = tokens.current()?;
+            Err(ParseError::ExpectedTokenNotFound("Name", tok.clone()))
+        }
+    }
+
+    pub fn parse_keyval_pairs(&self, tokens: &mut TokenStream) -> Result<HashMap<String, ByteValue>,ParseError> {
+        let pairs = self.parse_list(tokens, |t| self.parse_keyval_pair(t))?;
+        let mut map = HashMap::new();
+        for ((s, n), b) in pairs {
+            map.insert(n, b);
+        }
+        Ok(map)
+    }
+
     fn parse_list<T,F>(
         &self,
         tokens: &mut TokenStream,
@@ -466,10 +492,23 @@ impl Parser {
                         let span = Span::from(ident.span(), &str_span);
                         Ok(Some(Statement::Directive(Directive::Include(span, IncludeType::Asm, string))))
                     } else {
-                        let (_, inc_type) = tokens.read_include_type()?;
-                        let (str_span, string) = tokens.read_string()?;
-                        let span = Span::from(ident.span(), &str_span);
-                        Ok(Some(Statement::Directive(Directive::Include(span, inc_type, string))))
+                        if tokens.check(|tok| tok.has_name("icon")) {
+                            tokens.read_name()?;
+                            let (str_span, string) = tokens.read_string()?;
+                            let properties = self.parse_keyval_pairs(tokens)?;
+                            let speed = match properties.get("speed") {
+                                Some(ByteValue::Expr(expr)) => Some(expr.clone()),
+                                Some(bv) => { return Err(ParseError::InvalidExpression(bv.span().start().clone())); },
+                                None => None
+                            };
+                            let eyecatch = properties.get("eyecatch").map(|x| x.clone());
+                            Ok(Some(Statement::Directive(Directive::Include(str_span, IncludeType::Icon(speed, eyecatch), string))))
+                        } else {
+                            let (_, inc_type) = tokens.read_include_type()?;
+                            let (str_span, string) = tokens.read_string()?;
+                            let span = Span::from(ident.span(), &str_span);
+                            Ok(Some(Statement::Directive(Directive::Include(span, inc_type, string))))
+                        }
                     }
                 } else if tok.has_name(".cnop") {
                     let ident = tokens.next()?;

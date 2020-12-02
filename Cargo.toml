@@ -15,6 +15,7 @@ regex = "1.0"
 termcolor = "1"
 atty = "0.2"
 uuid = { version = "0.7", features = ["v4"] }
+image = "*"
 
 # custom derives
 waterbear-instruction-derive = { version = "0.1", path = "waterbear-instruction-derive" }

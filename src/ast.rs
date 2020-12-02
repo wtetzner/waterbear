@@ -125,7 +125,8 @@ impl ByteValue {
 pub enum IncludeType {
     Asm,
     Bytes,
-    CHeader
+    CHeader,
+    Icon(Option<Expr>, Option<ByteValue>)
 }
 
 impl fmt::Display for IncludeType {
@@ -133,7 +134,17 @@ impl fmt::Display for IncludeType {
         match self {
             IncludeType::Asm => write!(f, "asm"),
             IncludeType::Bytes => write!(f, "bytes"),
-            IncludeType::CHeader => write!(f, "cpp")
+            IncludeType::CHeader => write!(f, "cpp"),
+            IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
+                write!(f, "icon");
+                if let Some(speed) = speed_opt {
+                    write!(f, ", speed = {}", speed);
+                }
+                if let Some(eyecatch) = eyecatch_opt {
+                    write!(f, ", eyecatch = \"{}\"", eyecatch);
+                }
+                write!(f, "")
+            }
         }
     }
 }
@@ -236,13 +247,13 @@ impl fmt::Display for Directive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Directive::Cnop(_, exp1, exp2) => {
-                write!(f, ".cnop ")?;
+                write!(f, "  .cnop ")?;
                 write!(f, "{}", exp1)?;
                 write!(f, ", ")?;
                 write!(f, "{}", exp2)
             },
             Directive::Byte(_, vec) => {
-                write!(f, ".byte ")?;
+                write!(f, "  .byte ")?;
                 let mut first = true;
                 for b in vec {
                     if first {
@@ -255,12 +266,12 @@ impl fmt::Display for Directive {
                 write!(f, "")
             },
             Directive::Org(_, num) => if *num == 0 {
-                write!(f, ".org {}", num)
+                write!(f, "  .org {}", num)
             } else {
-                write!(f, ".org ${:04X}", num)
+                write!(f, "  .org ${:04X}", num)
             },
             Directive::Word(_, vec) => {
-                write!(f, ".word ")?;
+                write!(f, "  .word ")?;
                 let mut first = true;
                 for b in vec {
                     if first {
@@ -274,8 +285,24 @@ impl fmt::Display for Directive {
             },
             Directive::Include(_, typ, path) => {
                 match typ {
-                    IncludeType::Asm => write!(f, ".include \"{}\"", path),
-                    _ => write!(f, ".include {} \"{}\"", typ, path)
+                    IncludeType::Asm => write!(f, "  .include \"{}\"", path),
+                    IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
+                        write!(f, "  .include icon \"{}\"", path);
+                        let mut comma = false;
+                        if let Some(speed) = speed_opt {
+                            write!(f, " speed = {}", speed);
+                            comma = true;
+                        }
+                        if let Some(eyecatch) = eyecatch_opt {
+                            if comma {
+                                write!(f, ", eyecatch = {}", eyecatch);
+                            } else {
+                                write!(f, " eyecatch = {}", eyecatch);
+                            }
+                        }
+                        write!(f, "")
+                    },
+                    _ => write!(f, "  .include {} \"{}\"", typ, path)
                 }
             }
         }
@@ -311,6 +338,14 @@ impl Statement {
 
     pub fn instr(instr: Instr<Expr,IndirectionMode>) -> Statement {
         Statement::Instr(Span::default(), instr)
+    }
+
+    pub fn word(exprs: Vec<Expr>) -> Statement {
+        Statement::Directive(Directive::Word(Span::default(), exprs))
+    }
+
+    pub fn byte(exprs: Vec<ByteValue>) -> Statement {
+        Statement::Directive(Directive::Byte(Span::default(), exprs))
     }
 }
 
@@ -350,9 +385,9 @@ impl fmt::Display for Statement {
                     write!(f, "{}", comment)
                 } else if comment.starts_with("\n") {
                     writeln!(f, "")?;
-                    write!(f, "; {}", &comment[1..comment.len()])
+                    write!(f, "  ;; {}", &comment[1..comment.len()])
                 } else {
-                    write!(f, "; {}", comment)
+                    write!(f, "  ;; {}", comment)
                 }
             },
             Statement::MacroCall(_, name, args) => {
@@ -390,6 +425,16 @@ impl Statements {
 
     pub fn iter(&self) -> impl Iterator<Item=&Statement> {
         self.statements.iter()
+    }
+
+    pub fn append(&mut self, statements: &[Statement]) {
+        for statement in statements {
+            self.statements.push(statement.clone());
+        }
+    }
+
+    pub fn push(&mut self, statement: Statement) {
+        self.statements.push(statement);
     }
 
     pub fn with_statements(&self, stmts: Vec<Statement>) -> Statements {

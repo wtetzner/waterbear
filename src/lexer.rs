@@ -259,6 +259,7 @@ fn clean_str(string: &str) -> String {
                 b'n' => result.push(b'\n'),
                 b't' => result.push(b'\t'),
                 b'b' => result.push(8),
+                b'0' => result.push(b'\0'),
                 c => result.push(c)
             }
         } else if byte == b'\\' {

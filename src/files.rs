@@ -121,4 +121,21 @@ impl SourceFiles {
             }
         }
     }
+
+    pub fn register(&mut self, filename: &str, contents: String) -> Result<&SourceFile,FileLoadError> {
+        let path = self.path(filename);
+        match self.get_id(&path) {
+            Some(id) => Ok(&self.files[id.value]),
+            None => {
+                let id_value = self.files.len();
+                let file = SourceFile {
+                    id: FileID { value: id_value },
+                    name: filename.to_owned(),
+                    contents: contents
+                };
+                self.files.push(file);
+                Ok(&self.files[id_value])
+            }
+        }
+    }
 }

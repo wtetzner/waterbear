@@ -24,6 +24,7 @@ use crate::files;
 use crate::input::Input;
 use uuid::Uuid;
 use crate::cheader;
+use crate::img;
 
 pub fn assemble_file(files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>,AssemblyError> {
     let statements = read_statements(files, filename)?;
@@ -85,7 +86,7 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, tokens: &[Token]) 
                             };
                             results.append(&mut new_tokens);
                         },
-                        IncludeType::Bytes => {
+                        IncludeType::Bytes | IncludeType::Icon(_, _) => {
                             for token in line.iter() {
                                 results.push(token.clone());
                             }
@@ -126,6 +127,23 @@ fn replace_byte_includes(files: &mut SourceFiles, statements: &Statements) -> Re
                         byte_vals.push(ByteValue::Expr(Expr::num(*byte as i32)));
                     }
                     results.push(Statement::Directive(Directive::Byte(span.clone(), byte_vals)));
+                },
+                IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
+                    let speed = match speed_opt {
+                        Some(expr) => Some(expr.eval(&HashMap::new())? as u16),
+                        None => None
+                    };
+                    let eyecatch = match eyecatch_opt {
+                        Some(ByteValue::String(_, value)) => Some(std::str::from_utf8(value).unwrap()),
+                        None => None,
+                        Some(ByteValue::Expr(exp)) => {
+                            return Err(AssemblyError::InvalidPath(exp.span().clone(), exp.clone()));
+                        }
+                    };
+                    let stmts = img::to_icon(path, speed.map(|v| v as u16), eyecatch)?;
+                    for stmt in stmts.as_slice() {
+                        results.push(stmt.clone());
+                    }
                 }
             }
         } else {
@@ -234,6 +252,18 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
     Ok(())
 }
 
+impl std::convert::From<img::IconError> for AssemblyError {
+    fn from(error: img::IconError) -> AssemblyError {
+        use img::IconError;
+        match error {
+            IconError::InvalidIconSize(path, w, h) => AssemblyError::InvalidIconSize(path, w, h),
+            IconError::InvalidPaletteSize(path, size, expected) => AssemblyError::InvalidPaletteSize(path, size, expected),
+            IconError::FileLoadFailure(path, err) => AssemblyError::FileLoadFailure(path, err),
+            IconError::ImageParseError(path, err) => AssemblyError::ImageParseError(path, err)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum AssemblyError {
     NameNotFound(Span,String),
@@ -241,6 +271,10 @@ pub enum AssemblyError {
     MustBeLiteralNumber(Span),
     NameAlreadyExists(Span,Span,String),
     InvalidCodeLocation(Span,i32),
+    InvalidPath(Span, Expr),
+    InvalidIconSize(String, usize, usize),
+    InvalidPaletteSize(String, usize, usize),
+    ImageParseError(String, image::ImageError),
     NumOutOfRange {
         span: Span,
         bits: usize,
