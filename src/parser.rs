@@ -485,6 +485,18 @@ impl Parser {
                         let span = Span::from(ident.span(), &exprs.last().unwrap().span());
                         Ok(Some(Statement::Directive(Directive::Word(span, exprs))))
                     }
+                } else if tok.has_name(".text") {
+                    let ident = tokens.next()?;
+                    let (_, n) = tokens.read_number()?;
+                    let (sspan, s) = tokens.read_string()?;
+                    let span = Span::from(ident.span(), &sspan);
+                    Ok(Some(Statement::Directive(Directive::Text(span, n as usize, s.bytes().collect()))))
+                } else if tok.has_name(".string") {
+                    let ident = tokens.next()?;
+                    let (_, n) = tokens.read_number()?;
+                    let (sspan, s) = tokens.read_string()?;
+                    let span = Span::from(ident.span(), &sspan);
+                    Ok(Some(Statement::Directive(Directive::String(span, n as usize, s.bytes().collect()))))
                 } else if tok.has_name(".include") {
                     let ident = tokens.next()?;
                     if tokens.check(|tok| tok.is_string()) {

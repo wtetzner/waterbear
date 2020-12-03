@@ -319,6 +319,19 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stderr: &mut ColorWrite
                 .newline();
             highlight_line(&span, "", files, stderr);
         },
+        NumberOfBytesIsLongerThanLength(span, length, number_of_bytes) => {
+            stderr.write("Number of bytes given (")
+                .bold()
+                .write(number_of_bytes)
+                .reset()
+                .write(") is longer than the specified length (")
+                .bold()
+                .write(length)
+                .reset()
+                .writeln(")")
+                .newline();
+            highlight_line(&span, "", files, stderr);
+        },
         NameAlreadyExists(current,existing,name) => {
             stderr
                 .write("Name already exists: ")

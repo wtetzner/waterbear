@@ -160,6 +160,8 @@ pub enum Directive {
     Byte(Span, Vec<ByteValue>),
     Org(Span, usize),
     Word(Span, Vec<Expr>),
+    Text(Span, usize, Vec<u8>),
+    String(Span, usize, Vec<u8>),
     Include(Span, IncludeType, String),
     Cnop(Span, Expr,Expr)
 }
@@ -205,6 +207,8 @@ impl Directive {
             },
             Org(_, location) => Ok((*location as i32) - pos),
             Word(_, words) => Ok((words.len() * 2) as i32),
+            Text(_, size, _bytes) => Ok(*size as i32),
+            String(_, size, _bytes) => Ok(*size as i32),
             Include(_,_,_) => Ok(0),
             Cnop(_, add, multiple) => Ok(Directive::eval_cnop(pos, add, multiple)? - pos)
         }
@@ -216,6 +220,8 @@ impl Directive {
             Byte(span, _) => span.clone(),
             Org(span, _) => span.clone(),
             Word(span, _) => span.clone(),
+            Text(span, _, _) => span.clone(),
+            String(span, _, _) => span.clone(),
             Include(span, _, _) => span.clone(),
             Cnop(span, _, _) => span.clone()
         }
@@ -229,6 +235,8 @@ impl Positioned for Directive {
             Byte(span, _) => span.clone(),
             Org(span, _) => span.clone(),
             Word(span, _) => span.clone(),
+            Text(span, _, _) => span.clone(),
+            String(span, _, _) => span.clone(),
             Include(span, _,_) => span.clone(),
             Cnop(span, _, _) => span.clone()
         }
@@ -270,6 +278,12 @@ impl fmt::Display for Directive {
                     write!(f, "{}", b)?;
                 }
                 write!(f, "")
+            },
+            Directive::Text(_, size, bytes) => {
+                write!(f, "  .text {} {}", size, escape_string(&bytes))
+            },
+            Directive::String(_, size, bytes) => {
+                write!(f, "  .string {} {}", size, escape_string(&bytes))
             },
             Directive::Org(_, num) => if *num == 0 {
                 write!(f, "  .org {}", num)
@@ -512,6 +526,12 @@ fn escape_string<'a>(bytes: &Vec<u8>) -> String {
             0x0B => {
                 escaped.push(0x5C);
                 escaped.push(0x76)
+            },
+
+            // \0
+            0x00 => {
+                escaped.push(b'\\');
+                escaped.push(b'0');
             },
 
             _ => escaped.push(current)

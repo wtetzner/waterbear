@@ -197,6 +197,32 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                             }
                         }
                     },
+                    Text(span, size, bytes) => {
+                        if bytes.len() > *size {
+                            return Err(AssemblyError::NumberOfBytesIsLongerThanLength(span.clone(), *size, bytes.len()))
+                        }
+                        for byte in bytes.iter() {
+                            output[pos] = *byte;
+                            pos = pos + 1;
+                        }
+                        for _ in 0..(*size - bytes.len()) {
+                            output[pos] = b' ';
+                            pos = pos + 1;
+                        }
+                    },
+                    String(span, size, bytes) => {
+                        if bytes.len() > *size {
+                            return Err(AssemblyError::NumberOfBytesIsLongerThanLength(span.clone(), *size, bytes.len()))
+                        }
+                        for byte in bytes.iter() {
+                            output[pos] = *byte;
+                            pos = pos + 1;
+                        }
+                        for _ in 0..(*size - bytes.len()) {
+                            output[pos] = b'\0';
+                            pos = pos + 1;
+                        }
+                    },
                     Org(span, location) => {
                         if *location > 0xFFFF {
                             return Err(AssemblyError::InvalidCodeLocation(span.clone(), *location as i32))
@@ -269,6 +295,7 @@ pub enum AssemblyError {
     NameNotFound(Span,String),
     DivideByZero(Span,String),
     MustBeLiteralNumber(Span),
+    NumberOfBytesIsLongerThanLength(Span, usize, usize), // length, number-of-bytes
     NameAlreadyExists(Span,Span,String),
     InvalidCodeLocation(Span,i32),
     InvalidPath(Span, Expr),

@@ -14,6 +14,7 @@ line.
        * [asm](#include-source-files)
        * [bytes](#include-binary-data)
        * [cpp](#include-c-header-file)
+       * [icon](#include-icon)
    * [`.cnop` Directive](#cnop)
 <!--te-->
 
@@ -137,6 +138,44 @@ assembly aliases.
 ```
 .include cpp "header.h"
 ```
+
+### Include Icon
+
+Every VMU file specifies an icon section, as well as an optional
+eyecatch image.
+
+The icon can be animated, and both the speed and the number of frames
+are specified in the file. Additionally, the icon uses a palette of 16
+16-bit colors. It is always 32x32 pixels.
+
+The eyecatch image can be missing, or it can be a single image using a
+16-color palette, a 256-color palette, or it can use 16-bit true
+color, where each pixel is directly specified using a 16-bit color.
+
+Instead of writing out those bytes directly in the assembly source
+file, or using some external tool to generate the right bytes, images
+can be directly included using the `.include icon` directive.
+
+```
+.include icon "icon.gif" speed=16, eyecatch="eyecatch.png"
+```
+
+Both `speed` and `eyecatch` are optional, e.g. you can use any of these variations:
+
+```
+.include icon "icon.gif" speed=16
+```
+
+```
+.include icon "icon.gif" eyecatch="eyecatch.png"
+```
+
+```
+.include icon "icon.gif"
+```
+
+If `speed` is omitted, a default value will be used. If `eyecatch` is
+omitted, than an eyecatch image will not be included.
 
 .cnop
 -----

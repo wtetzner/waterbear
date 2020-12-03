@@ -168,6 +168,13 @@ impl Token {
         }
     }
 
+    pub fn is_num(&self) -> bool {
+        match self.token_type {
+            TokenType::Number(_) => true,
+            _ => false
+        }
+    }
+
     pub fn is_string(&self) -> bool {
         match self.token_type {
             TokenType::String(_) => true,
