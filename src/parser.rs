@@ -1239,7 +1239,7 @@ mod test {
         let line = ".org $44";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".org $0044", printed);
+        assert_eq!(".org $0044", printed.trim());
     }
 
     #[test]
@@ -1247,7 +1247,7 @@ mod test {
         let line = ".byte $44, $65, 0x32, 0b10110";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".byte $44, $65, $32, $16", printed);
+        assert_eq!(".byte $44, $65, $32, $16", printed.trim());
     }
 
     #[test]
@@ -1255,7 +1255,7 @@ mod test {
         let line = ".word $4478, $6543, 0x3221, 0b1011100001100100";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".word $4478, $6543, $3221, $B864", printed);
+        assert_eq!(".word $4478, $6543, $3221, $B864", printed.trim());
     }
 
     #[test]
@@ -1263,7 +1263,7 @@ mod test {
         let line = ".cnop $40, $22";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".cnop $40, $22", printed);
+        assert_eq!(".cnop $40, $22", printed.trim());
     }
 
     #[test]
@@ -1271,7 +1271,7 @@ mod test {
         let line = ".include \"sfr.i\"";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".include \"sfr.i\"", printed);
+        assert_eq!(".include \"sfr.i\"", printed.trim());
     }
 
     #[test]
@@ -1279,7 +1279,7 @@ mod test {
         let line = ".byte \"foo bar baz\"";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".byte \"foo bar baz\"", printed);
+        assert_eq!(".byte \"foo bar baz\"", printed.trim());
     }
 
     #[test]
@@ -1287,7 +1287,7 @@ mod test {
         let line = ".loop";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".loop:", printed);
+        assert_eq!(".loop:", printed.trim());
     }
 
     #[test]
@@ -1295,7 +1295,7 @@ mod test {
         let line = ".include:";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".include:", printed);
+        assert_eq!(".include:", printed.trim());
     }
 
     fn parse_statement(text: &str) -> Result<Statement,ParseError> {

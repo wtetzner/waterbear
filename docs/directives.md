@@ -9,6 +9,8 @@ line.
 <!--ts-->
    * [`.byte` Directive](#byte)
    * [`.word` Directive](#word)
+   * [`.text` Directive](#text)
+   * [`.string` Directive](#string)
    * [`.org` Directive](#org)
    * [`.include` Directive](#include)
        * [asm](#include-source-files)
@@ -71,6 +73,41 @@ it evaluates to a 16-bit number.
 
 ```
 .word $8675, $2354, 765, %1001010111010010, 546
+```
+
+.text
+-----
+
+The `.text` directive inserts a string of characters directly into the
+assembler output as a stream of bytes. It takes two arguments: a
+length, and the string.
+
+If the string is shorter than the specified length, it is padded with spaces.
+
+The `.text` directive is useful for things like the VMU file description fields.
+
+.string
+-----
+
+The `.string` directive inserts a string of characters directly into the
+assembler output as a stream of bytes. It takes two arguments: a
+length, and the string.
+
+If the string is shorter than the specified length, it is padded with `nul` bytes.
+
+The `.string` directive is useful for things like the VMU file
+application identifier field.
+
+### Syntax
+
+```
+.string length string
+```
+
+### Example
+
+```
+.string 16 "My File Creator"
 ```
 
 .org

@@ -344,7 +344,7 @@ pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>)
     use crate::expression::{Expr};
     use crate::ast::{Statement, ByteValue};
 
-    let image = load_image(icon_path).unwrap().scale_channels(255);
+    let image = load_image(icon_path).unwrap().scale_channels(15);
     let palette = image.get_palette();
     if palette.len() > 16 {
         return Err(IconError::InvalidPaletteSize(icon_path.to_string(), palette.len(), 16));
@@ -357,7 +357,7 @@ pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>)
         if eyecatch_file.is_some() {
             Some(load_image(eyecatch_file.unwrap())?
                  .as_still()
-                 .scale_channels(255))
+                 .scale_channels(15))
         } else {
             None
         }
