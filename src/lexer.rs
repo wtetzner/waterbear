@@ -15,6 +15,7 @@ pub enum TokenType {
     Hash,
     Comma,
     Colon,
+    DoubleColon,
     Name(String),
     Number(i32),
     Equals,
@@ -45,6 +46,7 @@ impl TokenType {
             TokenType::Hash => "'#'",
             TokenType::Comma => "','",
             TokenType::Colon => "':'",
+            TokenType::DoubleColon => "'::'",
             TokenType::Name(_) => "Name",
             TokenType::Number(_) => "Number",
             TokenType::Equals => "'='",
@@ -83,6 +85,7 @@ impl fmt::Display for Token {
             TokenType::Hash => write!(f, "#"),
             TokenType::Comma => write!(f, ","),
             TokenType::Colon => write!(f, ":"),
+            TokenType::DoubleColon => write!(f, "::"),
             TokenType::Name(name) => write!(f, "{}", name),
             TokenType::Number(num) => write!(f, "{}", num),
             TokenType::Equals => write!(f, "="),
@@ -115,6 +118,13 @@ impl Token {
     pub fn is_colon(&self) -> bool {
         match self.token_type() {
             TokenType::Colon => true,
+            _ => false
+        }
+    }
+
+    pub fn is_double_colon(&self) -> bool {
+        match self.token_type() {
+            TokenType::DoubleColon => true,
             _ => false
         }
     }
@@ -412,6 +422,7 @@ fn read_token<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Op
                 Matcher::new(r"\)", |_| TokenType::RightParen),
                 Matcher::new("#",   |_| TokenType::Hash),
                 Matcher::new(",",   |_| TokenType::Comma),
+                Matcher::new("::",   |_| TokenType::DoubleColon),
                 Matcher::new(":",   |_| TokenType::Colon),
                 Matcher::new("=",   |_| TokenType::Equals),
                 Matcher::new(r"\+", |_| TokenType::Plus),

@@ -86,6 +86,19 @@ If the string is shorter than the specified length, it is padded with spaces.
 
 The `.text` directive is useful for things like the VMU file description fields.
 
+### Syntax
+
+```
+.text length string
+```
+
+### Examples
+
+```
+.text 16 "My Game"
+.text 32 "My Game by Me"
+```
+
 .string
 -----
 
@@ -212,7 +225,7 @@ Both `speed` and `eyecatch` are optional, e.g. you can use any of these variatio
 ```
 
 If `speed` is omitted, a default value will be used. If `eyecatch` is
-omitted, than an eyecatch image will not be included.
+omitted, then an eyecatch image will not be included.
 
 .cnop
 -----
