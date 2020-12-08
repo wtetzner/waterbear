@@ -21,7 +21,7 @@ To assemble a file, use the `waterbear assemble` command:
 For help, run `waterbear help`:
 
     % waterbear help
-    waterbear 0.2.0
+    waterbear 0.18.0
     Assembler for the Dreamcast VMU
     
     USAGE:
