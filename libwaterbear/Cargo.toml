@@ -6,7 +6,7 @@ description = "Waterbear as a C library"
 license = "Apache-2.0"
 
 [dependencies]
-waterbear = { version = "0.18.0-wip", path = "../" }
+waterbear = { path = "../" }
 
 [lib]
 name = "waterbear"

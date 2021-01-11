@@ -10,6 +10,7 @@ extern crate lazy_static;
 extern crate waterbear_instruction_derive;
 extern crate uuid;
 extern crate image;
+extern crate serde;
 
 pub mod instruction;
 pub mod parser;
@@ -72,13 +73,6 @@ pub fn run_command(args: &[String]) {
               (about: "Expand macros and output to stdout")
               (@arg INPUT: +required "Sets the input file to assemble")
              )
-            (@subcommand icon =>
-              (version: VERSION)
-              (about: "Convert an image file into the assembly needed for an icon.")
-              (@arg INPUT: +required "Input image file. Must be 32x32, and no more than 16 colors.")
-              (@arg SPEED: -s --speed +takes_value "Animation speed. Default is 10.")
-              (@arg EYECATCH: -e --eyecatch +takes_value "Eyecatch image. Must be 72×56.")
-             )
             (@subcommand disassemble =>
               (version: VERSION)
               (about: "Disassembler for the Dreamcast VMU")
@@ -86,6 +80,27 @@ pub fn run_command(args: &[String]) {
               (@arg OUTPUT: -o --output +required +takes_value "Output file")
               (@arg POSITIONS: -p --positions "Output byte positions")
               (@arg ARRIVED_FROM: -a --arrived_from "Output instruction locations that target each instruction.")
+             )
+            (@subcommand icon =>
+              (version: VERSION)
+              (about: "Convert an image file into the assembly needed for an icon.")
+              (@arg INPUT: +required "Input image file. Must be 32x32, and no more than 16 colors.")
+              (@arg SPEED: -s --speed +takes_value "Animation speed. Default is 10.")
+              (@arg EYECATCH: -e --eyecatch +takes_value "Eyecatch image. Must be 72×56.")
+             )
+            (@subcommand jsonify =>
+             (version: VERSION)
+             (about: "Parse an image file into JSON.")
+             (@arg INPUT: +required "Input image file.")
+             (@arg OUTPUT: -o --output +takes_value "Output file")
+             (@arg pretty: -p --pretty "Pretty print the output JSON."))
+            (@subcommand vmi =>
+              (version: VERSION)
+              (about: "Extract a VMI file from a given VMS file.")
+              (@arg INPUT: +required "Input VMS file.")
+              (@arg OUTPUT: -o --output +takes_value "Output file")
+              (@arg copyright: -c --copyright +takes_value "Copyright notice")
+              (@arg game: -g --game "Specify whether or not the VMS file is a game.")
              )
             (@subcommand version =>
               (version: VERSION)
@@ -183,6 +198,52 @@ pub fn run_command(args: &[String]) {
                 std::process::exit(1);
             }
         }
+    } else if let Some(matches) = matches.subcommand_matches("jsonify") {
+        let input_file = matches.value_of("INPUT").unwrap();
+        let pretty = matches.is_present("pretty");
+        let image = img::load_image(input_file).unwrap();
+        let serialized = if pretty {
+            serde_json::to_string_pretty(&image).unwrap()
+        } else {
+            serde_json::to_string(&image).unwrap()
+        };
+        match matches.value_of("OUTPUT") {
+            Some(output) => {
+                let mut outfile = File::create(output).unwrap();
+                outfile.write(serialized.as_bytes()).unwrap();
+            }
+            None => {
+                println!("{}", serialized);
+            }
+        }
+    } else if let Some(matches) = matches.subcommand_matches("vmi") {
+        let input_file = matches.value_of("INPUT").unwrap();
+        let copyright = matches.value_of("copyright").unwrap_or("");
+        let filename_regex = Regex::new("\\.vms$").unwrap();
+        let gen_output_file: &str = &(filename_regex.replace(input_file, "") + ".vmi");
+        let output_file = matches.value_of("OUTPUT").unwrap_or(gen_output_file);
+        let game = matches.is_present("game");
+
+        let offset: usize = if game { 0x200 } else { 0 };
+
+        match generate_vmi(input_file, output_file, copyright, offset) {
+            Ok(_num_bytes) => {},
+            Err(ref err) => {
+                stderr.write_error().space()
+                    .write("Failed to generate VMI from ")
+                    .cyan()
+                    .write(input_file)
+                    .reset()
+                    .newline()
+                    .newline()
+                    .red()
+                    .write("✘")
+                    .reset()
+                    .space();
+                //print_error(&mut files, err, &mut stderr);
+            }
+        }
+
     } else if let Some(matches) = matches.subcommand_matches("expand") {
         let input_file = matches.value_of("INPUT").unwrap();
         let path = Path::new(input_file);
@@ -244,6 +305,127 @@ pub fn run_command(args: &[String]) {
         eprintln!("No subcommand specified");
         std::process::exit(1);
     }
+}
+
+fn generate_vmi(input_file: &str, output_file: &str, copyright: &str, offset: usize) -> Result<(), DisasmError> {
+    use chrono::prelude::*;
+
+    let vms_bytes = {
+        let mut file = File::open(input_file).map_err(|e| DisasmError::NoSuchFile(input_file.to_string(), e))?;
+        let mut contents: Vec<u8> = vec![];
+        file.read_to_end(&mut contents).map_err(|e| DisasmError::NoSuchFile(input_file.to_string(), e))?;
+        contents
+    };
+
+    let basename = {
+        let parts: Vec<&str> = input_file.split('/').collect();
+        let filename = parts[parts.len() - 1];
+        let filename_regex = Regex::new("\\.vms$").unwrap();
+        let base = filename_regex.replace(filename, "").to_string();
+        base
+    };
+    let basename_bytes = basename.as_bytes();
+
+    let filename = {
+        let parts: Vec<&str> = input_file.split('/').collect();
+        let filename = parts[parts.len() - 1];
+        filename.to_string()
+    };
+    let filename_bytes = filename.as_bytes();
+
+    let mut bytes = [0u8; 108];
+
+    // Copy description field from VMS file
+    for idx in 0..32usize {
+        bytes[0x4 + idx] = vms_bytes[offset + 0x10 + idx];
+    }
+
+    // Write copyright notice
+    let copyright_bytes = copyright.as_bytes();
+    for idx in 0..32usize {
+        if copyright_bytes.len() > idx {
+            bytes[0x24 + idx] = copyright_bytes[idx];
+        } else {
+            bytes[0x24 + idx] = b'\0';
+        }
+    }
+
+    // Set file number to 1
+    bytes[0x4E] = 1;
+    bytes[0x4E + 1] = 0;
+
+    // Write VMS resource name
+    for idx in 0..8usize {
+        if basename_bytes.len() > idx {
+            bytes[0x50 + idx] = basename_bytes[idx];
+        } else {
+            bytes[0x50 + idx] = b'\0';
+        }
+    }
+
+    // Write VMS filename
+    for idx in 0..12usize {
+        if filename_bytes.len() > idx {
+            bytes[0x50 + idx] = filename_bytes[idx];
+        } else {
+            bytes[0x50 + idx] = b'\0';
+        }
+    }
+
+    // Write game info
+    if offset > 0 {
+        bytes[0x64] = 0b00000010;
+    }
+
+    // Write checksum
+    bytes[0] = bytes[0x50] & b'S';
+    bytes[1] = bytes[0x50 + 1] & b'E';
+    bytes[2] = bytes[0x50 + 2] & b'G';
+    bytes[3] = bytes[0x50 + 3] & b'A';
+
+    // Write file size
+    {
+        let le_bytes = vms_bytes.len().to_le_bytes();
+        for idx in 0..4 {
+            bytes[0x68 + idx] = le_bytes[idx];
+        }
+    }
+
+    // *** Write current time ***
+    let datetime: DateTime<Local> = Local::now();
+    // Write year
+    {
+        let le_bytes = (datetime.year() as u16).to_le_bytes();
+        for idx in 0..2 {
+            bytes[0x44 + idx] = le_bytes[idx];
+        }
+    }
+    // Write month
+    bytes[0x46] = datetime.month() as u8;
+    // Write day
+    bytes[0x47] = datetime.day() as u8;
+    // Write hour
+    bytes[0x48] = datetime.hour() as u8;
+    // Write minute
+    bytes[0x49] = datetime.minute() as u8;
+    // Write second
+    bytes[0x4A] = datetime.second() as u8;
+
+    // Write weekday
+    bytes[0x4B] = match datetime.weekday() {
+        Weekday::Sun => 0,
+        Weekday::Mon => 1,
+        Weekday::Tue => 2,
+        Weekday::Wed => 3,
+        Weekday::Thu => 4,
+        Weekday::Fri => 5,
+        Weekday::Sat => 6
+    };
+
+    let mut outfile = File::create(output_file).unwrap();
+    outfile.write_all(&bytes).unwrap();
+
+    Ok(())
 }
 
 fn disassemble_cmd(positions: bool, arrived_from: bool, filename: &str, output_file: &str) -> Result<(), DisasmError> {

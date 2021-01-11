@@ -6,6 +6,8 @@ use image::gif::{GifDecoder};
 use image::{AnimationDecoder};
 use std::fs::File;
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use serde_json::{Result as SerdeJsonResult};
 
 #[derive(Debug)]
 pub enum IconError {
@@ -30,7 +32,7 @@ impl std::convert::From<ImageLoadError> for IconError {
     }
 }
 
-#[derive(Debug,Clone,Copy,Hash,Eq,PartialEq)]
+#[derive(Debug,Clone,Copy,Hash,Eq,PartialEq,Deserialize,Serialize)]
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -68,7 +70,7 @@ impl Color {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Deserialize,Serialize)]
 pub struct Frame {
     pub delay: (u32, u32),
     pub rows: Vec<Vec<Color>>
@@ -88,7 +90,7 @@ impl Frame {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Deserialize,Serialize)]
 pub struct Image {
     pub frames: Vec<Frame>
 }

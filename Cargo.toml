@@ -10,12 +10,15 @@ license="Apache-2.0"
 lazy_static = "1.0"
 unicode-segmentation = "1.2.0"
 unicode_categories = "0.1"
-clap = "2.32"
+clap = "2.33.3"
 regex = "1.0"
 termcolor = "1"
 atty = "0.2"
 uuid = { version = "0.7", features = ["v4"] }
 image = "*"
+chrono = "0.4"
+serde_json = "1.0"
+serde = { version = "*", features = ["derive"] }
 
 # custom derives
 waterbear-instruction-derive = { version = "0.1", path = "waterbear-instruction-derive" }
