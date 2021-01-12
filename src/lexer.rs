@@ -5,6 +5,14 @@ use regex::Regex;
 use crate::location::{Location,Span};
 use lazy_static::lazy_static;
 
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+pub enum Radix {
+    Decimal,
+    Hex,
+    Binary,
+    Octal
+}
+
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum TokenType {
     Ampersand,
@@ -17,7 +25,7 @@ pub enum TokenType {
     Colon,
     DoubleColon,
     Name(String),
-    Number(i32),
+    Number(i32, Radix),
     Equals,
     Plus,
     Times,
@@ -48,7 +56,7 @@ impl TokenType {
             TokenType::Colon => "':'",
             TokenType::DoubleColon => "'::'",
             TokenType::Name(_) => "Name",
-            TokenType::Number(_) => "Number",
+            TokenType::Number(_, _) => "Number",
             TokenType::Equals => "'='",
             TokenType::Plus => "'+'",
             TokenType::Times => "'*'",
@@ -87,7 +95,7 @@ impl fmt::Display for Token {
             TokenType::Colon => write!(f, ":"),
             TokenType::DoubleColon => write!(f, "::"),
             TokenType::Name(name) => write!(f, "{}", name),
-            TokenType::Number(num) => write!(f, "{}", num),
+            TokenType::Number(num, _) => write!(f, "{}", num),
             TokenType::Equals => write!(f, "="),
             TokenType::Plus => write!(f, "+"),
             TokenType::Times => write!(f, "*"),
@@ -180,7 +188,7 @@ impl Token {
 
     pub fn is_num(&self) -> bool {
         match self.token_type {
-            TokenType::Number(_) => true,
+            TokenType::Number(_, _) => true,
             _ => false
         }
     }
@@ -385,22 +393,22 @@ fn skip_whitespace_and_comments<'a>(input: &Input<'a>) -> Input<'a> {
 
 fn to_hex_num(text: &str, prefix: usize) -> TokenType {
     let num = i32::from_str_radix(&text[prefix..], 16).unwrap();
-    TokenType::Number(num)
+    TokenType::Number(num, Radix::Hex)
 }
 
 fn to_oct_num(text: &str) -> TokenType {
     let num = i32::from_str_radix(&text[2..], 8).unwrap();
-    TokenType::Number(num)
+    TokenType::Number(num, Radix::Octal)
 }
 
 fn to_bin_num(text: &str, prefix: usize) -> TokenType {
     let num = i32::from_str_radix(&text[prefix..], 2).unwrap();
-    TokenType::Number(num)
+    TokenType::Number(num, Radix::Binary)
 }
 
 fn to_dec_num(text: &str) -> TokenType {
     let num = i32::from_str_radix(text, 10).unwrap();
-    TokenType::Number(num)
+    TokenType::Number(num, Radix::Decimal)
 }
 
 fn read_token<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Option<(Input<'a>,Token)> {

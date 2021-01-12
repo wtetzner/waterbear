@@ -12,7 +12,7 @@ use crate::ast::{
 };
 use crate::lexer::{Token,TokenType,LexerError};
 use crate::lexer;
-use crate::expression::{Expr,Arg,IndirectionMode};
+use crate::expression::{Expr,Arg,IndirectionMode,Radix};
 use std::collections::{HashMap,HashSet};
 use crate::instruction::Instr;
 
@@ -473,7 +473,7 @@ impl Parser {
                     }
                 } else if tok.has_name(".org") {
                     let ident = tokens.next()?;
-                    let (nspan, num) = tokens.read_number()?;
+                    let (nspan, num, _) = tokens.read_number()?;
                     let span = Span::from(ident.span(), &nspan);
                     Ok(Some(Statement::Directive(Directive::Org(span, num as usize))))
                 } else if tok.has_name(".word") {
@@ -487,13 +487,13 @@ impl Parser {
                     }
                 } else if tok.has_name(".text") {
                     let ident = tokens.next()?;
-                    let (_, n) = tokens.read_number()?;
+                    let (_, n, _) = tokens.read_number()?;
                     let (sspan, s) = tokens.read_string()?;
                     let span = Span::from(ident.span(), &sspan);
                     Ok(Some(Statement::Directive(Directive::Text(span, n as usize, s.bytes().collect()))))
                 } else if tok.has_name(".string") {
                     let ident = tokens.next()?;
-                    let (_, n) = tokens.read_number()?;
+                    let (_, n, _) = tokens.read_number()?;
                     let (sspan, s) = tokens.read_string()?;
                     let span = Span::from(ident.span(), &sspan);
                     Ok(Some(Statement::Directive(Directive::String(span, n as usize, s.bytes().collect()))))
@@ -634,13 +634,13 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub fn read_number(&mut self) -> Result<(Span,i32),ParseError> {
+    pub fn read_number(&mut self) -> Result<(Span,i32,lexer::Radix),ParseError> {
         use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
-            Number(num) => {
+            Number(num, radix) => {
                 self.advance();
-                Ok((tok.span().clone(), *num))
+                Ok((tok.span().clone(), *num, *radix))
             },
             _ => Err(ParseError::ExpectedTokenNotFound("Number", tok.clone()))
         }
@@ -1085,8 +1085,8 @@ impl PrefixParselet for NumberParselet {
     fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
                  -> Result<Expr,ParseError> {
         match token.token_type() {
-            TokenType::Number(num) =>
-                Ok(Expr::Number(token.span().clone(), *num)),
+            TokenType::Number(num, radix) =>
+                Ok(Expr::Number(token.span().clone(), *num, Radix::from(radix))),
             _ => Err(ParseError::ExpectedTokenNotFound("Number", token.clone()))
         }
     }
@@ -1162,7 +1162,7 @@ impl lexer::TokenType {
         match self {
             LeftParen => Some(ExprTokenType::Paren),
             Name(_) => Some(ExprTokenType::Name),
-            Number(_) => Some(ExprTokenType::Number),
+            Number(_, _) => Some(ExprTokenType::Number),
             Plus => Some(ExprTokenType::Plus),
             Times => Some(ExprTokenType::Times),
             Minus => Some(ExprTokenType::Minus),
@@ -1194,15 +1194,15 @@ mod test {
     fn test_expression_parser() {
         check_expression_parser(
             "fred + 2 * 7 - 21 * (6 + 7)",
-            "(fred + (2 * 7)) - ($15 * (6 + 7))"
+            "(fred + (2 * 7)) - (21 * (6 + 7))"
         );
         check_expression_parser(
             "bob + sam + -12 * 7",
-            "(bob + sam) + ((-$0C) * 7)"
+            "(bob + sam) + ((-12) * 7)"
         );
         check_expression_parser(
             "bob + sam + -12 * 7 + ->fred - <sam",
-            "(((bob + sam) + ((-$0C) * 7)) + (-(>fred))) - (<sam)"
+            "(((bob + sam) + ((-12) * 7)) + (-(>fred))) - (<sam)"
         );
     }
 
@@ -1247,7 +1247,7 @@ mod test {
         let line = ".byte $44, $65, 0x32, 0b10110";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".byte $44, $65, $32, $16", printed.trim());
+        assert_eq!(".byte $44, $65, $32, %00010110", printed.trim());
     }
 
     #[test]
@@ -1255,7 +1255,7 @@ mod test {
         let line = ".word $4478, $6543, 0x3221, 0b1011100001100100";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".word $4478, $6543, $3221, $B864", printed.trim());
+        assert_eq!(".word $4478, $6543, $3221, %1011100001100100", printed.trim());
     }
 
     #[test]

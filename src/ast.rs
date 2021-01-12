@@ -107,6 +107,14 @@ impl ArgType {
 }
 
 #[derive(Debug,Clone)]
+pub enum Radix {
+    Decimal,
+    Hex,
+    Binary,
+    Octal
+}
+
+#[derive(Debug,Clone)]
 pub enum ByteValue {
     Expr(Expr),
     String(Span, Vec<u8>)
@@ -170,7 +178,7 @@ impl Directive {
     fn eval_cnop_expr(expr: &Expr) -> Result<i32,EvaluationError> {
         use crate::expression::Expr::*;
         match expr {
-            Number(_, num) => Ok(*num),
+            Number(_, num, _) => Ok(*num),
             _ => Err(EvaluationError::MustBeLiteralNumber(expr.span()))
         }
     }
@@ -246,10 +254,7 @@ impl Positioned for Directive {
 impl fmt::Display for ByteValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ByteValue::Expr(expr) => match expr {
-                Expr::Number(_, num) => write!(f, "${:02X}", num),
-                _ => write!(f, "{}", self)
-            },
+            ByteValue::Expr(expr) => write!(f, "{}", expr),
             ByteValue::String(_, vec) => {
                 write!(f, "\"{}\"", escape_string(vec))
             }

@@ -3,6 +3,7 @@ use std::fmt;
 use crate::location::{Positioned, Span};
 use crate::env::Env;
 use std::collections::{HashMap};
+use crate::lexer;
 
 #[derive(Debug)]
 pub enum EvaluationError {
@@ -32,6 +33,25 @@ impl EvaluationError {
     }
 }
 
+#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+pub enum Radix {
+    Decimal,
+    Hex,
+    Binary,
+    Octal
+}
+
+impl Radix {
+    pub fn from(radix: &lexer::Radix) -> Radix {
+        match radix {
+            lexer::Radix::Decimal => Radix::Decimal,
+            lexer::Radix::Hex => Radix::Hex,
+            lexer::Radix::Binary => Radix::Binary,
+            lexer::Radix::Octal => Radix::Octal
+        }
+    }
+}
+
 #[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
 pub enum Expr {
     Name(Span, String),
@@ -40,7 +60,7 @@ pub enum Expr {
     UnaryMinus(Span, Box<Expr>),
     Times(Span, Box<Expr>, Box<Expr>),
     Divide(Span, Box<Expr>, Box<Expr>),
-    Number(Span, i32),
+    Number(Span, i32, Radix),
     UpperByte(Span, Box<Expr>),
     LowerByte(Span, Box<Expr>),
     MacroLabel(Span, String),
@@ -52,7 +72,19 @@ pub enum Expr {
 
 impl Expr {
     pub fn num(num: i32) -> Expr {
-        Expr::Number(Span::default(), num)
+        Expr::Number(Span::default(), num, Radix::Hex)
+    }
+
+    pub fn binary(num: i32) -> Expr {
+        Expr::Number(Span::default(), num, Radix::Binary)
+    }
+
+    pub fn decimal(num: i32) -> Expr {
+        Expr::Number(Span::default(), num, Radix::Decimal)
+    }
+
+    pub fn octal(num: i32) -> Expr {
+        Expr::Number(Span::default(), num, Radix::Octal)
     }
 
     pub fn name(name: &str) -> Expr {
@@ -71,7 +103,7 @@ impl Expr {
             UnaryMinus(_, expr) => UnaryMinus(new_span, expr.clone()),
             Times(_, left, right) => Times(new_span, left.clone(), right.clone()),
             Divide(_, left, right) => Divide(new_span, left.clone(), right.clone()),
-            Number(_, num) => Number(new_span, *num),
+            Number(_, num, radix) => Number(new_span, *num, *radix),
             UpperByte(_, expr) => UpperByte(new_span, expr.clone()),
             LowerByte(_, expr) => LowerByte(new_span, expr.clone()),
             MacroLabel(_, name) => MacroLabel(new_span, name.clone()),
@@ -127,7 +159,7 @@ impl Expr {
                 Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
                 Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?)
             )),
-            Number(span, num) => Ok(Expr::Number(span.with_parent(inv_span.clone()).clone(), *num)),
+            Number(span, num, radix) => Ok(Expr::Number(span.with_parent(inv_span.clone()).clone(), *num, *radix)),
             UpperByte(span, expr) => Ok(Expr::UpperByte(
                 span.with_parent(inv_span.clone()),
                 Box::new(expr.replace_macro_args(inv_span.clone(), labels, args)?)
@@ -170,7 +202,7 @@ impl Positioned for Expr {
             Expr::UnaryMinus(span, _) => span.clone(),
             Expr::Times(span, _, _) => span.clone(),
             Expr::Divide(span, _, _) => span.clone(),
-            Expr::Number(span, _) => span.clone(),
+            Expr::Number(span, _, _) => span.clone(),
             Expr::UpperByte(span, _) => span.clone(),
             Expr::LowerByte(span, _) => span.clone(),
             Expr::MacroLabel(span, _) => span.clone(),
@@ -289,12 +321,15 @@ impl fmt::Display for Expr {
                 if right_paren { write!(f, ")")?; }
                 write!(f, "")
             },
-            Expr::Number(_, num) => if *num >= 0 && *num <= 9 {
-                write!(f, "{}", num)
-            } else if *num <= 0xFF {
-                write!(f, "${:02X}", num)
-            } else {
-                write!(f, "${:04X}", num)
+            Expr::Number(_, num, radix) => match radix {
+                Radix::Decimal => write!(f, "{}", num),
+                Radix::Hex => if *num <= 0xFF {
+                    write!(f, "${:02X}", num)
+                } else {
+                    write!(f, "${:04X}", num)
+                },
+                Radix::Octal => write!(f, "${:04o}", num),
+                Radix::Binary => write!(f, "%{:08b}", num)
             },
             Expr::UpperByte(_, expr) => {
                 let paren = expr.complex();
@@ -330,7 +365,7 @@ impl Expr {
             Expr::UnaryMinus(_,_) => true,
             Expr::Times(_,_,_) => true,
             Expr::Divide(_,_,_) => true,
-            Expr::Number(_,_) => false,
+            Expr::Number(_,_,_) => false,
             Expr::UpperByte(_,_) => true,
             Expr::LowerByte(_,_) => true,
             Expr::MacroLabel(_,_) => false,
@@ -361,7 +396,7 @@ impl Expr {
                     Ok(left_val / right_val)
                 }
             },
-            Expr::Number(_, num) => Ok(*num),
+            Expr::Number(_, num, _radix) => Ok(*num),
             Expr::UpperByte(_, expr) => {
                 let value = expr.eval(name_lookup)?;
                 Ok((value >> 8) & 0xFF)

@@ -8,6 +8,7 @@ use std::fs::File;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Result as SerdeJsonResult};
+use enum_iterator::IntoEnumIterator;
 
 #[derive(Debug)]
 pub enum IconError {
@@ -28,6 +29,36 @@ impl std::convert::From<ImageLoadError> for IconError {
         match error {
             ImageLoadError::FileLoadFailure(s, e) => IconError::FileLoadFailure(s, e),
             ImageLoadError::ImageParseError(s, e) => IconError::ImageParseError(s, e)
+        }
+    }
+}
+
+#[derive(Debug,Clone,Copy,Hash,Eq,PartialEq,Deserialize,Serialize,IntoEnumIterator)]
+pub enum ImageFormat {
+    Json,
+    JsonPretty,
+    Asm1Bit,
+    Asm1BitMasked
+}
+
+impl ImageFormat {
+    pub fn name(&self) -> &str {
+        use ImageFormat::*;
+        match self {
+            Json => "json",
+            JsonPretty => "json-pretty",
+            Asm1Bit => "1bit-asm",
+            Asm1BitMasked => "1bit-asm-masked"
+        }
+    }
+
+    pub fn from(name: &str) -> Option<ImageFormat> {
+        match name {
+            "json" => Some(ImageFormat::Json),
+            "json-pretty" => Some(ImageFormat::JsonPretty),
+            "1bit-asm" => Some(ImageFormat::Asm1Bit),
+            "1bit-asm-masked" => Some(ImageFormat::Asm1BitMasked),
+            _ => None
         }
     }
 }
@@ -68,6 +99,18 @@ impl Color {
             | (((self.green as i32) & 0xF) << 4)
             | ((self.blue as i32) & 0xF)
     }
+
+    pub fn grayscale(&self) -> Color {
+        let gray = ((0.3f64 * (self.red as f64))
+                    + (0.59f64 * (self.green as f64))
+                    + (0.11f64 * (self.blue as f64))).round() as u8;
+        Color {
+            red:  gray,
+            green: gray,
+            blue: gray,
+            alpha: self.alpha
+        }
+    }
 }
 
 #[derive(Debug,Clone,Deserialize,Serialize)]
@@ -77,6 +120,54 @@ pub struct Frame {
 }
 
 impl Frame {
+    pub fn size(&self) -> (usize, usize) {
+        let height = self.rows.len();
+        let width = if height > 0 {
+            self.rows[0].len()
+        } else {
+            0usize
+        };
+
+        (width, height)
+    }
+
+    pub fn to_1bit_asm(&self) -> crate::ast::Statements {
+        use crate::expression::{Expr};
+        use crate::ast::{Statement, Statements, ByteValue};
+
+        let mut stmts = vec![];
+
+        let (width, height) = self.size();
+
+        stmts.push(Statement::comment(&format!("\nWidth: {}, Height: {}", width, height)));
+        stmts.push(Statement::byte(vec![
+            ByteValue::Expr(Expr::decimal(width as i32)),
+            ByteValue::Expr(Expr::decimal(height as i32))]));
+
+        for row in &self.rows {
+            let mut bytes: Vec<u8> = vec![];
+            let mut idx: usize = 0;
+            for color in row {
+                let gray = color.grayscale();
+                let bit = if gray.red <= 127 { 1 } else { 0 };
+                if idx % 8 == 0 {
+                    bytes.push(bit << 7 as u8);
+                } else {
+                    let last_idx = bytes.len() - 1;
+                    let byte = bytes[last_idx];
+                    bytes[last_idx] = byte | (bit << (7 - (idx % 8)));
+                }
+                idx = idx + 1;
+            }
+            let byte_exprs: Vec<ByteValue> = bytes.iter()
+                .map(|b| ByteValue::Expr(Expr::binary(*b as i32)))
+                .collect();
+            stmts.push(Statement::byte(byte_exprs));
+        }
+
+        Statements::new(HashMap::new(), stmts)
+    }
+
     pub fn is_size(&self, width: usize, height: usize) -> bool {
         if height != self.rows.len() {
             return false;
@@ -142,6 +233,20 @@ impl Image {
         let anim_speed = Expr::num(speed as i32);
         stmts.push(Statement::comment(&format!("\n\"{}\" Frames: {}, Speed: {}", name, self.frames.len(), speed)));
         stmts.push(Statement::word(vec![frames, anim_speed]));
+        Statements::new(HashMap::new(), stmts)
+    }
+
+    pub fn to_1bit_asm(&self) -> crate::ast::Statements {
+        use crate::ast::{Statements};
+
+        let mut stmts = vec![];
+
+        for frame in &self.frames {
+            for stmt in frame.to_1bit_asm().iter() {
+                stmts.push(stmt.clone());
+            }
+        }
+
         Statements::new(HashMap::new(), stmts)
     }
 

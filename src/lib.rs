@@ -11,6 +11,7 @@ extern crate waterbear_instruction_derive;
 extern crate uuid;
 extern crate image;
 extern crate serde;
+extern crate enum_iterator;
 
 pub mod instruction;
 pub mod parser;
@@ -88,12 +89,12 @@ pub fn run_command(args: &[String]) {
               (@arg SPEED: -s --speed +takes_value "Animation speed. Default is 10.")
               (@arg EYECATCH: -e --eyecatch +takes_value "Eyecatch image. Must be 72×56.")
              )
-            (@subcommand jsonify =>
+            (@subcommand image =>
              (version: VERSION)
-             (about: "Parse an image file into JSON.")
+             (about: "Convert an image file into another format.")
              (@arg INPUT: +required "Input image file.")
              (@arg OUTPUT: -o --output +takes_value "Output file")
-             (@arg pretty: -p --pretty "Pretty print the output JSON."))
+             (@arg format: -f --format "Output format"))
             (@subcommand vmi =>
               (version: VERSION)
               (about: "Extract a VMI file from a given VMS file.")
@@ -198,20 +199,26 @@ pub fn run_command(args: &[String]) {
                 std::process::exit(1);
             }
         }
-    } else if let Some(matches) = matches.subcommand_matches("jsonify") {
+    } else if let Some(matches) = matches.subcommand_matches("image") {
         let input_file = matches.value_of("INPUT").unwrap();
-        let pretty = matches.is_present("pretty");
+        let format = img::ImageFormat::from(matches.value_of("format").unwrap_or(""))
+            .unwrap_or(img::ImageFormat::Asm1Bit);
         let image = img::load_image(input_file).unwrap();
-        let serialized = if pretty {
-            serde_json::to_string_pretty(&image).unwrap()
-        } else {
-            serde_json::to_string(&image).unwrap()
+
+        use img::ImageFormat;
+        let serialized = match format {
+            ImageFormat::Json => serde_json::to_string(&image).unwrap(),
+            ImageFormat::JsonPretty => serde_json::to_string_pretty(&image).unwrap(),
+            ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm()),
+            //""
+            _ => panic!("Unknown format: {}", format.name())
         };
+
         match matches.value_of("OUTPUT") {
             Some(output) => {
                 let mut outfile = File::create(output).unwrap();
                 outfile.write(serialized.as_bytes()).unwrap();
-            }
+            },
             None => {
                 println!("{}", serialized);
             }
