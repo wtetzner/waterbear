@@ -152,7 +152,7 @@ fn replace_byte_includes(files: &mut SourceFiles, statements: &Statements) -> Re
                     let image = img::load_image(path).unwrap();
                     let stmts = match typ {
                         SpriteType::Simple => image.to_1bit_asm(),
-                        SpriteType::Masked => todo!("Implement Masked Sprites")
+                        SpriteType::Masked => todo!("Include masked sprites")
                     };
                     for stmt in stmts.as_slice() {
                         results.push(stmt.clone());

@@ -521,7 +521,7 @@ impl Parser {
                             tokens.read_name()?;
                             let (str_span, string) = tokens.read_string()?;
                             let properties = self.parse_keyval_pairs(tokens)?;
-                            let typ = match properties.get("typ") {
+                            let typ = match properties.get("type") {
                                 Some(ByteValue::String(span, ref value)) => {
                                     let value_str = std::str::from_utf8(value).unwrap();
                                     match value_str {
