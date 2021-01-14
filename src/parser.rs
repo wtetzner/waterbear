@@ -8,7 +8,8 @@ use crate::ast::{
     IncludeType,
     ArgType,
     MacroDefinition,
-    MacroStatement
+    MacroStatement,
+    SpriteType
 };
 use crate::lexer::{Token,TokenType,LexerError};
 use crate::lexer;
@@ -32,6 +33,7 @@ pub enum ParseError {
     MacroAlreadyExists(Span, Span, String),
     DuplicateMacroArg(Span),
     InvalidMacroArg(Span),
+    InvalidSpriteType(Span, String),
     UnexpectedEof
 }
 
@@ -515,6 +517,25 @@ impl Parser {
                             };
                             let eyecatch = properties.get("eyecatch").map(|x| x.clone());
                             Ok(Some(Statement::Directive(Directive::Include(str_span, IncludeType::Icon(speed, eyecatch), string))))
+                        } else if tokens.check(|tok| tok.has_name("sprite")) {
+                            tokens.read_name()?;
+                            let (str_span, string) = tokens.read_string()?;
+                            let properties = self.parse_keyval_pairs(tokens)?;
+                            let typ = match properties.get("typ") {
+                                Some(ByteValue::String(span, ref value)) => {
+                                    let value_str = std::str::from_utf8(value).unwrap();
+                                    match value_str {
+                                        "simple" => SpriteType::Simple,
+                                        "masked" => SpriteType::Masked,
+                                        _ => return Err(ParseError::InvalidSpriteType(span.clone(), value_str.to_string()))
+                                    }
+                                },
+                                Some(ByteValue::Expr(ref expr)) => {
+                                    return Err(ParseError::InvalidSpriteType(expr.span(), format!("{}", expr)));
+                                },
+                                None => SpriteType::Simple
+                            };
+                            Ok(Some(Statement::Directive(Directive::Include(str_span, IncludeType::Sprite(typ), string))))
                         } else {
                             let (_, inc_type) = tokens.read_include_type()?;
                             let (str_span, string) = tokens.read_string()?;

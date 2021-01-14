@@ -10,7 +10,8 @@ use crate::ast::{
     ByteValue,
     IncludeType,
     ArgType,
-    MacroStatement
+    MacroStatement,
+    SpriteType
 };
 use crate::expression::{EvaluationError,Expr,Arg};
 use std::collections::HashMap;
@@ -86,7 +87,9 @@ fn replace_includes(parser: &Parser, files: &mut SourceFiles, tokens: &[Token]) 
                             };
                             results.append(&mut new_tokens);
                         },
-                        IncludeType::Bytes | IncludeType::Icon(_, _) => {
+                        IncludeType::Bytes
+                            | IncludeType::Icon(_, _)
+                            | IncludeType::Sprite(_) => {
                             for token in line.iter() {
                                 results.push(token.clone());
                             }
@@ -141,6 +144,16 @@ fn replace_byte_includes(files: &mut SourceFiles, statements: &Statements) -> Re
                         }
                     };
                     let stmts = img::to_icon(path, speed.map(|v| v as u16), eyecatch)?;
+                    for stmt in stmts.as_slice() {
+                        results.push(stmt.clone());
+                    }
+                },
+                IncludeType::Sprite(ref typ) => {
+                    let image = img::load_image(path).unwrap();
+                    let stmts = match typ {
+                        SpriteType::Simple => image.to_1bit_asm(),
+                        SpriteType::Masked => todo!("Implement Masked Sprites")
+                    };
                     for stmt in stmts.as_slice() {
                         results.push(stmt.clone());
                     }
@@ -354,7 +367,8 @@ pub enum AssemblyError {
     MacroArgOutsideOfMacro(Span),
     ImmediateValueNotAllowedHere(Span),
     IndirectionModeNotAllowedHere(Span),
-    NoSuchMacro(Span, String)
+    NoSuchMacro(Span, String),
+    InvalidSpriteType(Span, String)
 }
 
 impl From<LexerError> for AssemblyError {
@@ -394,6 +408,7 @@ impl From<ParseError> for AssemblyError {
             MacroAlreadyExists(span1, span2, string) => AssemblyError::MacroAlreadyExists(span1, span2, string),
             DuplicateMacroArg(span) => AssemblyError::DuplicateMacroArg(span),
             InvalidMacroArg(span) => AssemblyError::InvalidMacroArg(span),
+            InvalidSpriteType(span, typ) => AssemblyError::InvalidSpriteType(span, typ),
             UnexpectedEof => AssemblyError::UnexpectedEof
         }
     }

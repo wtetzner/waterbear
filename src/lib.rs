@@ -910,6 +910,15 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stderr: &mut ColorWrite
                 .writeln(".")
                 .newline();
             highlight_line(span, "", files, stderr);
+        },
+        InvalidSpriteType(span, typ) => {
+            stderr.write("Invalid sprite type: ")
+                .cyan()
+                .write(typ)
+                .reset()
+                .writeln(".")
+                .newline();
+            highlight_line(span, "", files, stderr);
         }
     }
 }
