@@ -209,8 +209,8 @@ pub fn run_command(args: &[String]) {
         let serialized = match format {
             ImageFormat::Json => serde_json::to_string(&image).unwrap(),
             ImageFormat::JsonPretty => serde_json::to_string_pretty(&image).unwrap(),
-            ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm()),
-            //""
+            ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm(false)),
+            ImageFormat::Asm1BitMasked => format!("{}", image.to_1bit_asm(true)),
             _ => panic!("Unknown format: {}", format.name())
         };
 

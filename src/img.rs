@@ -7,7 +7,6 @@ use image::{AnimationDecoder};
 use std::fs::File;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::{Result as SerdeJsonResult};
 use enum_iterator::IntoEnumIterator;
 
 #[derive(Debug)]
@@ -111,6 +110,11 @@ impl Color {
             alpha: self.alpha
         }
     }
+
+    // If transparent, return 1, else 0.
+    pub fn transparency(&self) -> u8 {
+        if self.alpha <= 127 { 1u8 } else { 0u8 }
+    }
 }
 
 #[derive(Debug,Clone,Deserialize,Serialize)]
@@ -131,7 +135,7 @@ impl Frame {
         (width, height)
     }
 
-    pub fn to_1bit_asm(&self) -> crate::ast::Statements {
+    pub fn to_1bit_asm(&self, masked: bool) -> crate::ast::Statements {
         use crate::expression::{Expr};
         use crate::ast::{Statement, Statements, ByteValue};
 
@@ -139,10 +143,33 @@ impl Frame {
 
         let (width, height) = self.size();
 
-        stmts.push(Statement::comment(&format!("\nWidth: {}, Height: {}", width, height)));
+        stmts.push(Statement::comment(&format!("Width: {}, Height: {}", width, height)));
         stmts.push(Statement::byte(vec![
             ByteValue::Expr(Expr::decimal(width as i32)),
             ByteValue::Expr(Expr::decimal(height as i32))]));
+
+        if masked {
+            for row in &self.rows {
+                let mut bytes: Vec<u8> = vec![];
+                let mut idx: usize = 0;
+                for color in row {
+                    let bit = color.transparency();
+                    if idx % 8 == 0 {
+                        bytes.push(0b01111111 | bit << 7 as u8);
+                    } else {
+                        let last_idx = bytes.len() - 1;
+                        let byte = bytes[last_idx];
+                        let bit_pos = 7 - (idx % 8);
+                        bytes[last_idx] = (byte & !(1 << bit_pos)) | (bit << bit_pos);
+                    }
+                    idx = idx + 1;
+                }
+                let byte_exprs: Vec<ByteValue> = bytes.iter()
+                    .map(|b| ByteValue::Expr(Expr::binary(*b as i32)))
+                    .collect();
+                stmts.push(Statement::byte(byte_exprs));
+            }
+        }
 
         for row in &self.rows {
             let mut bytes: Vec<u8> = vec![];
@@ -236,13 +263,13 @@ impl Image {
         Statements::new(HashMap::new(), stmts)
     }
 
-    pub fn to_1bit_asm(&self) -> crate::ast::Statements {
+    pub fn to_1bit_asm(&self, masked: bool) -> crate::ast::Statements {
         use crate::ast::{Statements};
 
         let mut stmts = vec![];
 
         for frame in &self.frames {
-            for stmt in frame.to_1bit_asm().iter() {
+            for stmt in frame.to_1bit_asm(masked).iter() {
                 stmts.push(stmt.clone());
             }
         }
