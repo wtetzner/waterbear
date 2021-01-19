@@ -94,7 +94,7 @@ pub fn run_command(args: &[String]) {
              (about: "Convert an image file into another format.")
              (@arg INPUT: +required "Input image file.")
              (@arg OUTPUT: -o --output +takes_value "Output file")
-             (@arg format: -f --format "Output format"))
+             (@arg format: -f --format +takes_value "Output format"))
             (@subcommand vmi =>
               (version: VERSION)
               (about: "Extract a VMI file from a given VMS file.")
