@@ -80,6 +80,7 @@ pub fn run_command(args: &[String]) {
               (@arg INPUT: +required "Sets the input file to assemble")
               (@arg OUTPUT: -o --output +required +takes_value "Output file")
               (@arg POSITIONS: -p --positions "Output byte positions")
+              (@arg TYPE: -t --type +takes_value "The file type being disassembled: game, bios, file or raw. Defaults to raw.")
               (@arg ARRIVED_FROM: -a --arrived_from "Output instruction locations that target each instruction.")
              )
             (@subcommand icon =>
@@ -139,8 +140,9 @@ pub fn run_command(args: &[String]) {
         let input_file = matches.value_of("INPUT").unwrap();
         let output_file = matches.value_of("OUTPUT").unwrap();
         let positions = matches.occurrences_of("POSITIONS") > 0;
+        let file_type = matches.value_of("TYPE").unwrap_or("raw");
         let arrived_from = matches.occurrences_of("ARRIVED_FROM") > 0;
-        match disassemble_cmd(positions, arrived_from, input_file, output_file) {
+        match disassemble_cmd(positions, arrived_from, file_type, input_file, output_file) {
             Ok(_) => {},
             Err(ref err) => {
                 eprintln!("ERROR: {:?}", err);
@@ -435,14 +437,28 @@ fn generate_vmi(input_file: &str, output_file: &str, copyright: &str, offset: us
     Ok(())
 }
 
-fn disassemble_cmd(positions: bool, arrived_from: bool, filename: &str, output_file: &str) -> Result<(), DisasmError> {
+fn disassemble_cmd(positions: bool, arrived_from: bool, file_type: &str, filename: &str, output_file: &str) -> Result<(), DisasmError> {
     let bytes = {
         let mut file = File::open(filename).map_err(|e| DisasmError::NoSuchFile(filename.to_string(), e))?;
         let mut contents: Vec<u8> = vec![];
         file.read_to_end(&mut contents).map_err(|e| DisasmError::NoSuchFile(filename.to_string(), e))?;
         contents
     };
-    let entry_points = vec![0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130];
+    let entry_points = match file_type {
+        "game" | "file" | "raw" =>
+            vec![0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130],
+        "bios" => vec![
+            0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130,
+            0x100, // BIOS_ADDR_FM_WRT_EX
+            0x108, // BIOS_ADDR_FM_WRTA_EX
+            0x110, // BIOS_ADDR_FM_VRF_EX
+            0x120, // BIOS_ADDR_FM_PRD_EX
+            0x130, // BIOS_ADDR_TIMER_EX: Timer update function used as ISR to populate date/time in system variables
+            0x140, // BIOS_ADDR_SLEEP_EX
+            0x1f0 // BIOS_ADDR_EXIT_EX: MODE button?
+        ],
+        _ => return Err(DisasmError::UnknownFileType(file_type.to_string()))
+    };
     let statements = disasm::disassemble(arrived_from, &entry_points, &bytes)?;
 
     let mut outfile = File::create(output_file).unwrap();

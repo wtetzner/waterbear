@@ -10,7 +10,8 @@ use std;
 #[derive(Debug)]
 pub enum DisasmError {
     NoInstruction(usize, u8),
-    NoSuchFile(String, std::io::Error)
+    NoSuchFile(String, std::io::Error),
+    UnknownFileType(String)
 }
 
 pub fn disassemble(
