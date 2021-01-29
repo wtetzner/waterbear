@@ -25,7 +25,7 @@ mod asm;
 mod disasm;
 mod env;
 mod cheader;
-mod img;
+pub mod img;
 
 use crate::disasm::DisasmError;
 use crate::location::{Span};

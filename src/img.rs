@@ -135,6 +135,28 @@ impl Frame {
         (width, height)
     }
 
+    pub fn height(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn width(&self) -> usize {
+        if self.rows.len() > 0 {
+            self.rows[0].len()
+        } else {
+            0usize
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> &Color {
+        let width = self.width();
+        let height = self.height();
+        if x >= width || y >= height {
+            panic!("Frame coordinate is out of bounds: get({}, {}). Actual dimensions: {}x{}", x, y, width, height);
+        }
+
+        &self.rows[y][x]
+    }
+
     pub fn to_1bit_asm(&self, masked: bool) -> crate::ast::Statements {
         use crate::expression::{Expr};
         use crate::ast::{Statement, Statements, ByteValue};
@@ -214,6 +236,18 @@ pub struct Image {
 }
 
 impl Image {
+    pub fn width(&self) -> usize {
+        self.frames[0].width()
+    }
+
+    pub fn height(&self) -> usize {
+        self.frames[0].height()
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> &Color {
+        self.frames[0].get(x, y)
+    }
+
     pub fn as_still(&self) -> Image {
         Image {
             frames: vec![self.frames[0].clone()]

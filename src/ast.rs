@@ -392,6 +392,10 @@ impl Statement {
     pub fn byte(exprs: Vec<ByteValue>) -> Statement {
         Statement::Directive(Directive::Byte(Span::default(), exprs))
     }
+
+    pub fn var(name: &str, expr: Expr) -> Statement {
+        Statement::Variable(Span::default(), name.to_string(), expr)
+    }
 }
 
 impl Positioned for Statement {
@@ -460,6 +464,10 @@ impl Statements {
         Statements { macros, statements }
     }
 
+    pub fn empty() -> Statements {
+        Statements::new(HashMap::new(), vec![])
+    }
+
     pub fn as_slice(&self) -> &[Statement] {
         self.statements.as_slice()
     }
@@ -480,6 +488,22 @@ impl Statements {
 
     pub fn push(&mut self, statement: Statement) {
         self.statements.push(statement);
+    }
+
+    pub fn push_instr(&mut self, instr: Instr<Expr,IndirectionMode>) {
+        self.statements.push(Statement::instr(instr));
+    }
+
+    pub fn push_comment(&mut self, comment: &str) {
+        self.statements.push(Statement::comment(comment));
+    }
+
+    pub fn push_label(&mut self, text: &str) {
+        self.statements.push(Statement::label(text));
+    }
+
+    pub fn push_var(&mut self, name: &str, loc: Expr) {
+        self.statements.push(Statement::var(name, loc));
     }
 
     pub fn with_statements(&self, stmts: Vec<Statement>) -> Statements {
