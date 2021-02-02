@@ -1160,10 +1160,24 @@ impl DStatement {
 
     pub fn bytes(pos: usize, bytes: &[u8]) -> DStatement {
         let mut vec = vec![];
+        let mut text = String::new();
+        let mut includes_ascii = false;
         for byte in bytes.iter() {
+            if (*byte >= 32) && (*byte <= 126) {
+                includes_ascii = true;
+                text.push(*byte as char);
+            } else if *byte == 9 {
+                text.push_str("\\t");
+            } else if *byte == 10 {
+                text.push_str("\\n");
+            } else if *byte == 13 {
+                text.push_str("\\r");
+            } else {
+                text.push('.');
+            }
             vec.push(ByteValue::Expr(Expr::num(*byte as i32)));
         }
-        DStatement::new(Some(pos), Statement::Directive(Directive::Byte(Span::default(), vec)), None)
+        DStatement::new(Some(pos), Statement::Directive(Directive::Byte(Span::default(), vec)), if includes_ascii { Some(text) } else { None })
     }
 
     pub fn statement(&self) -> &Statement {
