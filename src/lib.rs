@@ -26,6 +26,7 @@ mod disasm;
 mod env;
 mod cheader;
 pub mod img;
+mod metadata;
 
 use crate::disasm::DisasmError;
 use crate::location::{Span};

@@ -15,11 +15,12 @@ before_deploy: mkdir -p target/release/artifacts && if [ "$TRAVIS_OS_NAME" == "w
 deploy:
   provider: releases
   api_key:
-    secure: TGPUPwLwBZ1NtJ6lDMxSChenodSqbIq5ZxJesTE3LmOfzgwtdpJ0eC44s7qb1F0v/yZ+4aanCcSo0mB9iVDjGeaTBXkTgBRf4TYHp7X+bLakGUIHphyH1FO5usKun0nmOTaUHytqQ0x4SCF238r42LgU/9kZSKDofwWJoYKNsaK7uB/MITJ+eMlU509cXuTYxr33+Ta8xPkUQe5yKU6VK6q3DxhJdpbEvQNrQW+oJDL/MGxopKqNutCM5MCAorYhjHxwUpqg5Z4cPjjwf3928Me0UlGrGxaWqIenQUb/sUU+ofH5Jjs6grhnO3WjIc3nSn20oaAtDL0rhRPApm5boJ/sZR52LS87zrBr++OTNZjfhvDPfN4ccpR5Hj11ZdmVKOEAahDg61GX+xkmABWmKPcL3TqkyfM9I9BvYW5bVs9jFxPrFphv54vaSzpDlThBceNhgG8yaRoeAcZd9L1YnTorVivHrdISeqfXHs4xfe6q2nUhlNjO+F6GHCj3fiNnzp7QDtgeEUHnLcwD3Cm6x7iFvg9/gg/t3A+bwGc30aBJ22Vx21aBQtuuBKHvj8P9yjmM/TIpGi7OCQhKaZx835BbqAzQtxDAe9AoaJDFVpMSykHIGSRopKzgYsrQslsQWzZXgtHi3QPtIat8pcIVhgaRSziUUwB23p5vq8b7QDU=
+    secure: jE9u+Y5n4twL1mnEQwZCxv0iUu5/VbOqdgi11Bq7+cHKEuDi3P2gCk8tqoVIB9D2V3B/YgXBxJtMQ88Ry2cQ/cDKCBKN/5VRdD7MyWjLQD1CciTHgj2hQK54ltQ9CSjqAwt5IJKjbYBMjKfVq1lSXTeyOlppq5P/QhxsRHKFZ1Pe2M31Dr5+aS1QYOtGAtdvgzPqW9gIrKx9rH9UALmaBZsQxwti6FUEAqHs5R0GYqYTVGuk1bL2r3PICPyizCbCw0PbIuMQS7SC7TAB4qtNNkK7e9nOIdl7FJYWIfk2orW8lmaUlowPPYMXARkKzKmVDl+34gDMJE8/RBHzk9/LYqNFvzVe29LW8fKfxlltABcJtFxO+c/i7inzmUo+4GzAEc7XkH3SC2YQapdqB806sfi2pBY+1p5iPOABjx2JW55g/GAkXd9FxAaHdZTAsxPHJztD5f095oQeYDWjJ5J1+eBwUqznkCF0DAG5SfH1ReIQha7Ethn3LeWK6pael3IogOmuMOdW7HUcu/JoeQdfe3oxAZ8bN8qvHy92EamgPI53UUDKwevkdpDg2pTOmdlTpFPv81GjfdrdKiXDZTa2qiyg1jnnNj8M8HBD4GYxMiy3K4eMFr2s4kj28CsYlXMeaaz2yYlhRgCQZma68p24HFyDsnNg82q1LtnGHeUjrDg=
   file_glob: true
   file: target/release/artifacts/*
   skip_cleanup: true
   on:
     tags: true
-    condition: $TRAVIS_RUST_VERSION = stable
+    condition: "$TRAVIS_RUST_VERSION = stable"
     repo: wtetzner/waterbear
+

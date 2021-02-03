@@ -17,6 +17,7 @@ line.
        * [bytes](#include-binary-data)
        * [cpp](#include-c-header-file)
        * [icon](#include-icon)
+       * [sprite](#include-sprite)
    * [`.cnop` Directive](#cnop)
 <!--te-->
 
@@ -226,6 +227,28 @@ Both `speed` and `eyecatch` are optional, e.g. you can use any of these variatio
 
 If `speed` is omitted, a default value will be used. If `eyecatch` is
 omitted, then an eyecatch image will not be included.
+
+### Include Sprite
+
+The VMU hardware doesn't have the concept of sprites, unlike other
+well-known 2D gaming hardware. However, it is still a useful concept
+when writing games.
+
+An image file can be included in your ROM by using the
+`.include sprite` directive.
+
+```
+.include sprite "images/character.png"
+```
+
+If you specify `type="masked"`, it will embed a transparency mask
+along with the pixel data.
+
+```
+.include sprite "images/character.png" type="masked"
+```
+
+The sprite format is compatible with the format used by [LibPerspective](http://slum.online/dreamcast/).
 
 .cnop
 -----

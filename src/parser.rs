@@ -1268,7 +1268,7 @@ mod test {
         let line = ".byte $44, $65, 0x32, 0b10110";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".byte $44, $65, $32, %00010110", printed.trim());
+        assert_eq!(".byte $44,$65,$32,%00010110", printed.trim());
     }
 
     #[test]
