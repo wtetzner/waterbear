@@ -4,7 +4,6 @@ extern crate termcolor;
 extern crate atty;
 
 extern crate unicode_segmentation;
-extern crate unicode_categories;
 extern crate regex;
 extern crate lazy_static;
 extern crate waterbear_instruction_derive;
