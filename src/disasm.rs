@@ -252,10 +252,14 @@ fn compute_aliases(names: &mut Names) {
     names.push_alias("p3",     0x14C);
     names.push_alias("p3ddr",  0x14D);
     names.push_alias("p3int",  0x14E);
+    names.push_alias("fpr",    0x154);
     names.push_alias("p7",     0x15C);
     names.push_alias("i01cr",  0x15D);
     names.push_alias("i23cr",  0x15E);
     names.push_alias("isl",    0x15F);
+    names.push_alias("mplsw",  0x160);
+    names.push_alias("mplsta", 0x161);
+    names.push_alias("mplrst", 0x162);
     names.push_alias("vsel",   0x163);
     names.push_alias("vrmad1", 0x164);
     names.push_alias("vrmad2", 0x165);
