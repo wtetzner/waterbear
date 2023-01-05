@@ -213,7 +213,6 @@ pub fn run_command(args: &[String]) {
             ImageFormat::JsonPretty => serde_json::to_string_pretty(&image).unwrap(),
             ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm(false)),
             ImageFormat::Asm1BitMasked => format!("{}", image.to_1bit_asm(true)),
-            _ => panic!("Unknown format: {}", format.name())
         };
 
         match matches.value_of("OUTPUT") {
@@ -237,7 +236,7 @@ pub fn run_command(args: &[String]) {
 
         match generate_vmi(input_file, output_file, copyright, offset) {
             Ok(_num_bytes) => {},
-            Err(ref err) => {
+            Err(ref _err) => {
                 stderr.write_error().space()
                     .write("Failed to generate VMI from ")
                     .cyan()
@@ -818,12 +817,14 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stderr: &mut ColorWrite
                 .newline();
             highlight_line(span, "", files, stderr);
         },
-        MacroAlreadyExists(new_span, existing_span, name) => {
+        MacroAlreadyExists(new_span, existing_span, name, arity) => {
             stderr.write("Macro ")
                 .cyan()
                 .write(name)
                 .reset()
-                .writeln(" already exists.")
+                .write(" already exists for arity=")
+                .write(arity)
+                .writeln(".")
                 .newline();
             stderr.writeln("This macro:");
             highlight_line(new_span, "", files, stderr);

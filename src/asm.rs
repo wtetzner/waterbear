@@ -1,5 +1,6 @@
 
 use std;
+use crate::ast::MacroIdentifier;
 use crate::lexer;
 use crate::parser;
 use std::path::Path;
@@ -263,7 +264,7 @@ fn generate_bytes(statements: &Statements, names: &Names, output: &mut Vec<u8>) 
                             pos = pos + 1;
                         }
                     },
-                    Include(_, _, _) => panic!("There should be no .include directives left at this point".to_string()),
+                    Include(_, _, _) => panic!("There should be no .include directives left at this point"),
                     Cnop(_, _add, _multiple) => {
                         pos += dir.size(pos as i32)? as usize;
                     }
@@ -359,7 +360,7 @@ pub enum AssemblyError {
     FileLoadFailure(String, std::io::Error),
     FileUtf8Error(String, std::string::FromUtf8Error),
     MacroNameConflictsWithInstruction(Span, String),
-    MacroAlreadyExists(Span, Span, String),
+    MacroAlreadyExists(Span, Span, String, usize),
     DuplicateMacroArg(Span),
     InvalidMacroArg(Span),
     WrongNumberOfMacroArgs(Span, Span, usize, usize),
@@ -406,7 +407,7 @@ impl From<ParseError> for AssemblyError {
             UnknownInstruction(span) => AssemblyError::UnknownInstruction(span),
             WrongInstructionArgs(span, name, types) => AssemblyError::WrongInstructionArgs(span, name, types),
             MacroNameConflictsWithInstruction(span, string) => AssemblyError::MacroNameConflictsWithInstruction(span, string),
-            MacroAlreadyExists(span1, span2, string) => AssemblyError::MacroAlreadyExists(span1, span2, string),
+            MacroAlreadyExists(span1, span2, string, arity) => AssemblyError::MacroAlreadyExists(span1, span2, string, arity),
             DuplicateMacroArg(span) => AssemblyError::DuplicateMacroArg(span),
             InvalidMacroArg(span) => AssemblyError::InvalidMacroArg(span),
             InvalidSpriteType(span, typ) => AssemblyError::InvalidSpriteType(span, typ),
@@ -620,7 +621,8 @@ fn gen_labels(statements: &[MacroStatement]) -> Result<HashMap<String,String>,As
 }
 
 fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<Vec<Statement>,AssemblyError> {
-    let macrodef = match stmts.macro_def(&name) {
+    let ident = MacroIdentifier::new(name.clone(), args.len());
+    let macrodef = match stmts.macro_def(&ident) {
         Some(def) => def,
         None => {
             return Err(AssemblyError::NoSuchMacro(span.clone(), name.clone()));
@@ -650,7 +652,8 @@ fn expand(stmts: &Statements, span: Span, name: String, args: &[Arg]) -> Result<
         use crate::ast::MacroStatement::*;
         match stmt {
             Instr(ispan, iname, iargs) => {
-                match stmts.macro_def(iname) {
+                let iident = MacroIdentifier::new(iname.clone(), iargs.len());
+                match stmts.macro_def(&iident) {
                     Some(_def) => {
                         let new_args = replace_args(span.clone(), &labels, &argmap, iargs)?;
                         let mut new_stmts = expand(stmts, ispan.with_parent(span.clone()), iname.to_owned(), new_args.as_slice())?;

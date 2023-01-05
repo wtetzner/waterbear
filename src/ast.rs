@@ -5,6 +5,18 @@ use std::fmt;
 use crate::location::{Span, Positioned};
 use std::collections::HashMap;
 
+#[derive(Debug,Clone,Hash,PartialEq,Eq)]
+pub struct MacroIdentifier {
+    name: String,
+    arity: usize,
+}
+
+impl MacroIdentifier {
+    pub fn new(name: String, arity: usize) -> MacroIdentifier {
+        MacroIdentifier { name, arity }
+    }
+}
+
 #[derive(Debug,Clone)]
 pub enum MacroStatement {
     Instr(Span, String, Vec<Arg>),
@@ -452,13 +464,13 @@ impl fmt::Display for Statement {
 
 #[derive(Debug)]
 pub struct Statements {
-    macros: HashMap<String,MacroDefinition>,
+    macros: HashMap<MacroIdentifier,MacroDefinition>,
     statements: Vec<Statement>,
 }
 
 impl Statements {
     pub fn new(
-        macros: HashMap<String,MacroDefinition>,
+        macros: HashMap<MacroIdentifier,MacroDefinition>,
         statements: Vec<Statement>
     ) -> Statements {
         Statements { macros, statements }
@@ -472,7 +484,7 @@ impl Statements {
         self.statements.as_slice()
     }
 
-    pub fn macro_def(&self, name: &str) -> Option<&MacroDefinition> {
+    pub fn macro_def(&self, name: &MacroIdentifier) -> Option<&MacroDefinition> {
         self.macros.get(name)
     }
 

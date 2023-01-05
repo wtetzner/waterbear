@@ -541,7 +541,7 @@ pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>)
         1 => "Eyecatch type is 1: the eyecatch is stored as a 16-bit true color image.",
         2 => "Eyecatch type is 2: the eyecatch image has a 256-color palette.",
         3 => "Eyecatch type is 3: the eyecatch image has a 16-color palette.",
-        _ => panic!(format!("Unexpected eyecatch type: {}", eyecatch_type))
+        _ => panic!("Unexpected eyecatch type: {}", eyecatch_type)
     };
 
     stmts.push(Statement::comment(&format!("\n{}", eyecatch_comment)));

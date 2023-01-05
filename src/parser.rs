@@ -9,7 +9,7 @@ use crate::ast::{
     ArgType,
     MacroDefinition,
     MacroStatement,
-    SpriteType
+    SpriteType, MacroIdentifier
 };
 use crate::lexer::{Token,TokenType,LexerError};
 use crate::lexer;
@@ -30,7 +30,7 @@ pub enum ParseError {
     UnknownInstruction(Span),
     WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
     MacroNameConflictsWithInstruction(Span, String),
-    MacroAlreadyExists(Span, Span, String),
+    MacroAlreadyExists(Span, Span, String, usize),
     DuplicateMacroArg(Span),
     InvalidMacroArg(Span),
     InvalidSpriteType(Span, String),
@@ -71,7 +71,7 @@ impl<'a> Iterator for LineIterator<'a> {
     }
 }
 
-type Macros = HashMap<String,MacroDefinition>;
+type Macros = HashMap<MacroIdentifier,MacroDefinition>;
 
 pub fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
     LineIterator {
@@ -183,11 +183,14 @@ impl Parser {
         if Instr::<Expr,IndirectionMode>::exists(&name) {
             return Err(ParseError::MacroNameConflictsWithInstruction(nspan.clone(), name.clone()));
         }
-        if let Some(macro_def) = macros.get(&name) {
-            return Err(ParseError::MacroAlreadyExists(nspan.clone(), macro_def.span().clone(), name.clone()));
-        }
 
         let args = self.parse_args(tokens)?;
+
+        let ident = MacroIdentifier::new(name.clone(), args.len());
+        if let Some(macro_def) = macros.get(&ident) {
+            return Err(ParseError::MacroAlreadyExists(nspan.clone(), macro_def.span().clone(), name.clone(), args.len()));
+        }
+
         let mut seen: HashSet<String> = HashSet::new();
         let mut arg_names = vec![];
         for arg in args.iter() {
@@ -230,6 +233,7 @@ impl Parser {
 
             if tokens.check(|tok| tok.has_macro_name("%macro")) {
                 let (nspan, name, args) = self.parse_macro_header(&macros, &mut tokens)?;
+                let ident = MacroIdentifier::new(name.clone(), args.len());
                 macro_lines[idx] = true;
                 idx = idx + 1;
                 let mut statements = vec![];
@@ -252,7 +256,7 @@ impl Parser {
                     }
                     idx = idx + 1;
                 }
-                macros.insert(name.clone(), MacroDefinition::new(
+                macros.insert(ident, MacroDefinition::new(
                     nspan.clone(),
                     name.clone(),
                     args,
