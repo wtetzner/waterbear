@@ -7,16 +7,16 @@ authors = ["Walter Tetzner <walter@waltertetzner.net>"]
 license="Apache-2.0"
 
 [dependencies]
-lazy_static = "1.0"
-unicode-segmentation = "1.2.0"
+lazy_static = "*"
+unicode-segmentation = "*"
 clap = "2.33.3"
-regex = "1.0"
-termcolor = "1"
-atty = "0.2"
-uuid = { version = "0.7", features = ["v4"] }
+regex = "*"
+termcolor = "*"
+atty = "*"
+uuid = { version = "*", features = ["v4"] }
 image = "*"
-chrono = "0.4"
-serde_json = "1.0"
+chrono = "*"
+serde_json = "*"
 serde = { version = "*", features = ["derive"] }
 enum-iterator = "*"
 
