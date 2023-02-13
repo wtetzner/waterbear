@@ -8,8 +8,8 @@ license = "Apache-2.0"
 [dependencies]
 syn = "0.11"
 quote = "0.3"
-regex = "1.0"
-lazy_static = "1.0"
+regex = "*"
+lazy_static = "*"
 
 [lib]
 proc-macro = true
