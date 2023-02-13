@@ -494,25 +494,25 @@ fn to_image<T: GenericImageView<Pixel = Rgba<u8>>>(image: &T) -> Image {
 }
 
 fn eyecatch_type(palette: &Option<HashMap<Color, usize>>) -> u16 {
-    if palette.is_none() {
-        return 0;
+    if let Some(p) = palette.as_ref() {
+        let size = p.len();
+        if size <= 16 {
+            return 3;
+        }
+        if size <= 256 {
+            return 2;
+        }
+        1
+    } else {
+        0
     }
-    let p = palette.as_ref().unwrap();
-    let size = p.len();
-    if size <= 16 {
-        return 3;
-    }
-    if size <= 256 {
-        return 2;
-    }
-    return 1;
 }
 
 pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>) -> Result<crate::ast::Statements, IconError> {
     use crate::expression::{Expr};
     use crate::ast::{Statement, ByteValue};
 
-    let image = load_image(icon_path).unwrap().scale_channels(15);
+    let image = load_image(icon_path)?.scale_channels(15);
     let palette = image.get_palette();
     if palette.len() > 16 {
         return Err(IconError::InvalidPaletteSize(icon_path.to_string(), palette.len(), 16));
@@ -522,8 +522,8 @@ pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>)
     }
 
     let eyecatch = {
-        if eyecatch_file.is_some() {
-            Some(load_image(eyecatch_file.unwrap())?
+        if let Some(eyecatch_file) = eyecatch_file {
+            Some(load_image(eyecatch_file)?
                  .as_still()
                  .scale_channels(15))
         } else {

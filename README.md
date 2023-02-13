@@ -82,4 +82,4 @@ the development of waterbear.
 | [Marcus Comstedt](http://mc.pp.se/dc/)         | Author of the [aslc86k assembler](http://mc.pp.se/dc/sw.html), [softvms emulator](http://mc.pp.se/dc/sw.html), [hardware documentation](http://mc.pp.se/dc/vms/), and [tetris](http://mc.pp.se/dc/files/tetris.s) VMU game |
 | John Maushammer                                | Author of the [lcdis](http://mc.pp.se/dc/sw.html) disassembler               |
 
-Copyright © 2015-2020 Walter Tetzner
+Copyright © 2015-2023 Walter Tetzner
