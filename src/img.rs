@@ -1,13 +1,13 @@
 
 use image;
 use image::{DynamicImage, GenericImageView, Rgba};
-use image::png::{PngDecoder};
-use image::gif::{GifDecoder};
+use image::codecs::png::{PngDecoder};
+use image::codecs::gif::{GifDecoder};
 use image::{AnimationDecoder};
 use std::fs::File;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use enum_iterator::IntoEnumIterator;
+use enum_iterator::Sequence;
 
 #[derive(Debug)]
 pub enum IconError {
@@ -32,7 +32,7 @@ impl std::convert::From<ImageLoadError> for IconError {
     }
 }
 
-#[derive(Debug,Clone,Copy,Hash,Eq,PartialEq,Deserialize,Serialize,IntoEnumIterator)]
+#[derive(Debug,Clone,Copy,Hash,Eq,PartialEq,Deserialize,Serialize,Sequence)]
 pub enum ImageFormat {
     Json,
     JsonPretty,
