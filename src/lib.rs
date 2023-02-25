@@ -373,10 +373,10 @@ fn generate_vmi(input_file: &str, output_file: &str, copyright: &str, offset: us
 
     // Write VMS filename
     for idx in 0..12usize {
-        if filename_bytes.len() > idx {
-            bytes[0x50 + idx] = filename_bytes[idx];
+        if idx < filename_bytes.len() {
+            bytes[0x58 + idx] = filename_bytes[idx];
         } else {
-            bytes[0x50 + idx] = b'\0';
+            bytes[0x58 + idx] = b'\0';
         }
     }
 
