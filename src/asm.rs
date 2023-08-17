@@ -91,7 +91,7 @@ fn replace_includes(
                         };
                         results.append(&mut new_tokens);
                     }
-                    IncludeType::Bytes | IncludeType::Icon(_, _) | IncludeType::Sprite(_) => {
+                    IncludeType::Bytes | IncludeType::Icon(_, _) | IncludeType::Sprite(..) => {
                         for token in line.iter() {
                             results.push(token.clone());
                         }
@@ -160,15 +160,40 @@ fn replace_byte_includes(
                         results.push(stmt.clone());
                     }
                 }
-                IncludeType::Sprite(ref typ) => {
+                IncludeType::Sprite(ref typ, ref include_header) => {
                     let image = img::load_image(path).unwrap();
+                    if include_header.is_yes() {
+                        let max_byte = usize::from(u8::MAX);
+                        if image.width() > usize::from(u8::MAX) {
+                            return Err(AssemblyError::SpriteTooWide(
+                                span.clone(),
+                                path.to_string(),
+                                image.width(),
+                                max_byte,
+                            ));
+                        }
+                        if image.height() > usize::from(u8::MAX) {
+                            return Err(AssemblyError::SpriteTooTall(
+                                span.clone(),
+                                path.to_string(),
+                                image.height(),
+                                max_byte,
+                            ));
+                        }
+                    }
                     let stmts = match typ {
-                        SpriteType::Simple => image.to_1bit_asm(false),
-                        SpriteType::Masked => image.to_1bit_asm(true),
+                        SpriteType::Simple => image.to_1bit_asm(false, include_header.is_yes()),
+                        SpriteType::Masked => image.to_1bit_asm(true, include_header.is_yes()),
                     };
                     results.push(Statement::Comment(format!(
-                        "\nSprite \"{}\" ({})",
-                        path, typ
+                        "\nSprite \"{}\" ({}, {} header)",
+                        path,
+                        typ,
+                        if include_header.is_yes() {
+                            "include"
+                        } else {
+                            "exclude"
+                        }
                     )));
                     for stmt in stmts.as_slice() {
                         results.push(stmt.clone());
@@ -348,6 +373,9 @@ pub enum AssemblyError {
     InvalidPath(Span, Expr),
     InvalidIconSize(String, usize, usize),
     InvalidPaletteSize(String, usize, usize),
+    SpriteTooWide(Span, String, usize, usize),
+    SpriteTooTall(Span, String, usize, usize),
+    InvalidSpriteHeader(Span, String),
     ImageParseError(String, image::ImageError),
     NumOutOfRange {
         span: Span,
@@ -450,6 +478,7 @@ impl From<ParseError> for AssemblyError {
             InvalidMacroArg(span) => AssemblyError::InvalidMacroArg(span),
             InvalidSpriteType(span, typ) => AssemblyError::InvalidSpriteType(span, typ),
             UnexpectedEof => AssemblyError::UnexpectedEof,
+            InvalidSpriteHeader(span, string) => AssemblyError::InvalidSpriteHeader(span, string),
         }
     }
 }

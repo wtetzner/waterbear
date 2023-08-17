@@ -232,8 +232,8 @@ pub fn run_command(args: &[String]) {
         let serialized = match format {
             ImageFormat::Json => serde_json::to_string(&image).unwrap(),
             ImageFormat::JsonPretty => serde_json::to_string_pretty(&image).unwrap(),
-            ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm(false)),
-            ImageFormat::Asm1BitMasked => format!("{}", image.to_1bit_asm(true)),
+            ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm(false, true)),
+            ImageFormat::Asm1BitMasked => format!("{}", image.to_1bit_asm(true, true)),
         };
 
         match matches.value_of("OUTPUT") {
@@ -993,6 +993,52 @@ fn print_error(files: &SourceFiles, err: &AssemblyError, stderr: &mut ColorWrite
                 .writeln(".")
                 .newline();
             highlight_line(span, "", files, stderr);
+        }
+        SpriteTooWide(span, _path, width, max) => {
+            stderr
+                .write("Sprite is too wide to fit in header: ")
+                .cyan()
+                .write(width)
+                .reset()
+                .writeln(".")
+                .newline()
+                .writeln("The sprite header encodes width and height as bytes.")
+                .writeln("If you want to include the sprite, but leave out the header, use header=\"no\".")
+                .newline();
+            highlight_line(
+                span,
+                &format!("width {} > {} max", width, max),
+                files,
+                stderr,
+            );
+        }
+        SpriteTooTall(span, _path, height, max) => {
+            stderr
+                .write("Sprite is too tall to fit in header: ")
+                .cyan()
+                .write(height)
+                .reset()
+                .writeln(".")
+                .newline()
+                .writeln("The sprite header encodes width and height as bytes.")
+                .writeln("If you want to include the sprite, but leave out the header, use header=\"no\".")
+                .newline();
+            highlight_line(
+                span,
+                &format!("height {} > {} max", height, max),
+                files,
+                stderr,
+            );
+        }
+        InvalidSpriteHeader(span, string) => {
+            stderr
+                .write("Invalid value for sprite header: ")
+                .cyan()
+                .write(string)
+                .reset()
+                .writeln(".")
+                .newline();
+            highlight_line(span, "Should be \"yes\" or \"no\"", files, stderr);
         }
     }
 }

@@ -250,6 +250,13 @@ along with the pixel data.
 
 The sprite format is compatible with the format used by [LibPerspective](http://slum.online/dreamcast/).
 
+Note that the width and height of the sprite are encoded as bytes. If
+you want to include sprite data but the image is too wide or too tall,
+you can omit the header:
+```
+.include sprite "images/character.png" header="no"
+```
+
 .cnop
 -----
 

@@ -1,6 +1,6 @@
 use crate::ast::{
-    ArgType, ByteValue, Directive, IncludeType, MacroDefinition, MacroIdentifier, MacroStatement,
-    SpriteType, Statement, Statements,
+    ArgType, ByteValue, Directive, IncludeHeader, IncludeType, MacroDefinition, MacroIdentifier,
+    MacroStatement, SpriteType, Statement, Statements,
 };
 use crate::expression::{Arg, Expr, IndirectionMode, Radix};
 use crate::instruction::Instr;
@@ -26,6 +26,7 @@ pub enum ParseError {
     DuplicateMacroArg(Span),
     InvalidMacroArg(Span),
     InvalidSpriteType(Span, String),
+    InvalidSpriteHeader(Span, String),
     UnexpectedEof,
 }
 
@@ -657,9 +658,31 @@ impl Parser {
                                 }
                                 None => SpriteType::Simple,
                             };
+                            let include_header = match properties.get("header") {
+                                Some(ByteValue::String(span, ref value)) => {
+                                    let value_str = std::str::from_utf8(value).unwrap();
+                                    match value_str {
+                                        "true" | "yes" => IncludeHeader::Yes,
+                                        "false" | "no" => IncludeHeader::No,
+                                        _ => {
+                                            return Err(ParseError::InvalidSpriteHeader(
+                                                span.clone(),
+                                                value_str.to_string(),
+                                            ))
+                                        }
+                                    }
+                                }
+                                Some(ByteValue::Expr(ref expr)) => {
+                                    return Err(ParseError::InvalidSpriteHeader(
+                                        expr.span(),
+                                        format!("{}", expr),
+                                    ));
+                                }
+                                None => IncludeHeader::Yes,
+                            };
                             Ok(Some(Statement::Directive(Directive::Include(
                                 str_span,
-                                IncludeType::Sprite(typ),
+                                IncludeType::Sprite(typ, include_header),
                                 string,
                             ))))
                         } else {

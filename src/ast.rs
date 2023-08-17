@@ -146,6 +146,21 @@ impl ByteValue {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum IncludeHeader {
+    Yes,
+    No,
+}
+
+impl IncludeHeader {
+    pub fn is_yes(&self) -> bool {
+        match self {
+            IncludeHeader::Yes => true,
+            IncludeHeader::No => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum SpriteType {
     Simple,
     Masked,
@@ -160,13 +175,22 @@ impl fmt::Display for SpriteType {
     }
 }
 
+impl fmt::Display for IncludeHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            IncludeHeader::Yes => write!(f, "yes"),
+            IncludeHeader::No => write!(f, "no"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum IncludeType {
     Asm,
     Bytes,
     CHeader,
     Icon(Option<Expr>, Option<ByteValue>),
-    Sprite(SpriteType),
+    Sprite(SpriteType, IncludeHeader),
 }
 
 impl fmt::Display for IncludeType {
@@ -191,9 +215,10 @@ impl fmt::Display for IncludeType {
                 }
                 write!(f, "")
             }
-            IncludeType::Sprite(ref typ) => {
+            IncludeType::Sprite(ref typ, ref include_header) => {
                 write!(f, "sprite")?;
-                write!(f, " type = \"{}\"", typ)
+                write!(f, " type = \"{}\", ", typ)?;
+                write!(f, "header = \"{}\"", include_header)
             }
         }
     }

@@ -164,7 +164,7 @@ impl Frame {
         &self.rows[y][x]
     }
 
-    pub fn to_1bit_asm(&self, masked: bool) -> crate::ast::Statements {
+    pub fn to_1bit_asm(&self, masked: bool, include_header: bool) -> crate::ast::Statements {
         use crate::ast::{ByteValue, Statement, Statements};
         use crate::expression::Expr;
 
@@ -176,10 +176,13 @@ impl Frame {
             "Width: {}, Height: {}",
             width, height
         )));
-        stmts.push(Statement::byte(vec![
-            ByteValue::Expr(Expr::decimal(width as i32)),
-            ByteValue::Expr(Expr::decimal(height as i32)),
-        ]));
+
+        if include_header {
+            stmts.push(Statement::byte(vec![
+                ByteValue::Expr(Expr::decimal(width as i32)),
+                ByteValue::Expr(Expr::decimal(height as i32)),
+            ]));
+        }
 
         if masked {
             for row in &self.rows {
@@ -318,13 +321,13 @@ impl Image {
         Statements::new(HashMap::new(), stmts)
     }
 
-    pub fn to_1bit_asm(&self, masked: bool) -> crate::ast::Statements {
+    pub fn to_1bit_asm(&self, masked: bool, include_header: bool) -> crate::ast::Statements {
         use crate::ast::Statements;
 
         let mut stmts = vec![];
 
         for frame in &self.frames {
-            for stmt in frame.to_1bit_asm(masked).iter() {
+            for stmt in frame.to_1bit_asm(masked, include_header).iter() {
                 stmts.push(stmt.clone());
             }
         }
