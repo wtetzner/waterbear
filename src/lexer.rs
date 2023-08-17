@@ -1,19 +1,18 @@
-
-use std::fmt;
 use crate::input::Input;
-use regex::Regex;
-use crate::location::{Location,Span};
+use crate::location::{Location, Span};
 use lazy_static::lazy_static;
+use regex::Regex;
+use std::fmt;
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Copy)]
 pub enum Radix {
     Decimal,
     Hex,
     Binary,
-    Octal
+    Octal,
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 pub enum TokenType {
     Ampersand,
     Caret,
@@ -40,7 +39,7 @@ pub enum TokenType {
     R1,
     R2,
     R3,
-    EOF
+    EOF,
 }
 
 impl TokenType {
@@ -71,15 +70,15 @@ impl TokenType {
             TokenType::R1 => "'@R1'",
             TokenType::R2 => "'@R2'",
             TokenType::R3 => "'@R3'",
-            TokenType::EOF => "EOF"
+            TokenType::EOF => "EOF",
         }
     }
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 pub struct Token {
     token_type: TokenType,
-    span: Span
+    span: Span,
 }
 
 impl fmt::Display for Token {
@@ -110,100 +109,107 @@ impl fmt::Display for Token {
             TokenType::R1 => write!(f, "@R1"),
             TokenType::R2 => write!(f, "@R2"),
             TokenType::R3 => write!(f, "@R3"),
-            TokenType::EOF => write!(f, "EOF")
+            TokenType::EOF => write!(f, "EOF"),
         }
     }
 }
 
 impl Token {
     pub fn new(token_type: TokenType, span: Span) -> Token {
-        Token { token_type: token_type, span: span }
+        Token {
+            token_type: token_type,
+            span: span,
+        }
     }
 
-    pub fn token_type(&self) -> &TokenType { &self.token_type }
-    pub fn span(&self) -> &Span { &self.span }
+    pub fn token_type(&self) -> &TokenType {
+        &self.token_type
+    }
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
 
     pub fn is_colon(&self) -> bool {
         match self.token_type() {
             TokenType::Colon => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_double_colon(&self) -> bool {
         match self.token_type() {
             TokenType::DoubleColon => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_equ(&self) -> bool {
         match self.token_type() {
             TokenType::Equals => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn has_name(&self, name: &str) -> bool {
         match self.token_type() {
             TokenType::Name(n) => name == n,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn name_starts_with(&self, starts: &str) -> bool {
         match self.token_type() {
             TokenType::Name(n) => n.starts_with(starts),
-            _ => false
+            _ => false,
         }
     }
 
     pub fn macro_label_starts_with(&self, starts: &str) -> bool {
         match self.token_type() {
             TokenType::MacroLabel(n) => n.starts_with(starts),
-            _ => false
+            _ => false,
         }
     }
 
     pub fn has_macro_name(&self, name: &str) -> bool {
         match self.token_type() {
             TokenType::MacroIdent(n) => name == n,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn get_name(&self) -> Option<&str> {
         match self.token_type() {
             TokenType::Name(ref n) => Some(n),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn is_name(&self) -> bool {
         match self.token_type {
             TokenType::Name(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_num(&self) -> bool {
         match self.token_type {
             TokenType::Number(_, _) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_string(&self) -> bool {
         match self.token_type {
             TokenType::String(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn name_matching(&self, pred: fn(&str) -> bool) -> bool {
         match self.token_type {
             TokenType::Name(ref n) => pred(n),
-            _ => false
+            _ => false,
         }
     }
 
@@ -211,7 +217,7 @@ impl Token {
         use crate::lexer::TokenType::*;
         match self.token_type {
             EOF => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -219,7 +225,7 @@ impl Token {
         use crate::lexer::TokenType::*;
         match self.token_type {
             Hash => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -227,7 +233,7 @@ impl Token {
         use crate::lexer::TokenType::*;
         match self.token_type {
             MacroIdent(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -235,7 +241,7 @@ impl Token {
         use crate::lexer::TokenType::*;
         match &self.token_type {
             Name(n) => n.starts_with("."),
-            _ => false
+            _ => false,
         }
     }
 
@@ -243,7 +249,7 @@ impl Token {
         use crate::lexer::TokenType::*;
         match &self.token_type {
             MacroLabel(n) => n.starts_with("."),
-            _ => false
+            _ => false,
         }
     }
 
@@ -251,7 +257,7 @@ impl Token {
         use crate::lexer::TokenType::*;
         match self.token_type {
             MacroLabel(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -259,14 +265,14 @@ impl Token {
         use crate::lexer::TokenType::*;
         match self.token_type {
             R0 | R1 | R2 | R3 => true,
-            _ => false
+            _ => false,
         }
     }
 }
 
 #[derive(Debug)]
 pub enum LexerError {
-    UnexpectedChar(Location)
+    UnexpectedChar(Location),
 }
 
 fn clean_str(string: &str) -> String {
@@ -285,7 +291,7 @@ fn clean_str(string: &str) -> String {
                 b't' => result.push(b'\t'),
                 b'b' => result.push(8),
                 b'0' => result.push(b'\0'),
-                c => result.push(c)
+                c => result.push(c),
             }
         } else if byte == b'\\' {
             escape = true;
@@ -305,18 +311,18 @@ fn clean_str(string: &str) -> String {
 
 struct Matcher {
     regex: Regex,
-    convert: fn(&str) -> TokenType
+    convert: fn(&str) -> TokenType,
 }
 
 impl Matcher {
     pub fn new(re: &str, convert: fn(&str) -> TokenType) -> Matcher {
         Matcher {
             regex: Regex::new(("^".to_owned() + re).as_str()).unwrap(),
-            convert: convert
+            convert: convert,
         }
     }
 
-    pub fn do_match<'a>(&self, input: &Input<'a>) -> Option<(Input<'a>,Token)> {
+    pub fn do_match<'a>(&self, input: &Input<'a>) -> Option<(Input<'a>, Token)> {
         match self.regex.captures_iter(input.as_str()).next() {
             Some(cap) => {
                 let capture: &str = &cap[0];
@@ -325,8 +331,8 @@ impl Matcher {
                 let new_input = input.update(capture.len());
                 let span = Span::new(input.location(), new_input.location());
                 Some((new_input, Token::new(token_type, span)))
-            },
-            None => None
+            }
+            None => None,
         }
     }
 }
@@ -338,13 +344,14 @@ fn to_indr_mode(text: &str) -> TokenType {
         "@R2" => TokenType::R2,
         "@R3" => TokenType::R3,
         // This shouldn't ever happen
-        _ => panic!("Invalid Indirection Mode: {}", text)
+        _ => panic!("Invalid Indirection Mode: {}", text),
     }
 }
 
 fn end_of_line(pos: usize, text: &str) -> bool {
     (pos < text.len() && text.as_bytes()[pos] == b'\n')
-        || (pos < text.len() - 1 && text.as_bytes()[pos] == b'\r'
+        || (pos < text.len() - 1
+            && text.as_bytes()[pos] == b'\r'
             && text.as_bytes()[pos + 1] == b'\n')
         || pos >= text.len()
 }
@@ -411,7 +418,10 @@ fn to_dec_num(text: &str) -> TokenType {
     TokenType::Number(num, Radix::Decimal)
 }
 
-fn read_token<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Option<(Input<'a>,Token)> {
+fn read_token<'a>(
+    input: &Input<'a>,
+    skip_ws: fn(&Input<'a>) -> Input<'a>,
+) -> Option<(Input<'a>, Token)> {
     lazy_static! {
         static ref MATCHERS: Vec<Matcher> = {
             let ident = "[a-zA-Z_\\.][a-zA-Z\\$0-9_\\.]*";
@@ -424,25 +434,31 @@ fn read_token<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Op
             let oct_num = "0[oO][0-7]+";
             let dec_num = "[0-9]+";
             vec![
-                Matcher::new(&macro_ident, |text| TokenType::MacroIdent(text.to_lowercase())),
-                Matcher::new(&macro_label, |text| TokenType::MacroLabel(text.to_lowercase())),
+                Matcher::new(&macro_ident, |text| {
+                    TokenType::MacroIdent(text.to_lowercase())
+                }),
+                Matcher::new(&macro_label, |text| {
+                    TokenType::MacroLabel(text.to_lowercase())
+                }),
                 Matcher::new(r"\(", |_| TokenType::LeftParen),
                 Matcher::new(r"\)", |_| TokenType::RightParen),
-                Matcher::new("#",   |_| TokenType::Hash),
-                Matcher::new(",",   |_| TokenType::Comma),
-                Matcher::new("::",   |_| TokenType::DoubleColon),
-                Matcher::new(":",   |_| TokenType::Colon),
-                Matcher::new("=",   |_| TokenType::Equals),
+                Matcher::new("#", |_| TokenType::Hash),
+                Matcher::new(",", |_| TokenType::Comma),
+                Matcher::new("::", |_| TokenType::DoubleColon),
+                Matcher::new(":", |_| TokenType::Colon),
+                Matcher::new("=", |_| TokenType::Equals),
                 Matcher::new(r"\+", |_| TokenType::Plus),
                 Matcher::new(r"\*", |_| TokenType::Times),
-                Matcher::new("-",   |_| TokenType::Minus),
-                Matcher::new("/",   |_| TokenType::Divide),
-                Matcher::new("\\&",   |_| TokenType::Ampersand),
-                Matcher::new("\\|",   |_| TokenType::Pipe),
-                Matcher::new("\\^",   |_| TokenType::Caret),
-                Matcher::new(">",   |_| TokenType::UpperByte),
-                Matcher::new("<",   |_| TokenType::LowerByte),
-                Matcher::new(r#""(\\.|[^"\\])*""#, |text| TokenType::String(clean_str(text))),
+                Matcher::new("-", |_| TokenType::Minus),
+                Matcher::new("/", |_| TokenType::Divide),
+                Matcher::new("\\&", |_| TokenType::Ampersand),
+                Matcher::new("\\|", |_| TokenType::Pipe),
+                Matcher::new("\\^", |_| TokenType::Caret),
+                Matcher::new(">", |_| TokenType::UpperByte),
+                Matcher::new("<", |_| TokenType::LowerByte),
+                Matcher::new(r#""(\\.|[^"\\])*""#, |text| {
+                    TokenType::String(clean_str(text))
+                }),
                 Matcher::new("@[rR][0123]", |text| to_indr_mode(text)),
                 Matcher::new(ident, |text| TokenType::Name(text.to_lowercase())),
                 Matcher::new(hex_num, |text| to_hex_num(text, 1)),
@@ -450,7 +466,7 @@ fn read_token<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Op
                 Matcher::new(hex_num2, |text| to_hex_num(text, 2)),
                 Matcher::new(bin_num, |text| to_bin_num(text, 1)),
                 Matcher::new(bin_num2, |text| to_bin_num(text, 2)),
-                Matcher::new(dec_num, |text| to_dec_num(text))
+                Matcher::new(dec_num, |text| to_dec_num(text)),
             ]
         };
     }
@@ -462,14 +478,17 @@ fn read_token<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Op
         for matcher in MATCHERS.iter() {
             match matcher.do_match(&input) {
                 None => (),
-                matched => return matched
+                matched => return matched,
             }
         }
         None
     }
 }
 
-pub fn lex_for_ws<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -> Result<Vec<Token>,LexerError> {
+pub fn lex_for_ws<'a>(
+    input: &Input<'a>,
+    skip_ws: fn(&Input<'a>) -> Input<'a>,
+) -> Result<Vec<Token>, LexerError> {
     let mut results: Vec<Token> = vec![];
     let mut cinput = input.clone();
     let mut current = read_token(&input, skip_ws);
@@ -482,21 +501,24 @@ pub fn lex_for_ws<'a>(input: &Input<'a>, skip_ws: fn(&Input<'a>) -> Input<'a>) -
     if current.is_none() {
         Err(LexerError::UnexpectedChar(cinput.location()))
     } else {
-        results.push(Token::new(TokenType::EOF, Span::new(cinput.location().clone(), cinput.location().clone())));
+        results.push(Token::new(
+            TokenType::EOF,
+            Span::new(cinput.location().clone(), cinput.location().clone()),
+        ));
         Ok(results)
-    }    
+    }
 }
 
-pub fn lex_input(input: &Input) -> Result<Vec<Token>,LexerError> {
+pub fn lex_input(input: &Input) -> Result<Vec<Token>, LexerError> {
     lex_for_ws(input, skip_whitespace_and_comments)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::lexer;
-    use crate::lexer::{Token, TokenType, LexerError, skip_whitespace_and_comments};
-    use crate::input::Input;
     use crate::files::FileID;
+    use crate::input::Input;
+    use crate::lexer;
+    use crate::lexer::{skip_whitespace_and_comments, LexerError, Token, TokenType};
     use crate::location::{Location, Span};
 
     #[test]
@@ -511,13 +533,10 @@ mod tests {
         let file = FileID::new(7);
         let text = "@R3";
         let input = Input::new(file, text);
-        let span = Span::new(
-            Location::new(file, 0, 1, 0),
-            Location::new(file, 3, 1, 3)
-        );
+        let span = Span::new(Location::new(file, 0, 1, 0), Location::new(file, 3, 1, 3));
         match lexer::read_token(&input, skip_whitespace_and_comments) {
             Some((_new_input, token)) => assert!(token == Token::new(TokenType::R3, span)),
-            None => panic!("Failed to read token")
+            None => panic!("Failed to read token"),
         }
     }
 
@@ -528,12 +547,23 @@ mod tests {
         let input = Input::new(file, text);
         match lexer::lex_input(&input) {
             Ok(tokens) => {
-                let toks: Vec<TokenType> = tokens.iter()
+                let toks: Vec<TokenType> = tokens
+                    .iter()
                     .map(|token| token.token_type.clone())
                     .collect();
-                assert_eq!(toks, vec![TokenType::R3, TokenType::R0, TokenType::Comma, TokenType::Plus, TokenType::Colon, TokenType::EOF]);
-            },
-            Err(err) => panic!("Failed to read token: {:?}", err)
+                assert_eq!(
+                    toks,
+                    vec![
+                        TokenType::R3,
+                        TokenType::R0,
+                        TokenType::Comma,
+                        TokenType::Plus,
+                        TokenType::Colon,
+                        TokenType::EOF
+                    ]
+                );
+            }
+            Err(err) => panic!("Failed to read token: {:?}", err),
         }
     }
 
@@ -546,8 +576,8 @@ mod tests {
             Ok(_tokens) => panic!("Expected bad token"),
             Err(err) => match err {
                 LexerError::UnexpectedChar(ref loc) if *loc == Location::new(file, 9, 1, 9) => (),
-                e => panic!("Unexpected error: {:?}", e)
-            }
+                e => panic!("Unexpected error: {:?}", e),
+            },
         }
     }
 
@@ -570,4 +600,3 @@ mod tests {
         assert_eq!("\nbob", new_input.as_str());
     }
 }
-

@@ -1,4 +1,3 @@
-
 use std::ffi;
 use std::process;
 
@@ -21,19 +20,22 @@ fn version<P: AsRef<ffi::OsStr>>(command: P) -> Option<String> {
             let mut v = String::from_utf8(o.stdout).unwrap();
             v.pop();
             Some(v)
-        },
-        Err(_) => None
+        }
+        Err(_) => None,
     }
 }
 
 fn gitsha() -> Option<String> {
-    match process::Command::new("git").arg("rev-parse").arg("HEAD").output() {
+    match process::Command::new("git")
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+    {
         Ok(o) => {
             let mut v = String::from_utf8(o.stdout).unwrap();
             v.pop();
             Some(v)
-        },
-        Err(_) => None
+        }
+        Err(_) => None,
     }
 }
-

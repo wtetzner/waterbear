@@ -1,18 +1,17 @@
-
-use unicode_segmentation::UnicodeSegmentation;
-use std::ops::Deref;
-use regex::Regex;
 use crate::files::FileID;
 use crate::location::Location;
 use lazy_static::lazy_static;
+use regex::Regex;
+use std::ops::Deref;
+use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct Input<'b> {
     name: FileID,
     text: &'b str,
     pos: usize,
     line: usize,
-    column: usize
+    column: usize,
 }
 
 impl<'b> Input<'b> {
@@ -22,13 +21,12 @@ impl<'b> Input<'b> {
             text: text,
             pos: 0,
             line: 1,
-            column: 0
+            column: 0,
         }
     }
 
     pub fn start_of_line(&self) -> bool {
-        self.pos == 0
-            || (self.pos > 0 && self.text.as_bytes()[self.pos - 1] == b'\n')
+        self.pos == 0 || (self.pos > 0 && self.text.as_bytes()[self.pos - 1] == b'\n')
     }
 
     pub fn peek(&self) -> Option<&str> {
@@ -78,7 +76,7 @@ impl<'b> Input<'b> {
         let mut skipped: usize = 0;
         match RE.captures_iter(&self.text[self.pos..]).next() {
             Some(cap) => skipped += cap[0].len(),
-            None => ()
+            None => (),
         }
         self.update(skipped)
     }
@@ -102,8 +100,8 @@ impl<'b> Input<'b> {
                     } else {
                         input.column += 1;
                     }
-                },
-                None => break
+                }
+                None => break,
             }
         }
         input
@@ -120,8 +118,8 @@ impl<'b> Deref for Input<'b> {
 
 #[cfg(test)]
 mod tests {
-    use crate::input::Input;
     use crate::files::FileID;
+    use crate::input::Input;
 
     #[test]
     fn test_update() {

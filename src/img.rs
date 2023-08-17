@@ -1,43 +1,42 @@
-
-use image;
-use image::{DynamicImage, GenericImageView, Rgba};
-use image::codecs::png::{PngDecoder};
-use image::codecs::gif::{GifDecoder};
-use image::{AnimationDecoder};
-use std::fs::File;
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use enum_iterator::Sequence;
+use image;
+use image::codecs::gif::GifDecoder;
+use image::codecs::png::PngDecoder;
+use image::AnimationDecoder;
+use image::{DynamicImage, GenericImageView, Rgba};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs::File;
 
 #[derive(Debug)]
 pub enum IconError {
     InvalidIconSize(String, usize, usize),
     InvalidPaletteSize(String, usize, usize),
     FileLoadFailure(String, std::io::Error),
-    ImageParseError(String, image::ImageError)
+    ImageParseError(String, image::ImageError),
 }
 
 #[derive(Debug)]
 pub enum ImageLoadError {
     FileLoadFailure(String, std::io::Error),
-    ImageParseError(String, image::ImageError)
+    ImageParseError(String, image::ImageError),
 }
 
 impl std::convert::From<ImageLoadError> for IconError {
     fn from(error: ImageLoadError) -> IconError {
         match error {
             ImageLoadError::FileLoadFailure(s, e) => IconError::FileLoadFailure(s, e),
-            ImageLoadError::ImageParseError(s, e) => IconError::ImageParseError(s, e)
+            ImageLoadError::ImageParseError(s, e) => IconError::ImageParseError(s, e),
         }
     }
 }
 
-#[derive(Debug,Clone,Copy,Hash,Eq,PartialEq,Deserialize,Serialize,Sequence)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Deserialize, Serialize, Sequence)]
 pub enum ImageFormat {
     Json,
     JsonPretty,
     Asm1Bit,
-    Asm1BitMasked
+    Asm1BitMasked,
 }
 
 impl ImageFormat {
@@ -47,7 +46,7 @@ impl ImageFormat {
             Json => "json",
             JsonPretty => "json-pretty",
             Asm1Bit => "1bit-asm",
-            Asm1BitMasked => "1bit-asm-masked"
+            Asm1BitMasked => "1bit-asm-masked",
         }
     }
 
@@ -57,17 +56,17 @@ impl ImageFormat {
             "json-pretty" => Some(ImageFormat::JsonPretty),
             "1bit-asm" => Some(ImageFormat::Asm1Bit),
             "1bit-asm-masked" => Some(ImageFormat::Asm1BitMasked),
-            _ => None
+            _ => None,
         }
     }
 }
 
-#[derive(Debug,Clone,Copy,Hash,Eq,PartialEq,Deserialize,Serialize)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Color {
     pub red: u8,
     pub green: u8,
     pub blue: u8,
-    pub alpha: u8
+    pub alpha: u8,
 }
 
 impl std::default::Default for Color {
@@ -76,7 +75,7 @@ impl std::default::Default for Color {
             red: 0,
             green: 0,
             blue: 0,
-            alpha: 0
+            alpha: 0,
         }
     }
 }
@@ -88,7 +87,7 @@ impl Color {
             red: ((maxf * (self.red as f64)) / 255.0f64).round() as u8,
             green: ((maxf * (self.green as f64)) / 255.0f64).round() as u8,
             blue: ((maxf * (self.blue as f64)) / 255.0f64).round() as u8,
-            alpha: ((maxf * (self.alpha as f64)) / 255.0f64).round() as u8
+            alpha: ((maxf * (self.alpha as f64)) / 255.0f64).round() as u8,
         }
     }
 
@@ -101,26 +100,31 @@ impl Color {
 
     pub fn grayscale(&self) -> Color {
         let gray = ((0.3f64 * (self.red as f64))
-                    + (0.59f64 * (self.green as f64))
-                    + (0.11f64 * (self.blue as f64))).round() as u8;
+            + (0.59f64 * (self.green as f64))
+            + (0.11f64 * (self.blue as f64)))
+            .round() as u8;
         Color {
-            red:  gray,
+            red: gray,
             green: gray,
             blue: gray,
-            alpha: self.alpha
+            alpha: self.alpha,
         }
     }
 
     // If transparent, return 1, else 0.
     pub fn transparency(&self) -> u8 {
-        if self.alpha <= 127 { 1u8 } else { 0u8 }
+        if self.alpha <= 127 {
+            1u8
+        } else {
+            0u8
+        }
     }
 }
 
-#[derive(Debug,Clone,Deserialize,Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Frame {
     pub delay: (u32, u32),
-    pub rows: Vec<Vec<Color>>
+    pub rows: Vec<Vec<Color>>,
 }
 
 impl Frame {
@@ -151,24 +155,31 @@ impl Frame {
         let width = self.width();
         let height = self.height();
         if x >= width || y >= height {
-            panic!("Frame coordinate is out of bounds: get({}, {}). Actual dimensions: {}x{}", x, y, width, height);
+            panic!(
+                "Frame coordinate is out of bounds: get({}, {}). Actual dimensions: {}x{}",
+                x, y, width, height
+            );
         }
 
         &self.rows[y][x]
     }
 
     pub fn to_1bit_asm(&self, masked: bool) -> crate::ast::Statements {
-        use crate::expression::{Expr};
-        use crate::ast::{Statement, Statements, ByteValue};
+        use crate::ast::{ByteValue, Statement, Statements};
+        use crate::expression::Expr;
 
         let mut stmts = vec![];
 
         let (width, height) = self.size();
 
-        stmts.push(Statement::comment(&format!("Width: {}, Height: {}", width, height)));
+        stmts.push(Statement::comment(&format!(
+            "Width: {}, Height: {}",
+            width, height
+        )));
         stmts.push(Statement::byte(vec![
             ByteValue::Expr(Expr::decimal(width as i32)),
-            ByteValue::Expr(Expr::decimal(height as i32))]));
+            ByteValue::Expr(Expr::decimal(height as i32)),
+        ]));
 
         if masked {
             for row in &self.rows {
@@ -186,7 +197,8 @@ impl Frame {
                     }
                     idx = idx + 1;
                 }
-                let byte_exprs: Vec<ByteValue> = bytes.iter()
+                let byte_exprs: Vec<ByteValue> = bytes
+                    .iter()
                     .map(|b| ByteValue::Expr(Expr::binary(*b as i32)))
                     .collect();
                 stmts.push(Statement::byte(byte_exprs));
@@ -208,7 +220,8 @@ impl Frame {
                 }
                 idx = idx + 1;
             }
-            let byte_exprs: Vec<ByteValue> = bytes.iter()
+            let byte_exprs: Vec<ByteValue> = bytes
+                .iter()
                 .map(|b| ByteValue::Expr(Expr::binary(*b as i32)))
                 .collect();
             stmts.push(Statement::byte(byte_exprs));
@@ -230,9 +243,9 @@ impl Frame {
     }
 }
 
-#[derive(Debug,Clone,Deserialize,Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Image {
-    pub frames: Vec<Frame>
+    pub frames: Vec<Frame>,
 }
 
 impl Image {
@@ -250,7 +263,7 @@ impl Image {
 
     pub fn as_still(&self) -> Image {
         Image {
-            frames: vec![self.frames[0].clone()]
+            frames: vec![self.frames[0].clone()],
         }
     }
 
@@ -265,12 +278,15 @@ impl Image {
                 }
                 rows.push(new_row);
             }
-            frames.push(Frame { delay: frame.delay, rows: rows })
+            frames.push(Frame {
+                delay: frame.delay,
+                rows: rows,
+            })
         }
         Image { frames }
     }
 
-    pub fn get_palette(&self) -> HashMap<Color,usize> {
+    pub fn get_palette(&self) -> HashMap<Color, usize> {
         let mut index: usize = 0;
         let mut palette = HashMap::new();
         for frame in &self.frames {
@@ -287,18 +303,23 @@ impl Image {
     }
 
     pub fn to_frame_count_and_speed(&self, name: &str, speed: u16) -> crate::ast::Statements {
-        use crate::expression::{Expr};
-        use crate::ast::{Statements, Statement};
+        use crate::ast::{Statement, Statements};
+        use crate::expression::Expr;
         let mut stmts = vec![];
         let frames = Expr::num(self.frames.len() as i32);
         let anim_speed = Expr::num(speed as i32);
-        stmts.push(Statement::comment(&format!("\n\"{}\" Frames: {}, Speed: {}", name, self.frames.len(), speed)));
+        stmts.push(Statement::comment(&format!(
+            "\n\"{}\" Frames: {}, Speed: {}",
+            name,
+            self.frames.len(),
+            speed
+        )));
         stmts.push(Statement::word(vec![frames, anim_speed]));
         Statements::new(HashMap::new(), stmts)
     }
 
     pub fn to_1bit_asm(&self, masked: bool) -> crate::ast::Statements {
-        use crate::ast::{Statements};
+        use crate::ast::Statements;
 
         let mut stmts = vec![];
 
@@ -311,9 +332,13 @@ impl Image {
         Statements::new(HashMap::new(), stmts)
     }
 
-    pub fn to_icon(&self, palette_map: &HashMap<Color,usize>, name: &str) -> crate::ast::Statements {
-        use crate::expression::{Expr};
-        use crate::ast::{Statements, Statement, ByteValue};
+    pub fn to_icon(
+        &self,
+        palette_map: &HashMap<Color, usize>,
+        name: &str,
+    ) -> crate::ast::Statements {
+        use crate::ast::{ByteValue, Statement, Statements};
+        use crate::expression::Expr;
 
         let mut stmts = vec![];
 
@@ -346,7 +371,10 @@ impl Image {
             }
 
             // Push pixel data
-            stmts.push(Statement::comment(&format!("\nPixel data for \"{}\"", name)));
+            stmts.push(Statement::comment(&format!(
+                "\nPixel data for \"{}\"",
+                name
+            )));
             if palette.len() == 16 {
                 let mut frame_idx = 1;
                 for frame in &self.frames {
@@ -416,42 +444,47 @@ pub fn load_image(path: &str) -> Result<Image, ImageLoadError> {
     } else if lower_path.ends_with(".gif") {
         load_gif(path)
     } else {
-        let image = image::open(path)
-            .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
+        let image =
+            image::open(path).map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
         Ok(to_image(&image))
     }
 }
 
 fn load_gif(path: &str) -> Result<Image, ImageLoadError> {
-    let file_in = File::open(path)
-        .map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
+    let file_in =
+        File::open(path).map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
     let decoder = GifDecoder::new(file_in)
         .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
-    let frames = decoder.into_frames().collect_frames()
+    let frames = decoder
+        .into_frames()
+        .collect_frames()
         .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
     let mut out_frames = vec![];
     for frame in frames {
         out_frames.push(to_frame(
             frame.delay().numer_denom_ms(),
-            &frame.into_buffer()
+            &frame.into_buffer(),
         ));
     }
     Ok(Image { frames: out_frames })
 }
 
 fn load_png(path: &str) -> Result<Image, ImageLoadError> {
-    let file_in = File::open(path)
-        .map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
+    let file_in =
+        File::open(path).map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
     let decoder = PngDecoder::new(file_in)
         .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
     if decoder.is_apng() {
-        let frames = decoder.apng().into_frames().collect_frames()
+        let frames = decoder
+            .apng()
+            .into_frames()
+            .collect_frames()
             .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
         let mut out_frames = vec![];
         for frame in frames {
             out_frames.push(to_frame(
                 frame.delay().numer_denom_ms(),
-                &frame.into_buffer()
+                &frame.into_buffer(),
             ));
         }
         Ok(Image { frames: out_frames })
@@ -462,10 +495,7 @@ fn load_png(path: &str) -> Result<Image, ImageLoadError> {
     }
 }
 
-fn to_frame<T: GenericImageView<Pixel = Rgba<u8>>>(
-    delay: (u32, u32),
-    frame: &T
-) -> Frame {
+fn to_frame<T: GenericImageView<Pixel = Rgba<u8>>>(delay: (u32, u32), frame: &T) -> Frame {
     let (width, height) = frame.dimensions();
 
     let mut rows = vec![];
@@ -477,19 +507,20 @@ fn to_frame<T: GenericImageView<Pixel = Rgba<u8>>>(
                 red: parts[0],
                 green: parts[1],
                 blue: parts[2],
-                alpha: parts[3]
+                alpha: parts[3],
             });
         }
         rows.push(row);
     }
-    Frame { delay: delay, rows: rows }
+    Frame {
+        delay: delay,
+        rows: rows,
+    }
 }
 
 fn to_image<T: GenericImageView<Pixel = Rgba<u8>>>(image: &T) -> Image {
     Image {
-        frames: vec![
-            to_frame((0, 0), image)
-        ]
+        frames: vec![to_frame((0, 0), image)],
     }
 }
 
@@ -508,14 +539,22 @@ fn eyecatch_type(palette: &Option<HashMap<Color, usize>>) -> u16 {
     }
 }
 
-pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>) -> Result<crate::ast::Statements, IconError> {
-    use crate::expression::{Expr};
-    use crate::ast::{Statement, ByteValue};
+pub fn to_icon(
+    icon_path: &str,
+    speed: Option<u16>,
+    eyecatch_file: Option<&str>,
+) -> Result<crate::ast::Statements, IconError> {
+    use crate::ast::{ByteValue, Statement};
+    use crate::expression::Expr;
 
     let image = load_image(icon_path)?.scale_channels(15);
     let palette = image.get_palette();
     if palette.len() > 16 {
-        return Err(IconError::InvalidPaletteSize(icon_path.to_string(), palette.len(), 16));
+        return Err(IconError::InvalidPaletteSize(
+            icon_path.to_string(),
+            palette.len(),
+            16,
+        ));
     }
     if !image.is_size(32, 32) {
         return Err(IconError::InvalidIconSize(icon_path.to_string(), 32, 32));
@@ -523,16 +562,14 @@ pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>)
 
     let eyecatch = {
         if let Some(eyecatch_file) = eyecatch_file {
-            Some(load_image(eyecatch_file)?
-                 .as_still()
-                 .scale_channels(15))
+            Some(load_image(eyecatch_file)?.as_still().scale_channels(15))
         } else {
             None
         }
     };
 
     let eyecatch_palette = eyecatch.as_ref().map(|ref img| img.get_palette());
-    
+
     let eyecatch_type = eyecatch_type(&eyecatch_palette);
 
     let mut stmts = image.to_frame_count_and_speed(&icon_path, speed.unwrap_or(10));
@@ -541,7 +578,7 @@ pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>)
         1 => "Eyecatch type is 1: the eyecatch is stored as a 16-bit true color image.",
         2 => "Eyecatch type is 2: the eyecatch image has a 256-color palette.",
         3 => "Eyecatch type is 3: the eyecatch image has a 16-color palette.",
-        _ => panic!("Unexpected eyecatch type: {}", eyecatch_type)
+        _ => panic!("Unexpected eyecatch type: {}", eyecatch_type),
     };
 
     stmts.push(Statement::comment(&format!("\n{}", eyecatch_comment)));
@@ -562,9 +599,18 @@ pub fn to_icon(icon_path: &str, speed: Option<u16>, eyecatch_file: Option<&str>)
     if eyecatch.is_some() && eyecatch_palette.is_some() {
         let eyecatch_path = eyecatch_file.unwrap();
         if !eyecatch.as_ref().unwrap().is_size(72, 56) {
-            return Err(IconError::InvalidIconSize(eyecatch_path.to_string(), 72, 56));
+            return Err(IconError::InvalidIconSize(
+                eyecatch_path.to_string(),
+                72,
+                56,
+            ));
         }
-        stmts.append(&eyecatch.unwrap().to_icon(&eyecatch_palette.unwrap(), eyecatch_path).as_slice());
+        stmts.append(
+            &eyecatch
+                .unwrap()
+                .to_icon(&eyecatch_palette.unwrap(), eyecatch_path)
+                .as_slice(),
+        );
     }
     Ok(stmts)
 }

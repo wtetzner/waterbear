@@ -1,7 +1,6 @@
-
-use crate::expression::{Expr,EvaluationError,IndirectionMode};
-use crate::location::{Positioned,Span};
-use crate::env::{Names,Env};
+use crate::env::{Env, Names};
+use crate::expression::{EvaluationError, Expr, IndirectionMode};
+use crate::location::{Positioned, Span};
 use std::fmt;
 use waterbear_instruction_derive::Instruction;
 
@@ -10,30 +9,42 @@ pub enum EncodingError {
     NumOutOfRange {
         span: Span,
         bits: usize,
-        value: i32
+        value: i32,
     },
     SignedNumOutOfRange {
         span: Span,
         bits: usize,
-        value: i32
+        value: i32,
     },
     InvalidAddress {
         span: Span,
-        value: i32
+        value: i32,
     },
     AddrBitsDontMatch {
         span: Span,
         pos: usize,
         value: i32,
         pos_top: u8,
-        value_top: u8
+        value_top: u8,
     },
-    EvalError(EvaluationError)
+    EvalError(EvaluationError),
 }
 
 impl EncodingError {
-    pub fn mismatch_top_bits(span: Span, pos: usize, value: i32, pos_top: u8, value_top: u8) -> EncodingError {
-        EncodingError::AddrBitsDontMatch { span, pos, value, pos_top, value_top }
+    pub fn mismatch_top_bits(
+        span: Span,
+        pos: usize,
+        value: i32,
+        pos_top: u8,
+        value_top: u8,
+    ) -> EncodingError {
+        EncodingError::AddrBitsDontMatch {
+            span,
+            pos,
+            value,
+            pos_top,
+            value_top,
+        }
     }
 
     pub fn out_of_range(span: Span, bits: usize, value: i32) -> EncodingError {
@@ -56,181 +67,181 @@ impl From<EvaluationError> for EncodingError {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug,Instruction,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
-pub enum Instr<Ex,IM> {
-    #[instr="10000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+#[derive(Debug, Instruction, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
+pub enum Instr<Ex, IM> {
+    #[instr = "10000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Add_i8(Ex),
-    #[instr="1000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Add_d9(Ex),
-    #[instr="100001[a1][a0]"]
+    #[instr = "100001[a1][a0]"]
     Add_Ri(IM),
 
-    #[instr="10010001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "10010001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Addc_i8(Ex),
-    #[instr="1001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Addc_d9(Ex),
-    #[instr="100101[a1][a0]"]
+    #[instr = "100101[a1][a0]"]
     Addc_Ri(IM),
 
-    #[instr="10100001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "10100001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Sub_i8(Ex),
-    #[instr="1010001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1010001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Sub_d9(Ex),
-    #[instr="101001[a1][a0]"]
+    #[instr = "101001[a1][a0]"]
     Sub_Ri(IM),
 
-    #[instr="10110001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "10110001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Subc_i8(Ex),
-    #[instr="1011001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1011001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Subc_d9(Ex),
-    #[instr="101101[a1][a0]"]
+    #[instr = "101101[a1][a0]"]
     Subc_Ri(IM),
 
-    #[instr="0110001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "0110001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Inc_d9(Ex),
-    #[instr="011001[a1][a0]"]
+    #[instr = "011001[a1][a0]"]
     Inc_Ri(IM),
 
-    #[instr="0111001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "0111001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Dec_d9(Ex),
-    #[instr="011101[a1][a0]"]
+    #[instr = "011101[a1][a0]"]
     Dec_Ri(IM),
 
-    #[instr="00110000"]
+    #[instr = "00110000"]
     Mul,
-    #[instr="01000000"]
+    #[instr = "01000000"]
     Div,
 
-    #[instr="11100001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "11100001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     And_i8(Ex),
-    #[instr="1110001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1110001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     And_d9(Ex),
-    #[instr="111001[a1][a0]"]
+    #[instr = "111001[a1][a0]"]
     And_Ri(IM),
 
-    #[instr="11010001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "11010001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Or_i8(Ex),
-    #[instr="1101001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1101001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Or_d9(Ex),
-    #[instr="110101[a1][a0]"]
+    #[instr = "110101[a1][a0]"]
     Or_Ri(IM),
 
-    #[instr="11110001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "11110001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Xor_i8(Ex),
-    #[instr="1111001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1111001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Xor_d9(Ex),
-    #[instr="111101[a1][a0]"]
+    #[instr = "111101[a1][a0]"]
     Xor_Ri(IM),
 
-    #[instr="11100000"]
+    #[instr = "11100000"]
     Rol,
-    #[instr="11110000"]
+    #[instr = "11110000"]
     Rolc,
 
-    #[instr="11000000"]
+    #[instr = "11000000"]
     Ror,
-    #[instr="11010000"]
+    #[instr = "11010000"]
     Rorc,
 
-    #[instr="0000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "0000001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Ld_d9(Ex),
-    #[instr="000001[a1][a0]"]
+    #[instr = "000001[a1][a0]"]
     Ld_Ri(IM),
 
-    #[instr="0001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "0001001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     St_d9(Ex),
-    #[instr="000101[a1][a0]"]
+    #[instr = "000101[a1][a0]"]
     St_Ri(IM),
 
-    #[instr="0010001[b8] [b7][b6][b5][b4][b3][b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "0010001[b8] [b7][b6][b5][b4][b3][b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Mov_d9(Ex, Ex),
-    #[instr="001001[b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "001001[b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Mov_Rj(Ex, IM),
 
-    #[instr="11000001"]
+    #[instr = "11000001"]
     Ldc,
 
-    #[instr="0110000[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "0110000[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Push(Ex),
-    #[instr="0111000[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "0111000[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Pop(Ex),
 
-    #[instr="1100001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "1100001[a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Xch_d9(Ex),
-    #[instr="110001[a1][a0]"]
+    #[instr = "110001[a1][a0]"]
     Xch_Ri(IM),
 
-    #[instr="001[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "001[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Jmp(Ex),
-    #[instr="00100001 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "00100001 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Jmpf(Ex),
 
-    #[instr="00000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "00000001 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Br(Ex),
-    #[instr="00010001 [a7][a6][a5][a4][a3][a2][a1][a0] [a15][a14][a13][a12][a11][a10][a9][a8]"]
+    #[instr = "00010001 [a7][a6][a5][a4][a3][a2][a1][a0] [a15][a14][a13][a12][a11][a10][a9][a8]"]
     Brf(Ex),
-    #[instr="10000000 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "10000000 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Bz(Ex),
-    #[instr="10010000 [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "10010000 [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Bnz(Ex),
-    #[instr="011[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
+    #[instr = "011[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bp(Ex, Ex, Ex),
-    #[instr="010[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
+    #[instr = "010[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bpc(Ex, Ex, Ex),
-    #[instr="100[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
+    #[instr = "100[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bn(Ex, Ex, Ex),
-    #[instr="0101001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
+    #[instr = "0101001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Dbnz_d9(Ex, Ex),
-    #[instr="010101[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
+    #[instr = "010101[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Dbnz_Ri(IM, Ex),
-    #[instr="00110001 [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
+    #[instr = "00110001 [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Be_i8(Ex, Ex),
-    #[instr="0011001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
+    #[instr = "0011001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Be_d9(Ex, Ex),
-    #[instr="001101[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
+    #[instr = "001101[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Be_Rj(IM, Ex, Ex),
-    #[instr="01000001 [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
+    #[instr = "01000001 [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Bne_i8(Ex, Ex),
-    #[instr="0100001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
+    #[instr = "0100001[a8] [a7][a6][a5][a4][a3][a2][a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0]"]
     Bne_d9(Ex, Ex),
-    #[instr="010001[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
+    #[instr = "010001[a1][a0] [b7][b6][b5][b4][b3][b2][b1][b0] [c7][c6][c5][c4][c3][c2][c1][c0]"]
     Bne_Rj(IM, Ex, Ex),
 
-    #[instr="000[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "000[a11]1[a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Call(Ex),
-    #[instr="00100000 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "00100000 [a15][a14][a13][a12][a11][a10][a9][a8] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Callf(Ex),
-    #[instr="00010000 [a7][a6][a5][a4][a3][a2][a1][a0] [a15][a14][a13][a12][a11][a10][a9][a8]"]
+    #[instr = "00010000 [a7][a6][a5][a4][a3][a2][a1][a0] [a15][a14][a13][a12][a11][a10][a9][a8]"]
     Callr(Ex),
 
-    #[instr="10100000"]
+    #[instr = "10100000"]
     Ret,
-    #[instr="10110000"]
+    #[instr = "10110000"]
     Reti,
 
-    #[instr="110[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "110[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Clr1(Ex, Ex),
-    #[instr="111[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "111[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Set1(Ex, Ex),
-    #[instr="101[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
+    #[instr = "101[a8]1[b2][b1][b0] [a7][a6][a5][a4][a3][a2][a1][a0]"]
     Not1(Ex, Ex),
 
-    #[instr="00000000"]
+    #[instr = "00000000"]
     Nop,
 
-    #[instr="01010000"]
+    #[instr = "01010000"]
     Ldf,
-    #[instr="01010001"]
-    Stf
+    #[instr = "01010001"]
+    Stf,
 }
 
-impl Instr<i32,u8> {
-    pub fn decode(bytes: &[u8]) -> Option<Instr<i32,u8>> {
-        Instr::<i32,u8>::decode_raw(bytes).map(|instr| decode_from_raw(instr))
+impl Instr<i32, u8> {
+    pub fn decode(bytes: &[u8]) -> Option<Instr<i32, u8>> {
+        Instr::<i32, u8>::decode_raw(bytes).map(|instr| decode_from_raw(instr))
     }
 }
 
-impl fmt::Display for Instr<Expr,IndirectionMode> {
+impl fmt::Display for Instr<Expr, IndirectionMode> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use crate::instruction::Instr::*;
         match self {
@@ -327,12 +338,12 @@ impl fmt::Display for Instr<Expr,IndirectionMode> {
             Nop => write!(f, "nop"),
 
             Ldf => write!(f, "ldf"),
-            Stf => write!(f, "stf")
+            Stf => write!(f, "stf"),
         }
     }
 }
 
-type EncResult<T> = Result<T,EncodingError>;
+type EncResult<T> = Result<T, EncodingError>;
 
 fn eval<E: Env<i32>>(expr: &Expr, env: &E, bits: usize) -> EncResult<i32> {
     let value = expr.eval(env)?;
@@ -384,7 +395,7 @@ fn eval12<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
             pos,
             addr,
             ((pos_top >> 12) & 0xFF) as u8,
-            ((val_top >> 12) & 0xFF) as u8
+            ((val_top >> 12) & 0xFF) as u8,
         ));
     } else {
         Ok(value)
@@ -405,9 +416,9 @@ fn rel16<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     }
 }
 
-type EvalResult = EncResult<Instr<i32,u8>>;
+type EvalResult = EncResult<Instr<i32, u8>>;
 
-impl Instr<Expr,IndirectionMode> {
+impl Instr<Expr, IndirectionMode> {
     pub fn eval(&self, pos: usize, label: &str, names: &Names) -> EvalResult {
         use crate::instruction::Instr::*;
         let nenv = names.as_env("Name", label);
@@ -484,43 +495,28 @@ impl Instr<Expr,IndirectionMode> {
             Bp(dir, b3, rel) => Bp(
                 eval9(dir, &venv)?,
                 eval3(b3, &nenv)?,
-                rel8(rel, pos, &lenv)?
+                rel8(rel, pos, &lenv)?,
             ),
             Bpc(dir, b3, rel) => Bpc(
                 eval9(dir, &venv)?,
                 eval3(b3, &nenv)?,
-                rel8(rel, pos, &lenv)?
+                rel8(rel, pos, &lenv)?,
             ),
             Bn(dir, b3, rel) => Bn(
                 eval9(dir, &venv)?,
                 eval3(b3, &nenv)?,
-                rel8(rel, pos, &lenv)?
+                rel8(rel, pos, &lenv)?,
             ),
-            Dbnz_d9(dir, rel) => Dbnz_d9(
-                eval9(dir, &venv)?,
-                rel8(rel, pos, &lenv)?
-            ),
+            Dbnz_d9(dir, rel) => Dbnz_d9(eval9(dir, &venv)?, rel8(rel, pos, &lenv)?),
             Dbnz_Ri(ind, rel) => Dbnz_Ri(ind.index(), rel8(rel, pos, &lenv)?),
             Be_i8(imm, rel) => Be_i8(eval8(imm, &nenv)?, rel8(rel, pos, &lenv)?),
             Be_d9(dir, rel) => Be_d9(eval9(dir, &venv)?, rel8(rel, pos, &lenv)?),
-            Be_Rj(ind, imm, rel) => Be_Rj(
-                ind.index(),
-                eval8(imm, &nenv)?,
-                rel8(rel, pos, &lenv)?
-            ),
-            Bne_i8(imm, rel) => Bne_i8(
-                eval8(imm, &nenv)?,
-                rel8(rel, pos, &lenv)?
-            ),
-            Bne_d9(dir, rel) => Bne_d9(
-                eval9(dir, &venv)?,
-                rel8(rel, pos, &lenv)?
-            ),
-            Bne_Rj(ind, imm, rel) => Bne_Rj(
-                ind.index(),
-                eval8(imm, &nenv)?,
-                rel8(rel, pos, &lenv)?
-            ),
+            Be_Rj(ind, imm, rel) => Be_Rj(ind.index(), eval8(imm, &nenv)?, rel8(rel, pos, &lenv)?),
+            Bne_i8(imm, rel) => Bne_i8(eval8(imm, &nenv)?, rel8(rel, pos, &lenv)?),
+            Bne_d9(dir, rel) => Bne_d9(eval9(dir, &venv)?, rel8(rel, pos, &lenv)?),
+            Bne_Rj(ind, imm, rel) => {
+                Bne_Rj(ind.index(), eval8(imm, &nenv)?, rel8(rel, pos, &lenv)?)
+            }
 
             Call(a12) => Call(eval12(a12, pos, &lenv)?),
             Callf(a16) => Callf(eval16(a16, &lenv)?),
@@ -535,13 +531,13 @@ impl Instr<Expr,IndirectionMode> {
 
             Nop => Nop,
             Ldf => Ldf,
-            Stf => Stf
+            Stf => Stf,
         };
         Ok(val)
     }
 }
 
-fn decode_from_raw(instr: Instr<i32,u8>) -> Instr<i32,u8> {
+fn decode_from_raw(instr: Instr<i32, u8>) -> Instr<i32, u8> {
     fn rel16(rel: i32) -> i32 {
         use std::mem;
         unsafe {
@@ -651,7 +647,7 @@ fn decode_from_raw(instr: Instr<i32,u8>) -> Instr<i32,u8> {
 
         Nop => Nop,
         Ldf => Ldf,
-        Stf => Stf
+        Stf => Stf,
     }
 }
 
@@ -665,7 +661,7 @@ mod test {
         test(Instr::Add_d9(0x1F4), vec![0x83, 0xf4], "Add_d9");
     }
 
-    fn test(instr: Instr<i32,u8>, bytes: Vec<u8>, message: &str) {
+    fn test(instr: Instr<i32, u8>, bytes: Vec<u8>, message: &str) {
         assert_eq!(instr.encode(), bytes, "{}", message);
     }
 
@@ -673,8 +669,8 @@ mod test {
     fn test_decode() {
         let bytes = vec![0x81, 0xf3];
         let instr = Instr::Add_i8(0xf3);
-        let decoded = Instr::<i32,u8>::decode(&bytes);
-        assert_eq!(decoded.unwrap(),instr);
+        let decoded = Instr::<i32, u8>::decode(&bytes);
+        assert_eq!(decoded.unwrap(), instr);
     }
 
     #[test]
@@ -682,7 +678,7 @@ mod test {
         let a = 0b000011111111 as i32;
         let bytes = vec![0b00101000, 0b11111111];
         let instr = Instr::Jmp(a);
-        let decoded = Instr::<i32,u8>::decode(&bytes);
-        assert_eq!(decoded.unwrap(),instr);
+        let decoded = Instr::<i32, u8>::decode(&bytes);
+        assert_eq!(decoded.unwrap(), instr);
     }
 }

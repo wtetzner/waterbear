@@ -1,4 +1,3 @@
-
 use std;
 use std::fmt;
 
@@ -8,28 +7,30 @@ use std::io::Read;
 #[derive(Debug)]
 pub enum FileLoadError {
     FileLoadFailure(String, std::io::Error),
-    Utf8Error(String, std::string::FromUtf8Error)
+    Utf8Error(String, std::string::FromUtf8Error),
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Copy,Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone)]
 pub struct FileID {
-    value: usize
+    value: usize,
 }
 
 impl FileID {
-    pub fn new(value: usize) -> FileID { FileID { value: value } }
+    pub fn new(value: usize) -> FileID {
+        FileID { value: value }
+    }
 }
 
 impl fmt::Display for FileID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FileID({})", self.value)
-    }    
+    }
 }
 
 pub struct SourceFile {
     id: FileID,
     name: String,
-    contents: String
+    contents: String,
 }
 
 impl SourceFile {
@@ -48,19 +49,22 @@ impl SourceFile {
 
 pub struct SourceFiles {
     working_dir: String,
-    files: Vec<SourceFile>
+    files: Vec<SourceFile>,
 }
 
 pub fn load_bytes(path: &str) -> Result<Vec<u8>, FileLoadError> {
-    let mut file = File::open(path).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
+    let mut file =
+        File::open(path).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
     let mut bytes = vec![];
-    file.read_to_end(&mut bytes).map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
+    file.read_to_end(&mut bytes)
+        .map_err(|err| FileLoadError::FileLoadFailure(path.to_string(), err))?;
     Ok(bytes)
 }
 
 pub fn load_file(path: &str) -> Result<String, FileLoadError> {
     let bytes = load_bytes(path)?;
-    let text = String::from_utf8(bytes).map_err(|err| FileLoadError::Utf8Error(path.to_string(), err))?;
+    let text =
+        String::from_utf8(bytes).map_err(|err| FileLoadError::Utf8Error(path.to_string(), err))?;
     Ok(text)
 }
 
@@ -68,7 +72,7 @@ impl SourceFiles {
     pub fn new(working_dir: String) -> SourceFiles {
         SourceFiles {
             working_dir: working_dir,
-            files: vec![]
+            files: vec![],
         }
     }
 
@@ -83,7 +87,7 @@ impl SourceFiles {
     pub fn get_id(&self, filename: &str) -> Option<FileID> {
         for (idx, file) in self.files.iter().enumerate() {
             if &file.name == filename {
-                return Some(FileID { value: idx })
+                return Some(FileID { value: idx });
             }
         }
         None
@@ -92,7 +96,7 @@ impl SourceFiles {
     pub fn get(&self, filename: &str) -> Option<&str> {
         match self.get_id(filename) {
             Some(id) => Some(&self.files[id.value].contents),
-            None => None
+            None => None,
         }
     }
 
@@ -104,7 +108,7 @@ impl SourceFiles {
         }
     }
 
-    pub fn load(&mut self, filename: &str) -> Result<&SourceFile,FileLoadError> {
+    pub fn load(&mut self, filename: &str) -> Result<&SourceFile, FileLoadError> {
         let path = self.path(filename);
         match self.get_id(&path) {
             Some(id) => Ok(&self.files[id.value]),
@@ -114,7 +118,7 @@ impl SourceFiles {
                 let file = SourceFile {
                     id: FileID { value: id_value },
                     name: filename.to_owned(),
-                    contents: contents
+                    contents: contents,
                 };
                 self.files.push(file);
                 Ok(&self.files[id_value])
@@ -122,7 +126,11 @@ impl SourceFiles {
         }
     }
 
-    pub fn register(&mut self, filename: &str, contents: String) -> Result<&SourceFile,FileLoadError> {
+    pub fn register(
+        &mut self,
+        filename: &str,
+        contents: String,
+    ) -> Result<&SourceFile, FileLoadError> {
         let path = self.path(filename);
         match self.get_id(&path) {
             Some(id) => Ok(&self.files[id.value]),
@@ -131,7 +139,7 @@ impl SourceFiles {
                 let file = SourceFile {
                     id: FileID { value: id_value },
                     name: filename.to_owned(),
-                    contents: contents
+                    contents: contents,
                 };
                 self.files.push(file);
                 Ok(&self.files[id_value])

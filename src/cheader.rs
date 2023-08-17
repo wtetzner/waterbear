@@ -1,20 +1,18 @@
-
 use crate::lexer;
-use crate::lexer::{Token,TokenType};
+use crate::lexer::{Token, TokenType};
 
 use crate::parser;
 use crate::parser::ParseError;
 
 use crate::input::Input;
-use crate::location::{Span};
+use crate::location::Span;
 
 fn skip_multiline_comment<'a>(input: &Input<'a>) -> Input<'a> {
     let text = input.as_str();
     let mut skipped = 0;
     if text.starts_with("/*") {
         skipped = skipped + 2;
-        while skipped < text.len()
-            && !text[skipped..].starts_with("*/") {
+        while skipped < text.len() && !text[skipped..].starts_with("*/") {
             skipped = skipped + 1;
         }
         if text[skipped..].starts_with("*/") {
@@ -51,14 +49,13 @@ fn skip_whitespace_and_comments<'a>(input: &Input<'a>) -> Input<'a> {
     current
 }
 
-pub fn lex_input(input: &Input) -> Result<Vec<Token>,ParseError> {
+pub fn lex_input(input: &Input) -> Result<Vec<Token>, ParseError> {
     let raw_tokens = lexer::lex_for_ws(input, skip_whitespace_and_comments)?;
     let parser = parser::Parser::create();
     let mut output = vec![];
     for line in parser::lines(&raw_tokens) {
         let mut tokens = parser::TokenStream::from(line);
-        if tokens.check(Token::is_hash)
-            && tokens.check_at(1, |t| t.has_name("define")) {
+        if tokens.check(Token::is_hash) && tokens.check_at(1, |t| t.has_name("define")) {
             let hash = tokens.next()?;
             let define = tokens.next()?;
             tokens.read_name()?;
@@ -67,7 +64,8 @@ pub fn lex_input(input: &Input) -> Result<Vec<Token>,ParseError> {
             output.push(line[2].clone());
             output.push(Token::new(
                 TokenType::Name("equ".to_owned()),
-                Span::from(hash.span(), define.span())));
+                Span::from(hash.span(), define.span()),
+            ));
             for token in line[3..].iter() {
                 output.push(token.clone());
             }
@@ -79,4 +77,3 @@ pub fn lex_input(input: &Input) -> Result<Vec<Token>,ParseError> {
     }
     Ok(output)
 }
-

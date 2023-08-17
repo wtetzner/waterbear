@@ -1,21 +1,13 @@
-
-use crate::location::{Location,Span,Positioned};
 use crate::ast::{
-    Statement,
-    Statements,
-    Directive,
-    ByteValue,
-    IncludeType,
-    ArgType,
-    MacroDefinition,
-    MacroStatement,
-    SpriteType, MacroIdentifier
+    ArgType, ByteValue, Directive, IncludeType, MacroDefinition, MacroIdentifier, MacroStatement,
+    SpriteType, Statement, Statements,
 };
-use crate::lexer::{Token,TokenType,LexerError};
-use crate::lexer;
-use crate::expression::{Expr,Arg,IndirectionMode,Radix};
-use std::collections::{HashMap,HashSet};
+use crate::expression::{Arg, Expr, IndirectionMode, Radix};
 use crate::instruction::Instr;
+use crate::lexer;
+use crate::lexer::{LexerError, Token, TokenType};
+use crate::location::{Location, Positioned, Span};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -28,27 +20,27 @@ pub enum ParseError {
     MissingWords(Span),
     UnknownDirective(Token),
     UnknownInstruction(Span),
-    WrongInstructionArgs(Span,String,Vec<Vec<ArgType>>),
+    WrongInstructionArgs(Span, String, Vec<Vec<ArgType>>),
     MacroNameConflictsWithInstruction(Span, String),
     MacroAlreadyExists(Span, Span, String, usize),
     DuplicateMacroArg(Span),
     InvalidMacroArg(Span),
     InvalidSpriteType(Span, String),
-    UnexpectedEof
+    UnexpectedEof,
 }
 
 impl From<LexerError> for ParseError {
     fn from(error: LexerError) -> Self {
         use crate::lexer::LexerError::*;
         match error {
-            UnexpectedChar(loc) => ParseError::UnexpectedChar(loc.clone())
+            UnexpectedChar(loc) => ParseError::UnexpectedChar(loc.clone()),
         }
     }
 }
 
 struct LineIterator<'a> {
     pos: usize,
-    tokens: &'a [Token]
+    tokens: &'a [Token],
 }
 
 impl<'a> Iterator for LineIterator<'a> {
@@ -60,7 +52,10 @@ impl<'a> Iterator for LineIterator<'a> {
             let start_line = self.tokens[start].span().end().line();
             let start_file = self.tokens[start].span().end().file();
             let mut end = start + 1;
-            while end < self.tokens.len() && start_line == self.tokens[end].span().start().line() && start_file == self.tokens[end].span().start().file() {
+            while end < self.tokens.len()
+                && start_line == self.tokens[end].span().start().line()
+                && start_file == self.tokens[end].span().start().file()
+            {
                 end += 1;
             }
             self.pos = end;
@@ -71,65 +66,119 @@ impl<'a> Iterator for LineIterator<'a> {
     }
 }
 
-type Macros = HashMap<MacroIdentifier,MacroDefinition>;
+type Macros = HashMap<MacroIdentifier, MacroDefinition>;
 
 pub fn lines(tokens: &[Token]) -> impl Iterator<Item = &[Token]> {
     LineIterator {
         pos: 0,
-        tokens: tokens
+        tokens: tokens,
     }
 }
 
 pub struct Parser {
-    expr_parser: ExprParser
+    expr_parser: ExprParser,
 }
 
-fn instr(span: Span, instr: Instr<Expr,IndirectionMode>) -> Result<Option<Statement>,ParseError> {
+fn instr(span: Span, instr: Instr<Expr, IndirectionMode>) -> Result<Option<Statement>, ParseError> {
     Ok(Some(Statement::Instr(span, instr)))
 }
 
-fn wrong_args(span: Span, name: &str, types: Vec<Vec<ArgType>>) -> Result<Option<Statement>,ParseError> {
-    Err(ParseError::WrongInstructionArgs(span, name.to_owned(), types))
+fn wrong_args(
+    span: Span,
+    name: &str,
+    types: Vec<Vec<ArgType>>,
+) -> Result<Option<Statement>, ParseError> {
+    Err(ParseError::WrongInstructionArgs(
+        span,
+        name.to_owned(),
+        types,
+    ))
 }
 
 impl Parser {
     pub fn create() -> Parser {
         let prefix = {
-            let mut m: HashMap<ExprTokenType,Box<dyn PrefixParselet>> = HashMap::new();
-            m.insert(ExprTokenType::Paren, Box::new(ParenParselet(Precedence::Prefix)));
-            m.insert(ExprTokenType::Name, Box::new(NameParselet(Precedence::Prefix)));
-            m.insert(ExprTokenType::MacroLabel, Box::new(MacroLabelParselet(Precedence::Prefix)));
-            m.insert(ExprTokenType::MacroArg, Box::new(MacroArgParselet(Precedence::Prefix)));
-            m.insert(ExprTokenType::Number, Box::new(NumberParselet(Precedence::Prefix)));
-            m.insert(ExprTokenType::Minus, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
-            m.insert(ExprTokenType::UpperByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
-            m.insert(ExprTokenType::LowerByte, Box::new(PrefixOperatorParselet(Precedence::Prefix)));
+            let mut m: HashMap<ExprTokenType, Box<dyn PrefixParselet>> = HashMap::new();
+            m.insert(
+                ExprTokenType::Paren,
+                Box::new(ParenParselet(Precedence::Prefix)),
+            );
+            m.insert(
+                ExprTokenType::Name,
+                Box::new(NameParselet(Precedence::Prefix)),
+            );
+            m.insert(
+                ExprTokenType::MacroLabel,
+                Box::new(MacroLabelParselet(Precedence::Prefix)),
+            );
+            m.insert(
+                ExprTokenType::MacroArg,
+                Box::new(MacroArgParselet(Precedence::Prefix)),
+            );
+            m.insert(
+                ExprTokenType::Number,
+                Box::new(NumberParselet(Precedence::Prefix)),
+            );
+            m.insert(
+                ExprTokenType::Minus,
+                Box::new(PrefixOperatorParselet(Precedence::Prefix)),
+            );
+            m.insert(
+                ExprTokenType::UpperByte,
+                Box::new(PrefixOperatorParselet(Precedence::Prefix)),
+            );
+            m.insert(
+                ExprTokenType::LowerByte,
+                Box::new(PrefixOperatorParselet(Precedence::Prefix)),
+            );
             m
         };
 
         let infix = {
-            let mut m: HashMap<ExprTokenType,Box<dyn InfixParselet>> = HashMap::new();
-            m.insert(ExprTokenType::Plus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
-            m.insert(ExprTokenType::Times, Box::new(BinaryOperatorParselet(Precedence::Product)));
-            m.insert(ExprTokenType::Minus, Box::new(BinaryOperatorParselet(Precedence::Sum)));
-            m.insert(ExprTokenType::Divide, Box::new(BinaryOperatorParselet(Precedence::Product)));
-            m.insert(ExprTokenType::BitwiseXor, Box::new(BinaryOperatorParselet(Precedence::Bitwise)));
-            m.insert(ExprTokenType::BitwiseAnd, Box::new(BinaryOperatorParselet(Precedence::Bitwise)));
-            m.insert(ExprTokenType::BitwiseOr, Box::new(BinaryOperatorParselet(Precedence::Bitwise)));
+            let mut m: HashMap<ExprTokenType, Box<dyn InfixParselet>> = HashMap::new();
+            m.insert(
+                ExprTokenType::Plus,
+                Box::new(BinaryOperatorParselet(Precedence::Sum)),
+            );
+            m.insert(
+                ExprTokenType::Times,
+                Box::new(BinaryOperatorParselet(Precedence::Product)),
+            );
+            m.insert(
+                ExprTokenType::Minus,
+                Box::new(BinaryOperatorParselet(Precedence::Sum)),
+            );
+            m.insert(
+                ExprTokenType::Divide,
+                Box::new(BinaryOperatorParselet(Precedence::Product)),
+            );
+            m.insert(
+                ExprTokenType::BitwiseXor,
+                Box::new(BinaryOperatorParselet(Precedence::Bitwise)),
+            );
+            m.insert(
+                ExprTokenType::BitwiseAnd,
+                Box::new(BinaryOperatorParselet(Precedence::Bitwise)),
+            );
+            m.insert(
+                ExprTokenType::BitwiseOr,
+                Box::new(BinaryOperatorParselet(Precedence::Bitwise)),
+            );
             m
         };
 
         let expr_parser = ExprParser {
             prefix: prefix,
-            infix: infix
+            infix: infix,
         };
 
-        Parser {
-            expr_parser
-        }
+        Parser { expr_parser }
     }
 
-    fn parse_macro_statement(&self, tokens: &mut TokenStream) -> Result<Vec<MacroStatement>,ParseError> {
+    fn parse_macro_statement(
+        &self,
+        tokens: &mut TokenStream,
+    ) -> Result<Vec<MacroStatement>, ParseError> {
         let mut stmts = vec![];
         if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
             let tok = tokens.next()?;
@@ -153,15 +202,17 @@ impl Parser {
         } else if tokens.check(Token::is_local_macro_label) && tokens.len() == 1 {
             let tok = tokens.next()?;
             if let TokenType::MacroLabel(name) = tok.token_type() {
-                stmts.push(MacroStatement::MacroLabel(tok.span().clone(), name.to_owned()));
+                stmts.push(MacroStatement::MacroLabel(
+                    tok.span().clone(),
+                    name.to_owned(),
+                ));
             }
         }
 
         if tokens.check(Token::is_name) {
             let tok = tokens.peek().unwrap().clone();
             if let TokenType::Name(name) = tok.token_type() {
-                if !name.starts_with(".")
-                {
+                if !name.starts_with(".") {
                     let (span, name, args) = self.parse_gen_instr(tokens)?;
                     stmts.push(MacroStatement::Instr(span, name, args));
                 } else {
@@ -177,18 +228,30 @@ impl Parser {
         }
     }
 
-    fn parse_macro_header(&self, macros: &Macros, tokens: &mut TokenStream) -> Result<(Span,String,Vec<(Span,String)>),ParseError> {
+    fn parse_macro_header(
+        &self,
+        macros: &Macros,
+        tokens: &mut TokenStream,
+    ) -> Result<(Span, String, Vec<(Span, String)>), ParseError> {
         tokens.read_macro_name()?;
         let (nspan, name) = tokens.read_name()?;
-        if Instr::<Expr,IndirectionMode>::exists(&name) {
-            return Err(ParseError::MacroNameConflictsWithInstruction(nspan.clone(), name.clone()));
+        if Instr::<Expr, IndirectionMode>::exists(&name) {
+            return Err(ParseError::MacroNameConflictsWithInstruction(
+                nspan.clone(),
+                name.clone(),
+            ));
         }
 
         let args = self.parse_args(tokens)?;
 
         let ident = MacroIdentifier::new(name.clone(), args.len());
         if let Some(macro_def) = macros.get(&ident) {
-            return Err(ParseError::MacroAlreadyExists(nspan.clone(), macro_def.span().clone(), name.clone(), args.len()));
+            return Err(ParseError::MacroAlreadyExists(
+                nspan.clone(),
+                macro_def.span().clone(),
+                name.clone(),
+                args.len(),
+            ));
         }
 
         let mut seen: HashSet<String> = HashSet::new();
@@ -203,8 +266,8 @@ impl Parser {
                         seen.insert(name.clone());
                         arg_names.push((arg.span().clone(), name.clone()));
                     }
-                },
-                other => return Err(ParseError::InvalidMacroArg(other.span()))
+                }
+                other => return Err(ParseError::InvalidMacroArg(other.span())),
             }
         }
 
@@ -215,7 +278,10 @@ impl Parser {
         Ok((nspan.clone(), name.clone(), arg_names))
     }
 
-    fn parse_macros<'a>(&self, tokens: &'a [Token]) -> Result<(Vec<&'a [Token]>,Macros),ParseError> {
+    fn parse_macros<'a>(
+        &self,
+        tokens: &'a [Token],
+    ) -> Result<(Vec<&'a [Token]>, Macros), ParseError> {
         let mut macros: Macros = HashMap::new();
         let lines: Vec<&[Token]> = {
             let mut results = vec![];
@@ -256,12 +322,10 @@ impl Parser {
                     }
                     idx = idx + 1;
                 }
-                macros.insert(ident, MacroDefinition::new(
-                    nspan.clone(),
-                    name.clone(),
-                    args,
-                    statements
-                ));
+                macros.insert(
+                    ident,
+                    MacroDefinition::new(nspan.clone(), name.clone(), args, statements),
+                );
             } else {
                 idx = idx + 1;
             }
@@ -277,7 +341,7 @@ impl Parser {
         Ok((new_lines, macros))
     }
 
-    pub fn parse(&self, tokens: &[Token]) -> Result<Statements,ParseError> {
+    pub fn parse(&self, tokens: &[Token]) -> Result<Statements, ParseError> {
         let (lines, macros) = self.parse_macros(tokens)?;
         let mut statements = vec![];
         for line in lines.iter() {
@@ -287,7 +351,11 @@ impl Parser {
         Ok(Statements::new(macros, statements))
     }
 
-    fn parse_line(&self, tokens: &mut TokenStream, results: &mut Vec<Statement>) -> Result<(),ParseError> {
+    fn parse_line(
+        &self,
+        tokens: &mut TokenStream,
+        results: &mut Vec<Statement>,
+    ) -> Result<(), ParseError> {
         if !tokens.is_empty() {
             let stmt = self.parse_statement(tokens)?;
             let is_label = stmt.is_label();
@@ -296,7 +364,7 @@ impl Parser {
                 match self.parse_instr(tokens)? {
                     Some(instr) => {
                         results.push(instr);
-                    },
+                    }
                     None => {
                         return Err(ParseError::InvalidInstruction(tokens.next()?));
                     }
@@ -309,7 +377,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_statement(&self, tokens: &mut TokenStream) -> Result<Statement,ParseError> {
+    fn parse_statement(&self, tokens: &mut TokenStream) -> Result<Statement, ParseError> {
         if tokens.check(Token::is_name) && tokens.check_at(1, Token::is_colon) {
             let tok = tokens.next()?;
             if let TokenType::Name(name) = tok.token_type() {
@@ -321,8 +389,8 @@ impl Parser {
 
         if tokens.check(|tok| tok.is_name())
             && !(tokens.check_at(1, |tok| tok.has_name("equ"))
-                 || tokens.check_at(1, |tok| tok.is_equ())
-                 || tokens.check(|tok| tok.name_starts_with(".")))
+                || tokens.check_at(1, |tok| tok.is_equ())
+                || tokens.check(|tok| tok.name_starts_with(".")))
         {
             // Parse instruction
             if let Some(instr) = self.parse_instr(tokens)? {
@@ -348,14 +416,22 @@ impl Parser {
             let _equ = tokens.next()?;
             let expr = self.parse_expr(tokens)?;
             let span = Span::from(tok.span(), &expr.span());
-            return Ok(Statement::Alias(span, tok.get_name().unwrap().to_owned(), expr))
+            return Ok(Statement::Alias(
+                span,
+                tok.get_name().unwrap().to_owned(),
+                expr,
+            ));
         }
 
         if tok.is_name() && tokens.check(Token::is_equ) {
             let _equ = tokens.next()?;
             let expr = self.parse_expr(tokens)?;
             let span = Span::from(tok.span(), &expr.span());
-            return Ok(Statement::Variable(span, tok.get_name().unwrap().to_owned(), expr))
+            return Ok(Statement::Variable(
+                span,
+                tok.get_name().unwrap().to_owned(),
+                expr,
+            ));
         }
 
         if tok.is_name() && tok.name_matching(|n| n.starts_with(".")) {
@@ -367,10 +443,10 @@ impl Parser {
         Err(ParseError::UnexpectedToken(tok))
     }
 
-    fn parse_instr(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
+    fn parse_instr(&self, tokens: &mut TokenStream) -> Result<Option<Statement>, ParseError> {
         let tok = tokens.peek().map(|t| t.token_type().clone());
         if let Some(TokenType::Name(n)) = tok {
-            if !Instr::<Expr,IndirectionMode>::exists(&n) {
+            if !Instr::<Expr, IndirectionMode>::exists(&n) {
                 if !n.starts_with(".") {
                     let (span, name, args) = self.parse_gen_instr(tokens)?;
                     return Ok(Some(Statement::MacroCall(span, name, args)));
@@ -384,9 +460,12 @@ impl Parser {
         } else {
             Ok(None)
         }
-     }
+    }
 
-    fn parse_gen_instr(&self, tokens: &mut TokenStream) -> Result<(Span,String,Vec<Arg>),ParseError> {
+    fn parse_gen_instr(
+        &self,
+        tokens: &mut TokenStream,
+    ) -> Result<(Span, String, Vec<Arg>), ParseError> {
         let (nspan, name) = tokens.read_name()?;
         let args = self.parse_args(tokens)?;
         if args.is_empty() {
@@ -397,19 +476,22 @@ impl Parser {
         }
     }
 
-    fn parse_args(&self, tokens: &mut TokenStream) -> Result<Vec<Arg>,ParseError> {
+    fn parse_args(&self, tokens: &mut TokenStream) -> Result<Vec<Arg>, ParseError> {
         self.parse_list(tokens, |toks| self.parse_arg(toks))
     }
 
-    fn parse_exprs(&self, tokens: &mut TokenStream) -> Result<Vec<Expr>,ParseError> {
+    fn parse_exprs(&self, tokens: &mut TokenStream) -> Result<Vec<Expr>, ParseError> {
         self.parse_list(tokens, |toks| self.parse_expr(toks))
     }
 
-    fn parse_byte_vals(&self, tokens: &mut TokenStream) -> Result<Vec<ByteValue>,ParseError> {
+    fn parse_byte_vals(&self, tokens: &mut TokenStream) -> Result<Vec<ByteValue>, ParseError> {
         self.parse_list(tokens, |toks| self.parse_byte_value(toks))
     }
 
-    pub fn parse_keyval_pair(&self, tokens: &mut TokenStream) -> Result<((Span,String),ByteValue), ParseError> {
+    pub fn parse_keyval_pair(
+        &self,
+        tokens: &mut TokenStream,
+    ) -> Result<((Span, String), ByteValue), ParseError> {
         if tokens.check(|tok| tok.is_name()) {
             let name = tokens.read_name()?;
             if tokens.check(|tok| tok.is_equ()) {
@@ -426,7 +508,10 @@ impl Parser {
         }
     }
 
-    pub fn parse_keyval_pairs(&self, tokens: &mut TokenStream) -> Result<HashMap<String, ByteValue>,ParseError> {
+    pub fn parse_keyval_pairs(
+        &self,
+        tokens: &mut TokenStream,
+    ) -> Result<HashMap<String, ByteValue>, ParseError> {
         let pairs = self.parse_list(tokens, |t| self.parse_keyval_pair(t))?;
         let mut map = HashMap::new();
         for ((_, n), b) in pairs {
@@ -435,11 +520,10 @@ impl Parser {
         Ok(map)
     }
 
-    fn parse_list<T,F>(
-        &self,
-        tokens: &mut TokenStream,
-        parser: F) -> Result<Vec<T>,ParseError>
-    where F: Fn(&mut TokenStream) -> Result<T,ParseError> {
+    fn parse_list<T, F>(&self, tokens: &mut TokenStream, parser: F) -> Result<Vec<T>, ParseError>
+    where
+        F: Fn(&mut TokenStream) -> Result<T, ParseError>,
+    {
         if tokens.is_empty() {
             Ok(vec![])
         } else {
@@ -455,7 +539,7 @@ impl Parser {
         }
     }
 
-    fn parse_byte_value(&self, tokens: &mut TokenStream) -> Result<ByteValue,ParseError> {
+    fn parse_byte_value(&self, tokens: &mut TokenStream) -> Result<ByteValue, ParseError> {
         if tokens.check(Token::is_string) {
             let (sspan, string) = tokens.read_string()?;
             Ok(ByteValue::String(sspan, string.bytes().collect()))
@@ -464,7 +548,10 @@ impl Parser {
         }
     }
 
-    pub fn parse_directive(&self, tokens: &mut TokenStream) -> Result<Option<Statement>,ParseError> {
+    pub fn parse_directive(
+        &self,
+        tokens: &mut TokenStream,
+    ) -> Result<Option<Statement>, ParseError> {
         let peeked = tokens.peek().map(|t| t.clone());
         match peeked {
             Some(tok) => {
@@ -481,7 +568,10 @@ impl Parser {
                     let ident = tokens.next()?;
                     let (nspan, num, _) = tokens.read_number()?;
                     let span = Span::from(ident.span(), &nspan);
-                    Ok(Some(Statement::Directive(Directive::Org(span, num as usize))))
+                    Ok(Some(Statement::Directive(Directive::Org(
+                        span,
+                        num as usize,
+                    ))))
                 } else if tok.has_name(".word") {
                     let ident = tokens.next()?;
                     let exprs = self.parse_exprs(tokens)?;
@@ -496,19 +586,31 @@ impl Parser {
                     let (_, n, _) = tokens.read_number()?;
                     let (sspan, s) = tokens.read_string()?;
                     let span = Span::from(ident.span(), &sspan);
-                    Ok(Some(Statement::Directive(Directive::Text(span, n as usize, s.bytes().collect()))))
+                    Ok(Some(Statement::Directive(Directive::Text(
+                        span,
+                        n as usize,
+                        s.bytes().collect(),
+                    ))))
                 } else if tok.has_name(".string") {
                     let ident = tokens.next()?;
                     let (_, n, _) = tokens.read_number()?;
                     let (sspan, s) = tokens.read_string()?;
                     let span = Span::from(ident.span(), &sspan);
-                    Ok(Some(Statement::Directive(Directive::String(span, n as usize, s.bytes().collect()))))
+                    Ok(Some(Statement::Directive(Directive::String(
+                        span,
+                        n as usize,
+                        s.bytes().collect(),
+                    ))))
                 } else if tok.has_name(".include") {
                     let ident = tokens.next()?;
                     if tokens.check(|tok| tok.is_string()) {
                         let (str_span, string) = tokens.read_string()?;
                         let span = Span::from(ident.span(), &str_span);
-                        Ok(Some(Statement::Directive(Directive::Include(span, IncludeType::Asm, string))))
+                        Ok(Some(Statement::Directive(Directive::Include(
+                            span,
+                            IncludeType::Asm,
+                            string,
+                        ))))
                     } else {
                         if tokens.check(|tok| tok.has_name("icon")) {
                             tokens.read_name()?;
@@ -516,11 +618,19 @@ impl Parser {
                             let properties = self.parse_keyval_pairs(tokens)?;
                             let speed = match properties.get("speed") {
                                 Some(ByteValue::Expr(expr)) => Some(expr.clone()),
-                                Some(bv) => { return Err(ParseError::InvalidExpression(bv.span().start().clone())); },
-                                None => None
+                                Some(bv) => {
+                                    return Err(ParseError::InvalidExpression(
+                                        bv.span().start().clone(),
+                                    ));
+                                }
+                                None => None,
                             };
                             let eyecatch = properties.get("eyecatch").map(|x| x.clone());
-                            Ok(Some(Statement::Directive(Directive::Include(str_span, IncludeType::Icon(speed, eyecatch), string))))
+                            Ok(Some(Statement::Directive(Directive::Include(
+                                str_span,
+                                IncludeType::Icon(speed, eyecatch),
+                                string,
+                            ))))
                         } else if tokens.check(|tok| tok.has_name("sprite")) {
                             tokens.read_name()?;
                             let (str_span, string) = tokens.read_string()?;
@@ -531,20 +641,34 @@ impl Parser {
                                     match value_str {
                                         "simple" => SpriteType::Simple,
                                         "masked" => SpriteType::Masked,
-                                        _ => return Err(ParseError::InvalidSpriteType(span.clone(), value_str.to_string()))
+                                        _ => {
+                                            return Err(ParseError::InvalidSpriteType(
+                                                span.clone(),
+                                                value_str.to_string(),
+                                            ))
+                                        }
                                     }
-                                },
+                                }
                                 Some(ByteValue::Expr(ref expr)) => {
-                                    return Err(ParseError::InvalidSpriteType(expr.span(), format!("{}", expr)));
-                                },
-                                None => SpriteType::Simple
+                                    return Err(ParseError::InvalidSpriteType(
+                                        expr.span(),
+                                        format!("{}", expr),
+                                    ));
+                                }
+                                None => SpriteType::Simple,
                             };
-                            Ok(Some(Statement::Directive(Directive::Include(str_span, IncludeType::Sprite(typ), string))))
+                            Ok(Some(Statement::Directive(Directive::Include(
+                                str_span,
+                                IncludeType::Sprite(typ),
+                                string,
+                            ))))
                         } else {
                             let (_, inc_type) = tokens.read_include_type()?;
                             let (str_span, string) = tokens.read_string()?;
                             let span = Span::from(ident.span(), &str_span);
-                            Ok(Some(Statement::Directive(Directive::Include(span, inc_type, string))))
+                            Ok(Some(Statement::Directive(Directive::Include(
+                                span, inc_type, string,
+                            ))))
                         }
                     }
                 } else if tok.has_name(".cnop") {
@@ -553,16 +677,18 @@ impl Parser {
                     tokens.consume(TokenType::Comma)?;
                     let second = self.parse_expr(tokens)?;
                     let span = Span::from(ident.span(), &second.span());
-                    Ok(Some(Statement::Directive(Directive::Cnop(span, first, second))))
+                    Ok(Some(Statement::Directive(Directive::Cnop(
+                        span, first, second,
+                    ))))
                 } else {
                     Ok(None)
                 }
-            },
-            None => Ok(None)
+            }
+            None => Ok(None),
         }
     }
 
-    fn parse_arg(&self, tokens: &mut TokenStream) -> Result<Arg,ParseError> {
+    fn parse_arg(&self, tokens: &mut TokenStream) -> Result<Arg, ParseError> {
         if tokens.check(Token::is_indirection_mode) {
             let (span, im) = self.parse_im(tokens)?;
             Ok(Arg::IM(span, im))
@@ -571,47 +697,49 @@ impl Parser {
         } else {
             let expr = self.parse_expr(tokens)?;
             match expr {
-                Expr::MacroArg(span, name) =>
-                    Ok(Arg::MacroArg(span.clone(), name.clone())),
-                _ => Ok(Arg::Ex(expr))
+                Expr::MacroArg(span, name) => Ok(Arg::MacroArg(span.clone(), name.clone())),
+                _ => Ok(Arg::Ex(expr)),
             }
         }
     }
 
-    pub fn parse_expr(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
+    pub fn parse_expr(&self, tokens: &mut TokenStream) -> Result<Expr, ParseError> {
         self.expr_parser.parse(tokens, 0)
     }
 
-    fn parse_i8(&self, tokens: &mut TokenStream) -> Result<Expr,ParseError> {
+    fn parse_i8(&self, tokens: &mut TokenStream) -> Result<Expr, ParseError> {
         tokens.consume(TokenType::Hash)?;
         self.parse_expr(tokens)
     }
 
-    fn parse_im(&self, tokens: &mut TokenStream) -> Result<(Span,IndirectionMode),ParseError> {
+    fn parse_im(&self, tokens: &mut TokenStream) -> Result<(Span, IndirectionMode), ParseError> {
         let tok = tokens.next()?;
         let im = match tok.token_type() {
             TokenType::R0 => Ok(IndirectionMode::R0),
             TokenType::R1 => Ok(IndirectionMode::R1),
             TokenType::R2 => Ok(IndirectionMode::R2),
             TokenType::R3 => Ok(IndirectionMode::R3),
-            _ => Err(ParseError::ExpectedTokenNotFound("Indirection Mode (@R[0-3])", tok.clone()))
+            _ => Err(ParseError::ExpectedTokenNotFound(
+                "Indirection Mode (@R[0-3])",
+                tok.clone(),
+            )),
         };
         let im = im?;
         Ok((tok.span().clone(), im))
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct TokenStream<'a> {
     pos: usize,
-    tokens: &'a [Token]
+    tokens: &'a [Token],
 }
 
 impl<'a> TokenStream<'a> {
     pub fn from<'b>(tokens: &'b [Token]) -> TokenStream<'b> {
         TokenStream {
             pos: 0,
-            tokens: tokens
+            tokens: tokens,
         }
     }
 
@@ -631,7 +759,7 @@ impl<'a> TokenStream<'a> {
         self.pos >= self.tokens.len() || self.check(Token::is_eof)
     }
 
-    pub fn read_include_type(&mut self) -> Result<(Span,IncludeType),ParseError> {
+    pub fn read_include_type(&mut self) -> Result<(Span, IncludeType), ParseError> {
         if self.check(|tok| tok.has_name("asm")) {
             let tok = self.next()?;
             Ok((tok.span().clone(), IncludeType::Asm))
@@ -643,55 +771,61 @@ impl<'a> TokenStream<'a> {
             Ok((tok.span().clone(), IncludeType::CHeader))
         } else {
             let tok = self.current()?;
-            Err(ParseError::ExpectedTokenNotFound("Include Type", tok.clone()))
+            Err(ParseError::ExpectedTokenNotFound(
+                "Include Type",
+                tok.clone(),
+            ))
         }
     }
 
-    pub fn read_string(&mut self) -> Result<(Span,String),ParseError> {
+    pub fn read_string(&mut self) -> Result<(Span, String), ParseError> {
         use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             String(text) => {
                 self.advance();
                 Ok((tok.span().clone(), text.to_owned()))
-            },
-            _ => Err(ParseError::ExpectedTokenNotFound("String", tok.clone()))
+            }
+            _ => Err(ParseError::ExpectedTokenNotFound("String", tok.clone())),
         }
     }
 
-    pub fn read_number(&mut self) -> Result<(Span,i32,lexer::Radix),ParseError> {
+    pub fn read_number(&mut self) -> Result<(Span, i32, lexer::Radix), ParseError> {
         use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             Number(num, radix) => {
                 self.advance();
                 Ok((tok.span().clone(), *num, *radix))
-            },
-            _ => Err(ParseError::ExpectedTokenNotFound("Number", tok.clone()))
+            }
+            _ => Err(ParseError::ExpectedTokenNotFound("Number", tok.clone())),
         }
     }
 
-    pub fn read_name(&mut self) -> Result<(Span,String),ParseError> {
+    pub fn read_name(&mut self) -> Result<(Span, String), ParseError> {
         use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             Name(name) => {
                 self.advance();
                 Ok((tok.span().clone(), name.clone()))
-            },
-            _ => Err(ParseError::ExpectedTokenNotFound("Name", tok.clone()))
+            }
+            _ => Err(ParseError::ExpectedTokenNotFound("Name", tok.clone())),
         }
     }
 
-    pub fn read_macro_name(&mut self) -> Result<(Span,String),ParseError> {
+    pub fn read_macro_name(&mut self) -> Result<(Span, String), ParseError> {
         use crate::lexer::TokenType::*;
         let tok = self.current()?;
         match tok.token_type() {
             MacroIdent(name) => {
                 self.advance();
                 Ok((tok.span().clone(), name.clone()))
-            },
-            _ => Err(ParseError::ExpectedTokenNotFound("Macro Ident", tok.clone()))
+            }
+            _ => Err(ParseError::ExpectedTokenNotFound(
+                "Macro Ident",
+                tok.clone(),
+            )),
         }
     }
 
@@ -703,21 +837,20 @@ impl<'a> TokenStream<'a> {
         self.advance_by(1);
     }
 
-    pub fn current(&self) -> Result<Token,ParseError> {
+    pub fn current(&self) -> Result<Token, ParseError> {
         match self.peek() {
             Some(tok) => Ok(tok.clone()),
-            None => Err(ParseError::UnexpectedEof)
+            None => Err(ParseError::UnexpectedEof),
         }
     }
 
-    pub fn next(&mut self) -> Result<Token,ParseError> {
+    pub fn next(&mut self) -> Result<Token, ParseError> {
         let tok = self.current()?;
         self.advance();
         Ok(tok)
-
     }
 
-    pub fn consume(&mut self, token_type: TokenType) -> Result<Token,ParseError> {
+    pub fn consume(&mut self, token_type: TokenType) -> Result<Token, ParseError> {
         self.assert(token_type)?;
         self.next()
     }
@@ -743,67 +876,60 @@ impl<'a> TokenStream<'a> {
         self.check_at(0, check)
     }
 
-    pub fn assert(&self, token_type: TokenType) -> Result<(),ParseError> {
+    pub fn assert(&self, token_type: TokenType) -> Result<(), ParseError> {
         match self.peek() {
             Some(tok) if *tok.token_type() == token_type => Ok(()),
-            Some(tok) => Err(ParseError::ExpectedTokenNotFound(token_type.name(), tok.clone())),
-            None => Err(ParseError::UnexpectedEof)
+            Some(tok) => Err(ParseError::ExpectedTokenNotFound(
+                token_type.name(),
+                tok.clone(),
+            )),
+            None => Err(ParseError::UnexpectedEof),
         }
     }
 }
 
-pub fn make_instr(
-    span: Span,
-    name: String,
-    args: &[Arg]
-) -> Result<Option<Statement>,ParseError> {
+pub fn make_instr(span: Span, name: String, args: &[Arg]) -> Result<Option<Statement>, ParseError> {
     use crate::expression::Arg::*;
     use crate::instruction::Instr::*;
     match (name.as_str(), args) {
         ("add", [Imm(imm)]) => instr(span, Add_i8(imm.clone())),
         ("add", [Ex(mem)]) => instr(span, Add_d9(mem.clone())),
         ("add", [IM(_, im)]) => instr(span, Add_Ri(im.clone())),
-        ("add", _) => wrong_args(span, "add", vec![
-            vec![ArgType::Imm],
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("add", _) => wrong_args(
+            span,
+            "add",
+            vec![vec![ArgType::Imm], vec![ArgType::D9], vec![ArgType::IM]],
+        ),
         ("addc", [Imm(imm)]) => instr(span, Addc_i8(imm.clone())),
         ("addc", [Ex(mem)]) => instr(span, Addc_d9(mem.clone())),
         ("addc", [IM(_, im)]) => instr(span, Addc_Ri(im.clone())),
-        ("addc", _) => wrong_args(span, "addc", vec![
-            vec![ArgType::Imm],
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("addc", _) => wrong_args(
+            span,
+            "addc",
+            vec![vec![ArgType::Imm], vec![ArgType::D9], vec![ArgType::IM]],
+        ),
         ("sub", [Imm(imm)]) => instr(span, Sub_i8(imm.clone())),
         ("sub", [Ex(mem)]) => instr(span, Sub_d9(mem.clone())),
         ("sub", [IM(_, im)]) => instr(span, Sub_Ri(im.clone())),
-        ("sub", _) => wrong_args(span, "sub", vec![
-            vec![ArgType::Imm],
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("sub", _) => wrong_args(
+            span,
+            "sub",
+            vec![vec![ArgType::Imm], vec![ArgType::D9], vec![ArgType::IM]],
+        ),
         ("subc", [Imm(imm)]) => instr(span, Subc_i8(imm.clone())),
         ("subc", [Ex(mem)]) => instr(span, Subc_d9(mem.clone())),
         ("subc", [IM(_, im)]) => instr(span, Subc_Ri(im.clone())),
-        ("subc", _) => wrong_args(span, "subc", vec![
-            vec![ArgType::Imm],
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("subc", _) => wrong_args(
+            span,
+            "subc",
+            vec![vec![ArgType::Imm], vec![ArgType::D9], vec![ArgType::IM]],
+        ),
         ("inc", [Ex(mem)]) => instr(span, Inc_d9(mem.clone())),
         ("inc", [IM(_, im)]) => instr(span, Inc_Ri(im.clone())),
-        ("inc", _) => wrong_args(span, "inc", vec![
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("inc", _) => wrong_args(span, "inc", vec![vec![ArgType::D9], vec![ArgType::IM]]),
         ("dec", [Ex(mem)]) => instr(span, Dec_d9(mem.clone())),
         ("dec", [IM(_, im)]) => instr(span, Dec_Ri(im.clone())),
-        ("dec", _) => wrong_args(span, "dec", vec![
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("dec", _) => wrong_args(span, "dec", vec![vec![ArgType::D9], vec![ArgType::IM]]),
         ("mul", []) => instr(span, Mul),
         ("mul", _) => wrong_args(span, "mul", vec![]),
         ("div", []) => instr(span, Div),
@@ -811,27 +937,27 @@ pub fn make_instr(
         ("and", [Imm(imm)]) => instr(span, And_i8(imm.clone())),
         ("and", [Ex(mem)]) => instr(span, And_d9(mem.clone())),
         ("and", [IM(_, im)]) => instr(span, And_Ri(im.clone())),
-        ("and", _) => wrong_args(span, "and", vec![
-            vec![ArgType::Imm],
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("and", _) => wrong_args(
+            span,
+            "and",
+            vec![vec![ArgType::Imm], vec![ArgType::D9], vec![ArgType::IM]],
+        ),
         ("or", [Imm(imm)]) => instr(span, Or_i8(imm.clone())),
         ("or", [Ex(mem)]) => instr(span, Or_d9(mem.clone())),
         ("or", [IM(_, im)]) => instr(span, Or_Ri(im.clone())),
-        ("or", _) => wrong_args(span, "or", vec![
-            vec![ArgType::Imm],
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("or", _) => wrong_args(
+            span,
+            "or",
+            vec![vec![ArgType::Imm], vec![ArgType::D9], vec![ArgType::IM]],
+        ),
         ("xor", [Imm(imm)]) => instr(span, Xor_i8(imm.clone())),
         ("xor", [Ex(mem)]) => instr(span, Xor_d9(mem.clone())),
         ("xor", [IM(_, im)]) => instr(span, Xor_Ri(im.clone())),
-        ("xor", _) => wrong_args(span, "xor", vec![
-            vec![ArgType::Imm],
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("xor", _) => wrong_args(
+            span,
+            "xor",
+            vec![vec![ArgType::Imm], vec![ArgType::D9], vec![ArgType::IM]],
+        ),
         ("rol", []) => instr(span, Rol),
         ("rol", _) => wrong_args(span, "rol", vec![]),
         ("rolc", []) => instr(span, Rolc),
@@ -842,161 +968,148 @@ pub fn make_instr(
         ("rorc", _) => wrong_args(span, "rorc", vec![]),
         ("ld", [Ex(mem)]) => instr(span, Ld_d9(mem.clone())),
         ("ld", [IM(_, im)]) => instr(span, Ld_Ri(im.clone())),
-        ("ld", _) => wrong_args(span, "ld", vec![
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("ld", _) => wrong_args(span, "ld", vec![vec![ArgType::D9], vec![ArgType::IM]]),
         ("st", [Ex(mem)]) => instr(span, St_d9(mem.clone())),
         ("st", [IM(_, im)]) => instr(span, St_Ri(im.clone())),
-        ("st", _) => wrong_args(span, "st", vec![
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("st", _) => wrong_args(span, "st", vec![vec![ArgType::D9], vec![ArgType::IM]]),
         ("mov", [Imm(imm), Ex(mem)]) => instr(span, Mov_d9(imm.clone(), mem.clone())),
         ("mov", [Imm(imm), IM(_, im)]) => instr(span, Mov_Rj(imm.clone(), im.clone())),
-        ("mov", _) => wrong_args(span, "mov", vec![
-            vec![ArgType::Imm, ArgType::D9],
-            vec![ArgType::Imm, ArgType::IM]
-        ]),
+        ("mov", _) => wrong_args(
+            span,
+            "mov",
+            vec![
+                vec![ArgType::Imm, ArgType::D9],
+                vec![ArgType::Imm, ArgType::IM],
+            ],
+        ),
         ("ldc", []) => instr(span, Ldc),
         ("ldc", _) => wrong_args(span, "ldc", vec![]),
         ("push", [Ex(mem)]) => instr(span, Push(mem.clone())),
-        ("push", _) => wrong_args(span, "push", vec![
-            vec![ArgType::D9]
-        ]),
+        ("push", _) => wrong_args(span, "push", vec![vec![ArgType::D9]]),
         ("pop", [Ex(mem)]) => instr(span, Pop(mem.clone())),
-        ("pop", _) => wrong_args(span, "pop", vec![
-            vec![ArgType::D9]
-        ]),
+        ("pop", _) => wrong_args(span, "pop", vec![vec![ArgType::D9]]),
         ("xch", [Ex(mem)]) => instr(span, Xch_d9(mem.clone())),
         ("xch", [IM(_, im)]) => instr(span, Xch_Ri(im.clone())),
-        ("xch", _) => wrong_args(span, "xch", vec![
-            vec![ArgType::D9],
-            vec![ArgType::IM]
-        ]),
+        ("xch", _) => wrong_args(span, "xch", vec![vec![ArgType::D9], vec![ArgType::IM]]),
         ("jmp", [Ex(mem)]) => instr(span, Jmp(mem.clone())),
-        ("jmp", _) => wrong_args(span, "jmp", vec![
-            vec![ArgType::A12]
-        ]),
+        ("jmp", _) => wrong_args(span, "jmp", vec![vec![ArgType::A12]]),
         ("jmpf", [Ex(mem)]) => instr(span, Jmpf(mem.clone())),
-        ("jmpf", _) => wrong_args(span, "jmpf", vec![
-            vec![ArgType::A16]
-        ]),
+        ("jmpf", _) => wrong_args(span, "jmpf", vec![vec![ArgType::A16]]),
         ("br", [Ex(mem)]) => instr(span, Br(mem.clone())),
-        ("br", _) => wrong_args(span, "br", vec![
-            vec![ArgType::R8]
-        ]),
+        ("br", _) => wrong_args(span, "br", vec![vec![ArgType::R8]]),
         ("brf", [Ex(mem)]) => instr(span, Brf(mem.clone())),
-        ("brf", _) => wrong_args(span, "brf", vec![
-            vec![ArgType::R16]
-        ]),
+        ("brf", _) => wrong_args(span, "brf", vec![vec![ArgType::R16]]),
         ("bz", [Ex(mem)]) => instr(span, Bz(mem.clone())),
-        ("bz", _) => wrong_args(span, "bz", vec![
-            vec![ArgType::R8]
-        ]),
+        ("bz", _) => wrong_args(span, "bz", vec![vec![ArgType::R8]]),
         ("bnz", [Ex(mem)]) => instr(span, Bnz(mem.clone())),
-        ("bnz", _) => wrong_args(span, "bnz", vec![
-            vec![ArgType::R8]
-        ]),
+        ("bnz", _) => wrong_args(span, "bnz", vec![vec![ArgType::R8]]),
         ("bp", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bp(m1.clone(), m2.clone(), m3.clone())),
-        ("bp", _) => wrong_args(span, "bp", vec![
-            vec![ArgType::D9, ArgType::B3, ArgType::R8]
-        ]),
+        ("bp", _) => wrong_args(
+            span,
+            "bp",
+            vec![vec![ArgType::D9, ArgType::B3, ArgType::R8]],
+        ),
         ("bpc", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bpc(m1.clone(), m2.clone(), m3.clone())),
-        ("bpc", _) => wrong_args(span, "bpc", vec![
-            vec![ArgType::D9, ArgType::B3, ArgType::R8]
-        ]),
+        ("bpc", _) => wrong_args(
+            span,
+            "bpc",
+            vec![vec![ArgType::D9, ArgType::B3, ArgType::R8]],
+        ),
         ("bn", [Ex(m1), Ex(m2), Ex(m3)]) => instr(span, Bn(m1.clone(), m2.clone(), m3.clone())),
-        ("bn", _) => wrong_args(span, "bn", vec![
-            vec![ArgType::D9, ArgType::B3, ArgType::R8]
-        ]),
+        ("bn", _) => wrong_args(
+            span,
+            "bn",
+            vec![vec![ArgType::D9, ArgType::B3, ArgType::R8]],
+        ),
         ("dbnz", [Ex(m1), Ex(m2)]) => instr(span, Dbnz_d9(m1.clone(), m2.clone())),
         ("dbnz", [IM(_, im), Ex(mem)]) => instr(span, Dbnz_Ri(im.clone(), mem.clone())),
-        ("dbnz", _) => wrong_args(span, "dbnz", vec![
-            vec![ArgType::D9, ArgType::R8],
-            vec![ArgType::IM, ArgType::R8]
-        ]),
+        ("dbnz", _) => wrong_args(
+            span,
+            "dbnz",
+            vec![
+                vec![ArgType::D9, ArgType::R8],
+                vec![ArgType::IM, ArgType::R8],
+            ],
+        ),
         ("be", [Imm(imm), Ex(mem)]) => instr(span, Be_i8(imm.clone(), mem.clone())),
         ("be", [Ex(m1), Ex(m2)]) => instr(span, Be_d9(m1.clone(), m2.clone())),
-        ("be", [IM(_, im), Imm(imm), Ex(mem)]) => instr(span, Be_Rj(im.clone(), imm.clone(), mem.clone())),
-        ("be", _) => wrong_args(span, "be", vec![
-            vec![ArgType::Imm, ArgType::R8],
-            vec![ArgType::D9, ArgType::R8],
-            vec![ArgType::IM, ArgType::Imm, ArgType::R8]
-        ]),
+        ("be", [IM(_, im), Imm(imm), Ex(mem)]) => {
+            instr(span, Be_Rj(im.clone(), imm.clone(), mem.clone()))
+        }
+        ("be", _) => wrong_args(
+            span,
+            "be",
+            vec![
+                vec![ArgType::Imm, ArgType::R8],
+                vec![ArgType::D9, ArgType::R8],
+                vec![ArgType::IM, ArgType::Imm, ArgType::R8],
+            ],
+        ),
         ("bne", [Imm(imm), Ex(mem)]) => instr(span, Bne_i8(imm.clone(), mem.clone())),
         ("bne", [Ex(m1), Ex(m2)]) => instr(span, Bne_d9(m1.clone(), m2.clone())),
-        ("bne", [IM(_, im), Imm(imm), Ex(mem)]) => instr(span, Bne_Rj(im.clone(), imm.clone(), mem.clone())),
-        ("bne", _) => wrong_args(span, "bne", vec![
-            vec![ArgType::Imm, ArgType::R8],
-            vec![ArgType::D9, ArgType::R8],
-            vec![ArgType::IM, ArgType::Imm, ArgType::R8]
-        ]),
+        ("bne", [IM(_, im), Imm(imm), Ex(mem)]) => {
+            instr(span, Bne_Rj(im.clone(), imm.clone(), mem.clone()))
+        }
+        ("bne", _) => wrong_args(
+            span,
+            "bne",
+            vec![
+                vec![ArgType::Imm, ArgType::R8],
+                vec![ArgType::D9, ArgType::R8],
+                vec![ArgType::IM, ArgType::Imm, ArgType::R8],
+            ],
+        ),
         ("call", [Ex(mem)]) => instr(span, Call(mem.clone())),
-        ("call", _) => wrong_args(span, "call", vec![
-            vec![ArgType::A12]
-        ]),
+        ("call", _) => wrong_args(span, "call", vec![vec![ArgType::A12]]),
         ("callf", [Ex(mem)]) => instr(span, Callf(mem.clone())),
-        ("callf", _) => wrong_args(span, "callf", vec![
-            vec![ArgType::A16]
-        ]),
+        ("callf", _) => wrong_args(span, "callf", vec![vec![ArgType::A16]]),
         ("callr", [Ex(mem)]) => instr(span, Callr(mem.clone())),
-        ("callr", _) => wrong_args(span, "callr", vec![
-            vec![ArgType::R16]
-        ]),
+        ("callr", _) => wrong_args(span, "callr", vec![vec![ArgType::R16]]),
         ("ret", []) => instr(span, Ret),
         ("ret", _) => wrong_args(span, "ret", vec![]),
         ("reti", []) => instr(span, Reti),
         ("reti", _) => wrong_args(span, "reti", vec![]),
         ("clr1", [Ex(d9), Ex(b3)]) => instr(span, Clr1(d9.clone(), b3.clone())),
-        ("clr1", _) => wrong_args(span, "clr1", vec![
-            vec![ArgType::D9, ArgType::B3]
-        ]),
+        ("clr1", _) => wrong_args(span, "clr1", vec![vec![ArgType::D9, ArgType::B3]]),
         ("set1", [Ex(d9), Ex(b3)]) => instr(span, Set1(d9.clone(), b3.clone())),
-        ("set1", _) => wrong_args(span, "set1", vec![
-            vec![ArgType::D9, ArgType::B3]
-        ]),
+        ("set1", _) => wrong_args(span, "set1", vec![vec![ArgType::D9, ArgType::B3]]),
         ("not1", [Ex(d9), Ex(b3)]) => instr(span, Not1(d9.clone(), b3.clone())),
-        ("not1", _) => wrong_args(span, "not1", vec![
-            vec![ArgType::D9, ArgType::B3]
-        ]),
+        ("not1", _) => wrong_args(span, "not1", vec![vec![ArgType::D9, ArgType::B3]]),
         ("nop", []) => instr(span, Nop),
         ("nop", _) => wrong_args(span, "nop", vec![]),
         ("ldf", []) => instr(span, Ldf),
         ("ldf", _) => wrong_args(span, "ldf", vec![]),
         ("stf", []) => instr(span, Stf),
         ("stf", _) => wrong_args(span, "stf", vec![]),
-        _ => Err(ParseError::UnknownInstruction(span))
+        _ => Err(ParseError::UnknownInstruction(span)),
     }
 }
 
 // ----- Expression Parsing -----
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone,Copy)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Copy)]
 enum Precedence {
     Bitwise = 1,
     Sum = 3,
     Product = 4,
-    Prefix = 6
+    Prefix = 6,
 }
 
 struct ExprParser {
-    prefix: HashMap<ExprTokenType,Box<dyn PrefixParselet>>,
-    infix: HashMap<ExprTokenType,Box<dyn InfixParselet>>
+    prefix: HashMap<ExprTokenType, Box<dyn PrefixParselet>>,
+    infix: HashMap<ExprTokenType, Box<dyn InfixParselet>>,
 }
 
-fn expr_tok_type(loc: Location, token: &Token) -> Result<ExprTokenType,ParseError> {
+fn expr_tok_type(loc: Location, token: &Token) -> Result<ExprTokenType, ParseError> {
     let tok_type = token.token_type().expr_type();
     match tok_type {
-        Some(typ) => {
-            Ok(typ)
-        },
-        None => Err(ParseError::InvalidExpression(loc))
+        Some(typ) => Ok(typ),
+        None => Err(ParseError::InvalidExpression(loc)),
     }
 }
 
 impl ExprParser {
-    pub fn parse(&self, tokens: &mut TokenStream, precedence: i32) -> Result<Expr,ParseError> {
+    pub fn parse(&self, tokens: &mut TokenStream, precedence: i32) -> Result<Expr, ParseError> {
         let tok = tokens.next()?;
         let loc = tok.span().start().clone();
         let typ = expr_tok_type(loc.clone(), &tok)?;
@@ -1019,26 +1132,34 @@ impl ExprParser {
                 match tok_type {
                     Some(typ) => match self.infix(loc, typ) {
                         Ok(parselet) => parselet.precedence(),
-                        Err(_) => 0
+                        Err(_) => 0,
                     },
-                    None => 0
+                    None => 0,
                 }
-            },
-            None => 0
+            }
+            None => 0,
         }
     }
 
-    pub fn infix(&self, location: Location, token_type: ExprTokenType) -> Result<&Box<dyn InfixParselet>,ParseError> {
+    pub fn infix(
+        &self,
+        location: Location,
+        token_type: ExprTokenType,
+    ) -> Result<&Box<dyn InfixParselet>, ParseError> {
         match self.infix.get(&token_type) {
             Some(parselet) => Ok(parselet),
-            None => Err(ParseError::InvalidExpression(location))
+            None => Err(ParseError::InvalidExpression(location)),
         }
     }
 
-    pub fn prefix(&self, location: Location, token_type: ExprTokenType) -> Result<&Box<dyn PrefixParselet>,ParseError> {
+    pub fn prefix(
+        &self,
+        location: Location,
+        token_type: ExprTokenType,
+    ) -> Result<&Box<dyn PrefixParselet>, ParseError> {
         match self.prefix.get(&token_type) {
             Some(parselet) => Ok(parselet),
-            None => Err(ParseError::InvalidExpression(location))
+            None => Err(ParseError::InvalidExpression(location)),
         }
     }
 }
@@ -1047,123 +1168,222 @@ impl ExprParser {
 
 // -- Prefix Parselets --
 trait PrefixParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token) -> Result<Expr,ParseError>;
+    fn parse<'a>(
+        &self,
+        parser: &ExprParser,
+        tokens: &mut TokenStream<'a>,
+        token: Token,
+    ) -> Result<Expr, ParseError>;
     fn precedence(&self) -> i32;
 }
 
 struct ParenParselet(Precedence);
 
 impl PrefixParselet for ParenParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, _token: Token) -> Result<Expr,ParseError> {
+    fn parse<'a>(
+        &self,
+        parser: &ExprParser,
+        tokens: &mut TokenStream<'a>,
+        _token: Token,
+    ) -> Result<Expr, ParseError> {
         let result = parser.parse(tokens, 0)?;
         tokens.consume(TokenType::RightParen)?;
         Ok(result)
     }
-    fn precedence(&self) -> i32 { self.0 as i32 }
+    fn precedence(&self) -> i32 {
+        self.0 as i32
+    }
 }
 
 struct NameParselet(Precedence);
 
 impl PrefixParselet for NameParselet {
-    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
-                 -> Result<Expr,ParseError> {
+    fn parse<'a>(
+        &self,
+        _parser: &ExprParser,
+        _tokens: &mut TokenStream<'a>,
+        token: Token,
+    ) -> Result<Expr, ParseError> {
         match token.token_type() {
-            TokenType::Name(name) =>
-                Ok(Expr::Name(token.span().clone(), name.to_owned())),
-            _ => Err(ParseError::ExpectedTokenNotFound("Name", token.clone()))
+            TokenType::Name(name) => Ok(Expr::Name(token.span().clone(), name.to_owned())),
+            _ => Err(ParseError::ExpectedTokenNotFound("Name", token.clone())),
         }
     }
-    fn precedence(&self) -> i32 { self.0 as i32 }
+    fn precedence(&self) -> i32 {
+        self.0 as i32
+    }
 }
 
 struct MacroArgParselet(Precedence);
 
 impl PrefixParselet for MacroArgParselet {
-    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
-                 -> Result<Expr,ParseError> {
+    fn parse<'a>(
+        &self,
+        _parser: &ExprParser,
+        _tokens: &mut TokenStream<'a>,
+        token: Token,
+    ) -> Result<Expr, ParseError> {
         match token.token_type() {
-            TokenType::MacroIdent(name) =>
-                Ok(Expr::MacroArg(token.span().clone(), name.to_owned())),
-            _ => Err(ParseError::ExpectedTokenNotFound("Macro Arg", token.clone()))
+            TokenType::MacroIdent(name) => {
+                Ok(Expr::MacroArg(token.span().clone(), name.to_owned()))
+            }
+            _ => Err(ParseError::ExpectedTokenNotFound(
+                "Macro Arg",
+                token.clone(),
+            )),
         }
     }
-    fn precedence(&self) -> i32 { self.0 as i32 }
+    fn precedence(&self) -> i32 {
+        self.0 as i32
+    }
 }
 
 struct MacroLabelParselet(Precedence);
 
 impl PrefixParselet for MacroLabelParselet {
-    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
-                 -> Result<Expr,ParseError> {
+    fn parse<'a>(
+        &self,
+        _parser: &ExprParser,
+        _tokens: &mut TokenStream<'a>,
+        token: Token,
+    ) -> Result<Expr, ParseError> {
         match token.token_type() {
-            TokenType::MacroLabel(name) =>
-                Ok(Expr::MacroLabel(token.span().clone(), name.to_owned())),
-            _ => Err(ParseError::ExpectedTokenNotFound("Macro Label", token.clone()))
+            TokenType::MacroLabel(name) => {
+                Ok(Expr::MacroLabel(token.span().clone(), name.to_owned()))
+            }
+            _ => Err(ParseError::ExpectedTokenNotFound(
+                "Macro Label",
+                token.clone(),
+            )),
         }
     }
-    fn precedence(&self) -> i32 { self.0 as i32 }
+    fn precedence(&self) -> i32 {
+        self.0 as i32
+    }
 }
 
 struct NumberParselet(Precedence);
 
 impl PrefixParselet for NumberParselet {
-    fn parse<'a>(&self, _parser: &ExprParser, _tokens: &mut TokenStream<'a>, token: Token)
-                 -> Result<Expr,ParseError> {
+    fn parse<'a>(
+        &self,
+        _parser: &ExprParser,
+        _tokens: &mut TokenStream<'a>,
+        token: Token,
+    ) -> Result<Expr, ParseError> {
         match token.token_type() {
-            TokenType::Number(num, radix) =>
-                Ok(Expr::Number(token.span().clone(), *num, Radix::from(radix))),
-            _ => Err(ParseError::ExpectedTokenNotFound("Number", token.clone()))
+            TokenType::Number(num, radix) => {
+                Ok(Expr::Number(token.span().clone(), *num, Radix::from(radix)))
+            }
+            _ => Err(ParseError::ExpectedTokenNotFound("Number", token.clone())),
         }
     }
-    fn precedence(&self) -> i32 { self.0 as i32 }
+    fn precedence(&self) -> i32 {
+        self.0 as i32
+    }
 }
 
 struct PrefixOperatorParselet(Precedence);
 
 impl PrefixParselet for PrefixOperatorParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, token: Token) -> Result<Expr,ParseError> {
+    fn parse<'a>(
+        &self,
+        parser: &ExprParser,
+        tokens: &mut TokenStream<'a>,
+        token: Token,
+    ) -> Result<Expr, ParseError> {
         let result = parser.parse(tokens, self.precedence())?;
         use crate::lexer::TokenType::*;
         match token.token_type() {
             Minus => Ok(Expr::UnaryMinus(token.span().clone(), Box::new(result))),
             UpperByte => Ok(Expr::UpperByte(token.span().clone(), Box::new(result))),
             LowerByte => Ok(Expr::LowerByte(token.span().clone(), Box::new(result))),
-            _ => Err(ParseError::ExpectedTokenNotFound("PrefixOperator", token.clone()))
+            _ => Err(ParseError::ExpectedTokenNotFound(
+                "PrefixOperator",
+                token.clone(),
+            )),
         }
     }
-    fn precedence(&self) -> i32 { self.0 as i32 }
+    fn precedence(&self) -> i32 {
+        self.0 as i32
+    }
 }
 
 // -- Infix Parselets --
 
 trait InfixParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, left: Expr, token: Token) -> Result<Expr,ParseError>;
+    fn parse<'a>(
+        &self,
+        parser: &ExprParser,
+        tokens: &mut TokenStream<'a>,
+        left: Expr,
+        token: Token,
+    ) -> Result<Expr, ParseError>;
     fn precedence(&self) -> i32;
 }
 
 struct BinaryOperatorParselet(Precedence);
 
 impl InfixParselet for BinaryOperatorParselet {
-    fn parse<'a>(&self, parser: &ExprParser, tokens: &mut TokenStream<'a>, left: Expr, token: Token) -> Result<Expr,ParseError> {
+    fn parse<'a>(
+        &self,
+        parser: &ExprParser,
+        tokens: &mut TokenStream<'a>,
+        left: Expr,
+        token: Token,
+    ) -> Result<Expr, ParseError> {
         let right = parser.parse(tokens, self.precedence())?;
         use crate::lexer::TokenType::*;
         match token.token_type() {
-            Plus => Ok(Expr::Plus(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
-            Times => Ok(Expr::Times(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
-            Minus => Ok(Expr::Minus(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
-            Divide => Ok(Expr::Divide(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
-            Caret => Ok(Expr::BitwiseXor(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
-            Ampersand => Ok(Expr::BitwiseAnd(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
-            Pipe => Ok(Expr::BitwiseOr(Span::from(&left.span(), &right.span()), Box::new(left), Box::new(right))),
-            _ => Err(ParseError::ExpectedTokenNotFound("Binary Operator", token.clone()))
+            Plus => Ok(Expr::Plus(
+                Span::from(&left.span(), &right.span()),
+                Box::new(left),
+                Box::new(right),
+            )),
+            Times => Ok(Expr::Times(
+                Span::from(&left.span(), &right.span()),
+                Box::new(left),
+                Box::new(right),
+            )),
+            Minus => Ok(Expr::Minus(
+                Span::from(&left.span(), &right.span()),
+                Box::new(left),
+                Box::new(right),
+            )),
+            Divide => Ok(Expr::Divide(
+                Span::from(&left.span(), &right.span()),
+                Box::new(left),
+                Box::new(right),
+            )),
+            Caret => Ok(Expr::BitwiseXor(
+                Span::from(&left.span(), &right.span()),
+                Box::new(left),
+                Box::new(right),
+            )),
+            Ampersand => Ok(Expr::BitwiseAnd(
+                Span::from(&left.span(), &right.span()),
+                Box::new(left),
+                Box::new(right),
+            )),
+            Pipe => Ok(Expr::BitwiseOr(
+                Span::from(&left.span(), &right.span()),
+                Box::new(left),
+                Box::new(right),
+            )),
+            _ => Err(ParseError::ExpectedTokenNotFound(
+                "Binary Operator",
+                token.clone(),
+            )),
         }
     }
-    fn precedence(&self) -> i32 { self.0 as i32 }
+    fn precedence(&self) -> i32 {
+        self.0 as i32
+    }
 }
 
 // Expression type stuff
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 enum ExprTokenType {
     Paren,
     Name,
@@ -1178,7 +1398,7 @@ enum ExprTokenType {
     MacroArg,
     BitwiseXor,
     BitwiseAnd,
-    BitwiseOr
+    BitwiseOr,
 }
 
 impl lexer::TokenType {
@@ -1199,35 +1419,32 @@ impl lexer::TokenType {
             Caret => Some(ExprTokenType::BitwiseXor),
             Ampersand => Some(ExprTokenType::BitwiseAnd),
             Pipe => Some(ExprTokenType::BitwiseOr),
-            _ => None
+            _ => None,
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::parser;
-    use crate::parser::{ParseError,TokenStream};
-    use crate::expression::Expr;
-    use crate::lexer;
-    use crate::input::Input;
-    use crate::files::FileID;
-    use std::collections::HashMap;
     use crate::ast::Statement;
+    use crate::expression::Expr;
+    use crate::files::FileID;
+    use crate::input::Input;
+    use crate::lexer;
+    use crate::parser;
+    use crate::parser::{ParseError, TokenStream};
+    use std::collections::HashMap;
 
     #[test]
     fn test_expression_parser() {
         check_expression_parser(
             "fred + 2 * 7 - 21 * (6 + 7)",
-            "(fred + (2 * 7)) - (21 * (6 + 7))"
+            "(fred + (2 * 7)) - (21 * (6 + 7))",
         );
-        check_expression_parser(
-            "bob + sam + -12 * 7",
-            "(bob + sam) + ((-12) * 7)"
-        );
+        check_expression_parser("bob + sam + -12 * 7", "(bob + sam) + ((-12) * 7)");
         check_expression_parser(
             "bob + sam + -12 * 7 + ->fred - <sam",
-            "(((bob + sam) + ((-12) * 7)) + (-(>fred))) - (<sam)"
+            "(((bob + sam) + ((-12) * 7)) + (-(>fred))) - (<sam)",
         );
     }
 
@@ -1250,7 +1467,7 @@ mod test {
         assert_eq!(printed, printed2);
     }
 
-    fn parse_expr(text: &str) -> Result<Expr,ParseError> {
+    fn parse_expr(text: &str) -> Result<Expr, ParseError> {
         let file = FileID::new(7);
         let input = Input::new(file, text);
         let tokens = lexer::lex_input(&input)?;
@@ -1280,7 +1497,10 @@ mod test {
         let line = ".word $4478, $6543, 0x3221, 0b1011100001100100";
         let stmt = parse_statement(line).expect("failed to parse statement");
         let printed = format!("{}", stmt);
-        assert_eq!(".word $4478, $6543, $3221, %1011100001100100", printed.trim());
+        assert_eq!(
+            ".word $4478, $6543, $3221, %1011100001100100",
+            printed.trim()
+        );
     }
 
     #[test]
@@ -1323,7 +1543,7 @@ mod test {
         assert_eq!(".include:", printed.trim());
     }
 
-    fn parse_statement(text: &str) -> Result<Statement,ParseError> {
+    fn parse_statement(text: &str) -> Result<Statement, ParseError> {
         let file = FileID::new(7);
         let input = Input::new(file, text);
         let tokens = lexer::lex_input(&input)?;
