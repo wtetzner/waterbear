@@ -6,7 +6,9 @@ use image::AnimationDecoder;
 use image::{DynamicImage, GenericImageView, Rgba};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs::File;
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum IconError {
@@ -305,7 +307,11 @@ impl Image {
         palette
     }
 
-    pub fn to_frame_count_and_speed(&self, name: &str, speed: u16) -> crate::ast::Statements {
+    pub fn to_frame_count_and_speed(
+        &self,
+        name: impl std::fmt::Display,
+        speed: u16,
+    ) -> crate::ast::Statements {
         use crate::ast::{Statement, Statements};
         use crate::expression::Expr;
         let mut stmts = vec![];
@@ -338,7 +344,7 @@ impl Image {
     pub fn to_icon(
         &self,
         palette_map: &HashMap<Color, usize>,
-        name: &str,
+        name: impl std::fmt::Display,
     ) -> crate::ast::Statements {
         use crate::ast::{ByteValue, Statement, Statements};
         use crate::expression::Expr;
@@ -440,28 +446,29 @@ impl Image {
     }
 }
 
-pub fn load_image(path: &str) -> Result<Image, ImageLoadError> {
-    let lower_path = path.to_lowercase();
-    if lower_path.ends_with(".png") {
-        load_png(path)
-    } else if lower_path.ends_with(".gif") {
-        load_gif(path)
-    } else {
-        let image =
-            image::open(path).map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
-        Ok(to_image(&image))
+pub fn load_image(path: impl AsRef<Path>) -> Result<Image, ImageLoadError> {
+    let path = path.as_ref();
+    match path.extension().and_then(OsStr::to_str) {
+        Some("png") => load_png(path),
+        Some("gif") => load_gif(path),
+        _ => {
+            let image = image::open(path)
+                .map_err(|e| ImageLoadError::ImageParseError(path.display().to_string(), e))?;
+            Ok(to_image(&image))
+        }
     }
 }
 
-fn load_gif(path: &str) -> Result<Image, ImageLoadError> {
-    let file_in =
-        File::open(path).map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
+fn load_gif(path: impl AsRef<Path>) -> Result<Image, ImageLoadError> {
+    let path = path.as_ref();
+    let file_in = File::open(path)
+        .map_err(|e| ImageLoadError::FileLoadFailure(path.display().to_string(), e))?;
     let decoder = GifDecoder::new(file_in)
-        .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
+        .map_err(|e| ImageLoadError::ImageParseError(path.display().to_string(), e))?;
     let frames = decoder
         .into_frames()
         .collect_frames()
-        .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
+        .map_err(|e| ImageLoadError::ImageParseError(path.display().to_string(), e))?;
     let mut out_frames = vec![];
     for frame in frames {
         out_frames.push(to_frame(
@@ -472,17 +479,18 @@ fn load_gif(path: &str) -> Result<Image, ImageLoadError> {
     Ok(Image { frames: out_frames })
 }
 
-fn load_png(path: &str) -> Result<Image, ImageLoadError> {
-    let file_in =
-        File::open(path).map_err(|e| ImageLoadError::FileLoadFailure(path.to_string(), e))?;
+fn load_png(path: impl AsRef<Path>) -> Result<Image, ImageLoadError> {
+    let path = path.as_ref();
+    let file_in = File::open(path)
+        .map_err(|e| ImageLoadError::FileLoadFailure(path.display().to_string(), e))?;
     let decoder = PngDecoder::new(file_in)
-        .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
+        .map_err(|e| ImageLoadError::ImageParseError(path.display().to_string(), e))?;
     if decoder.is_apng() {
         let frames = decoder
             .apng()
             .into_frames()
             .collect_frames()
-            .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
+            .map_err(|e| ImageLoadError::ImageParseError(path.display().to_string(), e))?;
         let mut out_frames = vec![];
         for frame in frames {
             out_frames.push(to_frame(
@@ -493,7 +501,7 @@ fn load_png(path: &str) -> Result<Image, ImageLoadError> {
         Ok(Image { frames: out_frames })
     } else {
         let image = DynamicImage::from_decoder(decoder)
-            .map_err(|e| ImageLoadError::ImageParseError(path.to_string(), e))?;
+            .map_err(|e| ImageLoadError::ImageParseError(path.display().to_string(), e))?;
         Ok(to_image(&image))
     }
 }
@@ -543,24 +551,29 @@ fn eyecatch_type(palette: &Option<HashMap<Color, usize>>) -> u16 {
 }
 
 pub fn to_icon(
-    icon_path: &str,
+    icon_path: impl AsRef<Path>,
     speed: Option<u16>,
     eyecatch_file: Option<&str>,
 ) -> Result<crate::ast::Statements, IconError> {
     use crate::ast::{ByteValue, Statement};
     use crate::expression::Expr;
 
+    let icon_path = icon_path.as_ref();
     let image = load_image(icon_path)?.scale_channels(15);
     let palette = image.get_palette();
     if palette.len() > 16 {
         return Err(IconError::InvalidPaletteSize(
-            icon_path.to_string(),
+            icon_path.display().to_string(),
             palette.len(),
             16,
         ));
     }
     if !image.is_size(32, 32) {
-        return Err(IconError::InvalidIconSize(icon_path.to_string(), 32, 32));
+        return Err(IconError::InvalidIconSize(
+            icon_path.display().to_string(),
+            32,
+            32,
+        ));
     }
 
     let eyecatch = {
@@ -575,7 +588,7 @@ pub fn to_icon(
 
     let eyecatch_type = eyecatch_type(&eyecatch_palette);
 
-    let mut stmts = image.to_frame_count_and_speed(&icon_path, speed.unwrap_or(10));
+    let mut stmts = image.to_frame_count_and_speed(&icon_path.display(), speed.unwrap_or(10));
     let eyecatch_comment = match eyecatch_type {
         0 => "Eyecatch type is 0: there is no eyecatch image.",
         1 => "Eyecatch type is 1: the eyecatch is stored as a 16-bit true color image.",
@@ -597,7 +610,7 @@ pub fn to_icon(
     stmts.push(Statement::byte(vec![ByteValue::Expr(Expr::num(0)); 10]));
     stmts.push(Statement::byte(vec![ByteValue::Expr(Expr::num(0)); 10]));
 
-    stmts.append(&image.to_icon(&palette, &icon_path).as_slice());
+    stmts.append(&image.to_icon(&palette, &icon_path.display()).as_slice());
 
     if eyecatch.is_some() && eyecatch_palette.is_some() {
         let eyecatch_path = eyecatch_file.unwrap();

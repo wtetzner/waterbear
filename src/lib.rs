@@ -37,7 +37,6 @@ use std::io::Write;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::asm::AssemblyError;
-use std::path::Path;
 
 use atty::Stream;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
@@ -122,10 +121,8 @@ pub fn run_command(args: &[String]) {
 
     if let Some(matches) = matches.subcommand_matches("assemble") {
         let input_file = matches.value_of("INPUT").unwrap();
-        let path = Path::new(input_file);
-        let dir = path.parent().unwrap_or(Path::new("")).to_str().unwrap();
 
-        let mut files = files::SourceFiles::new(dir.to_owned());
+        let mut files = files::SourceFiles::new();
         match assemble_cmd(&mut files, &mut stderr, matches) {
             Ok(_num_bytes) => {}
             Err(ref err) => {
@@ -276,10 +273,8 @@ pub fn run_command(args: &[String]) {
         }
     } else if let Some(matches) = matches.subcommand_matches("expand") {
         let input_file = matches.value_of("INPUT").unwrap();
-        let path = Path::new(input_file);
-        let dir = path.parent().unwrap_or(Path::new("")).to_str().unwrap();
 
-        let mut files = files::SourceFiles::new(dir.to_owned());
+        let mut files = files::SourceFiles::new();
         match expand_cmd(&mut files, matches) {
             Ok(_) => {}
             Err(ref err) => {
@@ -1055,12 +1050,21 @@ fn highlight_line_indented(
     stderr: &mut ColorWriter,
 ) {
     let file = files.for_id(span.start().file()).unwrap();
+    let path = {
+        let file_path = file.name().display().to_string();
+        let working_directory = files.working_directory().display().to_string() + "/";
+        if file_path.starts_with(&working_directory) {
+            file_path[working_directory.len()..].to_string()
+        } else {
+            file_path
+        }
+    };
     let line = line_for_pos(span.start().pos(), file.contents());
 
     stderr
         .write(indent)
         .yellow()
-        .write(file.name())
+        .write(path)
         .reset()
         .write(":")
         .bold()

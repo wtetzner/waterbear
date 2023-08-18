@@ -8,6 +8,7 @@ use crate::lexer;
 use crate::lexer::{LexerError, Token, TokenType};
 use crate::location::{Location, Positioned, Span};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -610,7 +611,7 @@ impl Parser {
                         Ok(Some(Statement::Directive(Directive::Include(
                             span,
                             IncludeType::Asm,
-                            string,
+                            PathBuf::from(string),
                         ))))
                     } else {
                         if tokens.check(|tok| tok.has_name("icon")) {
@@ -630,7 +631,7 @@ impl Parser {
                             Ok(Some(Statement::Directive(Directive::Include(
                                 str_span,
                                 IncludeType::Icon(speed, eyecatch),
-                                string,
+                                PathBuf::from(string),
                             ))))
                         } else if tokens.check(|tok| tok.has_name("sprite")) {
                             tokens.read_name()?;
@@ -662,8 +663,8 @@ impl Parser {
                                 Some(ByteValue::String(span, ref value)) => {
                                     let value_str = std::str::from_utf8(value).unwrap();
                                     match value_str {
-                                        "true" | "yes" => IncludeHeader::Yes,
-                                        "false" | "no" => IncludeHeader::No,
+                                        "yes" => IncludeHeader::Yes,
+                                        "no" => IncludeHeader::No,
                                         _ => {
                                             return Err(ParseError::InvalidSpriteHeader(
                                                 span.clone(),
@@ -683,14 +684,16 @@ impl Parser {
                             Ok(Some(Statement::Directive(Directive::Include(
                                 str_span,
                                 IncludeType::Sprite(typ, include_header),
-                                string,
+                                PathBuf::from(string),
                             ))))
                         } else {
                             let (_, inc_type) = tokens.read_include_type()?;
                             let (str_span, string) = tokens.read_string()?;
                             let span = Span::from(ident.span(), &str_span);
                             Ok(Some(Statement::Directive(Directive::Include(
-                                span, inc_type, string,
+                                span,
+                                inc_type,
+                                PathBuf::from(string),
                             ))))
                         }
                     }

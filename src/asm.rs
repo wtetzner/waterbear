@@ -7,10 +7,10 @@ use crate::env::{Env, Names};
 use crate::expression::{Arg, EvaluationError, Expr};
 use crate::files;
 use crate::files::{FileLoadError, SourceFiles};
-use crate::img;
+use crate::img::{self, ImageLoadError};
 use crate::input::Input;
 use crate::instruction::EncodingError;
-use crate::lexer;
+use crate::lexer::{self, TokenType};
 use crate::lexer::{LexerError, Token};
 use crate::location::{Location, Positioned, Span};
 use crate::parser;
@@ -35,30 +35,28 @@ pub fn expand_file(files: &mut SourceFiles, filename: &str) -> Result<(), Assemb
 
 fn read_statements(
     mut files: &mut SourceFiles,
-    filename: &str,
+    filename: impl AsRef<Path>,
 ) -> Result<Statements, AssemblyError> {
-    let path = Path::new(filename);
+    let no_root: Option<&Path> = None;
+    let filename = files.path(no_root, filename);
     let parser = parser::Parser::create();
 
     let tokens = {
         let tokens = {
-            let file = files.load(
-                path.file_name()
-                    .expect("expected filename")
-                    .to_str()
-                    .unwrap(),
-            )?;
+            let including_file: Option<&Path> = None;
+            let file = files.load(including_file, &filename)?;
             let input = Input::new(file.id(), file.contents());
             lexer::lex_input(&input)?
         };
-        replace_includes(&parser, &mut files, &tokens)?
+        replace_includes(&filename, &parser, &mut files, &tokens)?
     };
     let stmts = parser.parse(&tokens)?;
-    let stmts = replace_byte_includes(&mut files, &stmts)?;
+    let stmts = replace_byte_includes(&filename, &mut files, &stmts)?;
     Ok(stmts)
 }
 
 fn replace_includes(
+    filename: &Path,
     parser: &Parser,
     files: &mut SourceFiles,
     tokens: &[Token],
@@ -67,42 +65,62 @@ fn replace_includes(
     for line in parser::lines(tokens) {
         let mut stream = parser::TokenStream::from(line);
         match parser.parse_directive(&mut stream) {
-            Ok(Some(stmt)) => match stmt {
-                Statement::Directive(Directive::Include(_span, typ, path)) => match typ {
-                    IncludeType::Asm => {
-                        let new_tokens = {
-                            let file = files.load(&path)?;
-                            let input = Input::new(file.id(), file.contents());
-                            lexer::lex_input(&input)?
-                        };
-                        let new_tokens = replace_includes(parser, files, &new_tokens)?;
-                        for token in new_tokens.iter() {
-                            results.push(token.clone());
+            Ok(Some(stmt)) => {
+                let original_path = stmt
+                    .path()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .unwrap_or(String::new());
+                match stmt.fixup_paths(files, Some(filename)) {
+                    Statement::Directive(Directive::Include(_span, typ, path)) => match typ {
+                        IncludeType::Asm => {
+                            let file = files.load(Some(filename), &path)?;
+                            let new_tokens = {
+                                let input = Input::new(file.id(), file.contents());
+                                lexer::lex_input(&input)?
+                            };
+                            let new_tokens = replace_includes(
+                                &file.name().to_owned(),
+                                parser,
+                                files,
+                                &new_tokens,
+                            )?;
+                            for token in new_tokens.iter() {
+                                results.push(token.clone());
+                            }
+                            if !stream.is_empty() {
+                                return Err(AssemblyError::UnexpectedToken(stream.next()?));
+                            }
                         }
-                        if !stream.is_empty() {
-                            return Err(AssemblyError::UnexpectedToken(stream.next()?));
+                        IncludeType::CHeader => {
+                            let mut new_tokens = {
+                                let file = files.load(Some(filename), &path)?;
+                                let input = Input::new(file.id(), file.contents());
+                                cheader::lex_input(&input)?
+                            };
+                            results.append(&mut new_tokens);
                         }
-                    }
-                    IncludeType::CHeader => {
-                        let mut new_tokens = {
-                            let file = files.load(&path)?;
-                            let input = Input::new(file.id(), file.contents());
-                            cheader::lex_input(&input)?
-                        };
-                        results.append(&mut new_tokens);
-                    }
-                    IncludeType::Bytes | IncludeType::Icon(_, _) | IncludeType::Sprite(..) => {
+                        IncludeType::Bytes | IncludeType::Icon(_, _) | IncludeType::Sprite(..) => {
+                            for token in line.iter() {
+                                if let TokenType::String(string) = token.token_type() {
+                                    if string == &original_path {
+                                        results.push(Token::new(
+                                            TokenType::String(path.display().to_string()),
+                                            token.span().clone(),
+                                        ));
+                                        continue;
+                                    }
+                                }
+                                results.push(token.clone());
+                            }
+                        }
+                    },
+                    _ => {
                         for token in line.iter() {
                             results.push(token.clone());
                         }
                     }
-                },
-                _ => {
-                    for token in line.iter() {
-                        results.push(token.clone());
-                    }
                 }
-            },
+            }
             _ => {
                 for token in line.iter() {
                     results.push(token.clone());
@@ -114,6 +132,7 @@ fn replace_includes(
 }
 
 fn replace_byte_includes(
+    filename: &Path,
     files: &mut SourceFiles,
     statements: &Statements,
 ) -> Result<Statements, AssemblyError> {
@@ -128,7 +147,7 @@ fn replace_byte_includes(
                     panic!("There should be no C Header .includes at this stage.");
                 }
                 IncludeType::Bytes => {
-                    let bytes = files::load_bytes(&files.path(&path))?;
+                    let bytes = files::load_bytes(&files.path(Some(filename), &path))?;
                     let mut byte_vals = vec![];
                     for byte in bytes.iter() {
                         byte_vals.push(ByteValue::Expr(Expr::num(*byte as i32)));
@@ -155,19 +174,21 @@ fn replace_byte_includes(
                             ));
                         }
                     };
-                    let stmts = img::to_icon(path, speed.map(|v| v as u16), eyecatch)?;
+                    let path = files.path(Some(filename), path);
+                    let stmts = img::to_icon(&path, speed.map(|v| v as u16), eyecatch)?;
                     for stmt in stmts.as_slice() {
                         results.push(stmt.clone());
                     }
                 }
                 IncludeType::Sprite(ref typ, ref include_header) => {
-                    let image = img::load_image(path).unwrap();
+                    let path = files.path(Some(filename), path);
+                    let image = img::load_image(&path)?;
                     if include_header.is_yes() {
                         let max_byte = usize::from(u8::MAX);
                         if image.width() > usize::from(u8::MAX) {
                             return Err(AssemblyError::SpriteTooWide(
                                 span.clone(),
-                                path.to_string(),
+                                path.display().to_string(),
                                 image.width(),
                                 max_byte,
                             ));
@@ -175,7 +196,7 @@ fn replace_byte_includes(
                         if image.height() > usize::from(u8::MAX) {
                             return Err(AssemblyError::SpriteTooTall(
                                 span.clone(),
-                                path.to_string(),
+                                path.display().to_string(),
                                 image.height(),
                                 max_byte,
                             ));
@@ -187,7 +208,7 @@ fn replace_byte_includes(
                     };
                     results.push(Statement::Comment(format!(
                         "\nSprite \"{}\" ({}, {} header)",
-                        path,
+                        path.display(),
                         typ,
                         if include_header.is_yes() {
                             "include"
@@ -438,6 +459,16 @@ impl From<LexerError> for AssemblyError {
         use crate::lexer::LexerError::*;
         match error {
             UnexpectedChar(loc) => AssemblyError::UnexpectedChar(loc),
+        }
+    }
+}
+
+impl From<ImageLoadError> for AssemblyError {
+    fn from(error: ImageLoadError) -> Self {
+        use crate::img::ImageLoadError::*;
+        match error {
+            FileLoadFailure(file, err) => AssemblyError::FileLoadFailure(file, err),
+            ImageParseError(file, err) => AssemblyError::ImageParseError(file, err),
         }
     }
 }

@@ -1,8 +1,10 @@
 use crate::expression::{Arg, EvaluationError, Expr, IndirectionMode};
+use crate::files::SourceFiles;
 use crate::instruction::Instr;
 use crate::location::{Positioned, Span};
 use std::collections::HashMap;
 use std::fmt;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct MacroIdentifier {
@@ -231,7 +233,7 @@ pub enum Directive {
     Word(Span, Vec<Expr>),
     Text(Span, usize, Vec<u8>),
     String(Span, usize, Vec<u8>),
-    Include(Span, IncludeType, String),
+    Include(Span, IncludeType, PathBuf),
     Cnop(Span, Expr, Expr),
 }
 
@@ -293,6 +295,24 @@ impl Directive {
             String(span, _, _) => span.clone(),
             Include(span, _, _) => span.clone(),
             Cnop(span, _, _) => span.clone(),
+        }
+    }
+
+    pub fn fixup_paths(self, files: &SourceFiles, root_file: Option<&Path>) -> Directive {
+        match self {
+            Directive::Include(span, include_type, path) => Directive::Include(
+                span.clone(),
+                include_type.clone(),
+                files.path(root_file, &path),
+            ),
+            directive => directive,
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Directive::Include(_span, _include_type, path) => Some(path),
+            _directive => None,
         }
     }
 }
@@ -372,9 +392,9 @@ impl fmt::Display for Directive {
                 write!(f, "")
             }
             Directive::Include(_, typ, path) => match typ {
-                IncludeType::Asm => write!(f, "  .include \"{}\"", path),
+                IncludeType::Asm => write!(f, "  .include \"{}\"", path.display()),
                 IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
-                    write!(f, "  .include icon \"{}\"", path)?;
+                    write!(f, "  .include icon \"{}\"", path.display())?;
                     let mut comma = false;
                     if let Some(speed) = speed_opt {
                         write!(f, " speed = {}", speed)?;
@@ -389,7 +409,7 @@ impl fmt::Display for Directive {
                     }
                     write!(f, "")
                 }
-                _ => write!(f, "  .include {} \"{}\"", typ, path),
+                _ => write!(f, "  .include {} \"{}\"", typ, path.display()),
             },
         }
     }
@@ -407,6 +427,22 @@ pub enum Statement {
 }
 
 impl Statement {
+    pub fn fixup_paths(self, files: &SourceFiles, root_file: Option<&Path>) -> Statement {
+        match self {
+            Statement::Directive(directive) => {
+                Statement::Directive(directive.fixup_paths(files, root_file))
+            }
+            statement => statement,
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Statement::Directive(directive) => directive.path(),
+            _statement => None,
+        }
+    }
+
     pub fn is_label(&self) -> bool {
         match self {
             Statement::Label(_, _) => true,
