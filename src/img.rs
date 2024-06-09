@@ -550,10 +550,10 @@ fn eyecatch_type(palette: &Option<HashMap<Color, usize>>) -> u16 {
     }
 }
 
-pub fn to_icon(
+pub fn to_icon<E: AsRef<Path>>(
     icon_path: impl AsRef<Path>,
     speed: Option<u16>,
-    eyecatch_file: Option<&str>,
+    eyecatch_file: Option<E>,
 ) -> Result<crate::ast::Statements, IconError> {
     use crate::ast::{ByteValue, Statement};
     use crate::expression::Expr;
@@ -576,8 +576,9 @@ pub fn to_icon(
         ));
     }
 
+    let eyecatch_file = eyecatch_file.as_ref().map(|eyecatch_file| eyecatch_file.as_ref());
     let eyecatch = {
-        if let Some(eyecatch_file) = eyecatch_file {
+        if let Some(eyecatch_file) = eyecatch_file.as_ref() {
             Some(load_image(eyecatch_file)?.as_still().scale_channels(15))
         } else {
             None
@@ -616,7 +617,7 @@ pub fn to_icon(
         let eyecatch_path = eyecatch_file.unwrap();
         if !eyecatch.as_ref().unwrap().is_size(72, 56) {
             return Err(IconError::InvalidIconSize(
-                eyecatch_path.to_string(),
+                eyecatch_path.to_string_lossy().to_string(),
                 72,
                 56,
             ));
@@ -624,7 +625,7 @@ pub fn to_icon(
         stmts.append(
             &eyecatch
                 .unwrap()
-                .to_icon(&eyecatch_palette.unwrap(), eyecatch_path)
+                .to_icon(&eyecatch_palette.unwrap(), eyecatch_path.display())
                 .as_slice(),
         );
     }

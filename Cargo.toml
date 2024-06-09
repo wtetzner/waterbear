@@ -23,6 +23,14 @@ enum-iterator = "*"
 # custom derives
 waterbear-instruction-derive = { version = "0.1", path = "waterbear-instruction-derive" }
 
+[dev-dependencies]
+assert_cmd = "*"
+predicates = "*"
+assert_fs = "*"
+anyhow = "*"
+sha2 = "*"
+data-encoding = "*"
+
 [lib]
 name = "waterbear"
 path = "src/lib.rs"

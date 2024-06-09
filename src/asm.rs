@@ -175,6 +175,7 @@ fn replace_byte_includes(
                         }
                     };
                     let path = files.path(Some(filename), path);
+                    let eyecatch = eyecatch.map(|eyecatch| files.path(Some(filename), eyecatch));
                     let stmts = img::to_icon(&path, speed.map(|v| v as u16), eyecatch)?;
                     for stmt in stmts.as_slice() {
                         results.push(stmt.clone());
