@@ -140,6 +140,7 @@ pub fn run_command(args: &[String]) {
                     .reset()
                     .space();
                 print_error(&mut files, err, &mut stderr);
+                std::process::exit(1);
             }
         }
     } else if let Some(matches) = matches.subcommand_matches("disassemble") {
@@ -152,6 +153,7 @@ pub fn run_command(args: &[String]) {
             Ok(_) => {}
             Err(ref err) => {
                 eprintln!("ERROR: {:?}", err);
+                std::process::exit(1);
             }
         }
     } else if let Some(matches) = matches.subcommand_matches("icon") {
@@ -269,6 +271,7 @@ pub fn run_command(args: &[String]) {
                     .reset()
                     .space();
                 //print_error(&mut files, err, &mut stderr);
+                std::process::exit(1);
             }
         }
     } else if let Some(matches) = matches.subcommand_matches("expand") {
@@ -292,6 +295,7 @@ pub fn run_command(args: &[String]) {
                     .reset()
                     .space();
                 print_error(&mut files, err, &mut stderr);
+                std::process::exit(1);
             }
         }
     } else if let Some(_) = matches.subcommand_matches("version") {
