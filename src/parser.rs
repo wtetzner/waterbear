@@ -336,7 +336,7 @@ impl Parser {
         let mut new_lines = vec![];
         for idx in 0..lines.len() {
             if !macro_lines[idx] {
-                new_lines.push(lines[idx].clone());
+                new_lines.push(lines[idx]);
             }
         }
 

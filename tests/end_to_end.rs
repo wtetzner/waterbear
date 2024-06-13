@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 fn hash_file(path: &Path) -> anyhow::Result<String> {
-    use sha2::Digest;
     use data_encoding::HEXUPPER;
+    use sha2::Digest;
     use std::{fs::File, io::BufReader, io::Read};
 
     let input = File::open(path)?;
@@ -13,7 +13,9 @@ fn hash_file(path: &Path) -> anyhow::Result<String> {
         let mut buffer = [0; 1024];
         loop {
             let count = reader.read(&mut buffer)?;
-            if count == 0 { break }
+            if count == 0 {
+                break;
+            }
             hasher.update(&buffer[..count]);
         }
         hasher.finalize()

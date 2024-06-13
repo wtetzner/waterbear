@@ -399,22 +399,22 @@ fn skip_whitespace_and_comments<'a>(input: &Input<'a>) -> Input<'a> {
 }
 
 fn to_hex_num(text: &str, prefix: usize) -> TokenType {
-    let num = i32::from_str_radix(&text[prefix..], 16).unwrap();
+    let num = i32::from_str_radix(&(&text[prefix..]).replace('\'', ""), 16).unwrap();
     TokenType::Number(num, Radix::Hex)
 }
 
 fn to_oct_num(text: &str) -> TokenType {
-    let num = i32::from_str_radix(&text[2..], 8).unwrap();
+    let num = i32::from_str_radix(&(&text[2..]).replace('\'', ""), 8).unwrap();
     TokenType::Number(num, Radix::Octal)
 }
 
 fn to_bin_num(text: &str, prefix: usize) -> TokenType {
-    let num = i32::from_str_radix(&text[prefix..], 2).unwrap();
+    let num = i32::from_str_radix(&(&text[prefix..]).replace('\'', ""), 2).unwrap();
     TokenType::Number(num, Radix::Binary)
 }
 
 fn to_dec_num(text: &str) -> TokenType {
-    let num = i32::from_str_radix(text, 10).unwrap();
+    let num = i32::from_str_radix(&text.replace('\'', ""), 10).unwrap();
     TokenType::Number(num, Radix::Decimal)
 }
 
@@ -424,15 +424,23 @@ fn read_token<'a>(
 ) -> Option<(Input<'a>, Token)> {
     lazy_static! {
         static ref MATCHERS: Vec<Matcher> = {
+            fn number(prefix: Option<&str>, digit: &str) -> String {
+                if let Some(prefix) = prefix {
+                    format!("{prefix}{digit}(?:'{digit}|{digit})*")
+                } else {
+                    format!("{digit}(?:'{digit}|{digit})*")
+                }
+            }
             let ident = "[a-zA-Z_\\.][a-zA-Z\\$0-9_\\.]*";
             let macro_ident = format!("%{}", ident);
             let macro_label = format!("{}%", ident);
-            let hex_num = "\\$[a-fA-F0-9]+";
-            let hex_num2 = "0[xX][a-fA-F0-9]+";
-            let bin_num = "%[01]+";
-            let bin_num2 = "0[bB][01]+";
-            let oct_num = "0[oO][0-7]+";
-            let dec_num = "[0-9]+";
+            let hex_num = &number(Some("\\$"), "[a-fA-F0-9]");
+            let hex_num2 = &number(Some("0[xX]"), "[a-fA-F0-9]");
+            let bin_num = &number(Some("%"), "[01]");
+            let bin_num2 = &number(Some("0[bB]"), "[01]");
+            let oct_num = &number(Some("0[oO]"), "[0-7]");
+            let dec_num = &number(None, "[0-9]");
+
             vec![
                 Matcher::new(&macro_ident, |text| {
                     TokenType::MacroIdent(text.to_lowercase())

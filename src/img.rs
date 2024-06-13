@@ -576,7 +576,9 @@ pub fn to_icon<E: AsRef<Path>>(
         ));
     }
 
-    let eyecatch_file = eyecatch_file.as_ref().map(|eyecatch_file| eyecatch_file.as_ref());
+    let eyecatch_file = eyecatch_file
+        .as_ref()
+        .map(|eyecatch_file| eyecatch_file.as_ref());
     let eyecatch = {
         if let Some(eyecatch_file) = eyecatch_file.as_ref() {
             Some(load_image(eyecatch_file)?.as_still().scale_channels(15))
