@@ -1,0 +1,7 @@
+[target.x86_64-pc-windows-msvc]
+# Figured out the image name like this:
+#% docker image ls
+# REPOSITORY                                      TAG       IMAGE ID       CREATED          SIZE
+# ghcr.io/cross-rs/x86_64-pc-windows-msvc-cross   local     dc2933b88666   22 minutes ago   2.83GB
+# ghcr.io/cross-rs/x86_64-unknown-linux-musl      0.2.5     77db671d8356   20 months ago    2.87GB
+image = "dc2933b88666"
