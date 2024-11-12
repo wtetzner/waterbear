@@ -13,6 +13,8 @@ extern crate waterbear_instruction_derive;
 
 mod asm;
 pub mod ast;
+mod chip8;
+mod cli;
 mod cheader;
 mod disasm;
 mod env;
@@ -29,12 +31,16 @@ pub mod parser;
 use crate::ast::ArgType;
 use crate::disasm::DisasmError;
 use crate::location::Span;
+use clap::Parser;
+use cli::FileType;
 use regex::Regex;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
 use unicode_segmentation::UnicodeSegmentation;
+
+use crate::cli::Opt;
 
 use crate::asm::AssemblyError;
 
@@ -43,7 +49,6 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::expression::EvaluationError;
 use crate::files::SourceFiles;
-use clap::clap_app;
 use lazy_static::lazy_static;
 
 pub use crate::asm::{assemble, assemble_file};
@@ -56,57 +61,7 @@ const CARGO: &'static str = env!("CARGO_VERSION");
 const GITSHA: &'static str = env!("GITSHA");
 
 pub fn run_command(args: &[String]) {
-    let matches = clap_app!(
-        waterbear =>
-            (name: NAME)
-            (version: VERSION)
-            (about: DESCRIPTION)
-            (@subcommand assemble =>
-              (version: VERSION)
-              (about: "Assembler for the Dreamcast VMU")
-              (@arg INPUT: +required "Sets the input file to assemble")
-              (@arg OUTPUT: -o --output +required +takes_value "Output file")
-             )
-            (@subcommand expand =>
-              (version: VERSION)
-              (about: "Expand macros and output to stdout")
-              (@arg INPUT: +required "Sets the input file to assemble")
-             )
-            (@subcommand disassemble =>
-              (version: VERSION)
-              (about: "Disassembler for the Dreamcast VMU")
-              (@arg INPUT: +required "Sets the input file to assemble")
-              (@arg OUTPUT: -o --output +required +takes_value "Output file")
-              (@arg POSITIONS: -p --positions "Output byte positions")
-              (@arg TYPE: -t --type +takes_value "The file type being disassembled: game, bios, file or raw. Defaults to raw.")
-              (@arg ARRIVED_FROM: -a --arrived_from "Output instruction locations that target each instruction.")
-             )
-            (@subcommand icon =>
-              (version: VERSION)
-              (about: "Convert an image file into the assembly needed for an icon.")
-              (@arg INPUT: +required "Input image file. Must be 32x32, and no more than 16 colors.")
-              (@arg SPEED: -s --speed +takes_value "Animation speed. Default is 10.")
-              (@arg EYECATCH: -e --eyecatch +takes_value "Eyecatch image. Must be 72×56.")
-             )
-            (@subcommand image =>
-             (version: VERSION)
-             (about: "Convert an image file into another format.")
-             (@arg INPUT: +required "Input image file.")
-             (@arg OUTPUT: -o --output +takes_value "Output file")
-             (@arg format: -f --format +takes_value "Output format"))
-            (@subcommand vmi =>
-              (version: VERSION)
-              (about: "Extract a VMI file from a given VMS file.")
-              (@arg INPUT: +required "Input VMS file.")
-              (@arg OUTPUT: -o --output +takes_value "Output file")
-              (@arg copyright: -c --copyright +takes_value "Copyright notice")
-              (@arg game: -g --game "Specify whether or not the VMS file is a game.")
-             )
-            (@subcommand version =>
-              (version: VERSION)
-              (about: "Version info about this build")
-             )
-    ).get_matches_from(args);
+    let opt = Opt::parse();
 
     let mut stdout = ColorWriter::new(StandardStream::stdout(if atty::is(Stream::Stdout) {
         ColorChoice::Auto
@@ -119,229 +74,219 @@ pub fn run_command(args: &[String]) {
         ColorChoice::Never
     }));
 
-    if let Some(matches) = matches.subcommand_matches("assemble") {
-        let input_file = matches.value_of("INPUT").unwrap();
+    match &opt.command {
+        cli::Command::Assemble { input, output } => {
+            let mut files = files::SourceFiles::new();
+            match assemble_cmd(&mut files, &mut stderr, input, output) {
+                Ok(_num_bytes) => {}
+                Err(ref err) => {
+                    stderr
+                        .write_error()
+                        .space()
+                        .write("Failed to assemble ")
+                        .cyan()
+                        .write(input)
+                        .reset()
+                        .newline()
+                        .newline()
+                        .red()
+                        .write("✘")
+                        .reset()
+                        .space();
+                    print_error(&mut files, err, &mut stderr);
+                    std::process::exit(1);
+                }
+            }
+        },
+        cli::Command::Expand { input } => {
+            let mut files = files::SourceFiles::new();
+            match asm::expand_file(&mut files, input) {
+                Ok(_) => {}
+                Err(ref err) => {
+                    stderr
+                        .write_error()
+                        .space()
+                        .write("Failed to expand ")
+                        .cyan()
+                        .write(input)
+                        .reset()
+                        .newline()
+                        .newline()
+                        .red()
+                        .write("✘")
+                        .reset()
+                        .space();
+                    print_error(&mut files, err, &mut stderr);
+                    std::process::exit(1);
+                }
+            }
+        },
+        cli::Command::Disassemble { input, output, positions, file_type, arrived_from } => {
+            match disassemble_cmd(*positions, *arrived_from, *file_type, input, output) {
+                Ok(_) => {}
+                Err(ref err) => {
+                    eprintln!("ERROR: {:?}", err);
+                    std::process::exit(1);
+                }
+            }
+        },
+        cli::Command::Icon { input, speed, eyecatch } => {
+            use img::IconError;
 
-        let mut files = files::SourceFiles::new();
-        match assemble_cmd(&mut files, &mut stderr, matches) {
-            Ok(_num_bytes) => {}
-            Err(ref err) => {
-                stderr
-                    .write_error()
-                    .space()
-                    .write("Failed to assemble ")
-                    .cyan()
-                    .write(input_file)
-                    .reset()
-                    .newline()
-                    .newline()
-                    .red()
-                    .write("✘")
-                    .reset()
-                    .space();
-                print_error(&mut files, err, &mut stderr);
-                std::process::exit(1);
+            match img::to_icon(input, *speed, eyecatch.as_ref()) {
+                Ok(stmts) => {
+                    stdout
+                        .write(ast::Statement::comment(
+                            "NOTE: This file was generated by the waterbear assembler:",
+                        ))
+                        .write("\n");
+                    stdout
+                        .write(ast::Statement::comment(&format!("{}", args.join(" "))))
+                        .write("\n");
+                    stdout.write(stmts).write("\n");
+                }
+                Err(IconError::InvalidPaletteSize(p, psize, expected)) => {
+                    stderr
+                        .write_error()
+                        .space()
+                        .write("Too many colors in ")
+                        .cyan()
+                        .write(p)
+                        .reset()
+                        .write(": ")
+                        .write(psize)
+                        .write(format!(". Must be {} or less.\n", expected));
+                    std::process::exit(1);
+                }
+                Err(IconError::InvalidIconSize(p, w, h)) => {
+                    stderr
+                        .write_error()
+                        .space()
+                        .write("Image ")
+                        .cyan()
+                        .write(p)
+                        .reset()
+                        .write(format!(" is the wrong size. It should be {}x{}.\n", w, h));
+                    std::process::exit(1);
+                }
+                Err(IconError::FileLoadFailure(filename, err)) => {
+                    stderr
+                        .write("Error loading file ")
+                        .cyan()
+                        .write(filename)
+                        .reset()
+                        .write(": ")
+                        .writeln(err)
+                        .newline();
+                    std::process::exit(1);
+                }
+                Err(IconError::ImageParseError(filename, err)) => {
+                    stderr
+                        .write("Error parsing image ")
+                        .cyan()
+                        .write(filename)
+                        .reset()
+                        .write(": ")
+                        .writeln(err)
+                        .newline();
+                    std::process::exit(1);
+                }
             }
-        }
-    } else if let Some(matches) = matches.subcommand_matches("disassemble") {
-        let input_file = matches.value_of("INPUT").unwrap();
-        let output_file = matches.value_of("OUTPUT").unwrap();
-        let positions = matches.occurrences_of("POSITIONS") > 0;
-        let file_type = matches.value_of("TYPE").unwrap_or("raw");
-        let arrived_from = matches.occurrences_of("ARRIVED_FROM") > 0;
-        match disassemble_cmd(positions, arrived_from, file_type, input_file, output_file) {
-            Ok(_) => {}
-            Err(ref err) => {
-                eprintln!("ERROR: {:?}", err);
-                std::process::exit(1);
-            }
-        }
-    } else if let Some(matches) = matches.subcommand_matches("icon") {
-        use img::IconError;
-        let input_file = matches.value_of("INPUT").unwrap();
-        let animation_speed = matches.value_of("SPEED").map(|s| s.parse::<u16>().unwrap());
-        let eyecatch_file = matches.value_of("EYECATCH");
+        },
+        cli::Command::Image { input, output, format } => {
+            let image = img::load_image(input).unwrap();
 
-        match img::to_icon(input_file, animation_speed, eyecatch_file) {
-            Ok(stmts) => {
-                stdout
-                    .write(ast::Statement::comment(
-                        "NOTE: This file was generated by the waterbear assembler:",
-                    ))
-                    .write("\n");
-                stdout
-                    .write(ast::Statement::comment(&format!("{}", args.join(" "))))
-                    .write("\n");
-                stdout.write(stmts).write("\n");
-            }
-            Err(IconError::InvalidPaletteSize(p, psize, expected)) => {
-                stderr
-                    .write_error()
-                    .space()
-                    .write("Too many colors in ")
-                    .cyan()
-                    .write(p)
-                    .reset()
-                    .write(": ")
-                    .write(psize)
-                    .write(format!(". Must be {} or less.\n", expected));
-                std::process::exit(1);
-            }
-            Err(IconError::InvalidIconSize(p, w, h)) => {
-                stderr
-                    .write_error()
-                    .space()
-                    .write("Image ")
-                    .cyan()
-                    .write(p)
-                    .reset()
-                    .write(format!(" is the wrong size. It should be {}x{}.\n", w, h));
-                std::process::exit(1);
-            }
-            Err(IconError::FileLoadFailure(filename, err)) => {
-                stderr
-                    .write("Error loading file ")
-                    .cyan()
-                    .write(filename)
-                    .reset()
-                    .write(": ")
-                    .writeln(err)
-                    .newline();
-                std::process::exit(1);
-            }
-            Err(IconError::ImageParseError(filename, err)) => {
-                stderr
-                    .write("Error parsing image ")
-                    .cyan()
-                    .write(filename)
-                    .reset()
-                    .write(": ")
-                    .writeln(err)
-                    .newline();
-                std::process::exit(1);
-            }
-        }
-    } else if let Some(matches) = matches.subcommand_matches("image") {
-        let input_file = matches.value_of("INPUT").unwrap();
-        let format = img::ImageFormat::from(matches.value_of("format").unwrap_or(""))
-            .unwrap_or(img::ImageFormat::Asm1Bit);
-        let image = img::load_image(input_file).unwrap();
+            use img::ImageFormat;
+            let serialized = match format {
+                ImageFormat::Json => serde_json::to_string(&image).unwrap(),
+                ImageFormat::JsonPretty => serde_json::to_string_pretty(&image).unwrap(),
+                ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm(false, true)),
+                ImageFormat::Asm1BitMasked => format!("{}", image.to_1bit_asm(true, true)),
+            };
 
-        use img::ImageFormat;
-        let serialized = match format {
-            ImageFormat::Json => serde_json::to_string(&image).unwrap(),
-            ImageFormat::JsonPretty => serde_json::to_string_pretty(&image).unwrap(),
-            ImageFormat::Asm1Bit => format!("{}", image.to_1bit_asm(false, true)),
-            ImageFormat::Asm1BitMasked => format!("{}", image.to_1bit_asm(true, true)),
-        };
-
-        match matches.value_of("OUTPUT") {
-            Some(output) => {
-                let mut outfile = File::create(output).unwrap();
-                outfile.write(serialized.as_bytes()).unwrap();
+            match output {
+                Some(output) => {
+                    let mut outfile = File::create(output).unwrap();
+                    outfile.write(serialized.as_bytes()).unwrap();
+                }
+                None => {
+                    println!("{}", serialized);
+                }
             }
-            None => {
-                println!("{}", serialized);
-            }
-        }
-    } else if let Some(matches) = matches.subcommand_matches("vmi") {
-        let input_file = matches.value_of("INPUT").unwrap();
-        let copyright = matches.value_of("copyright").unwrap_or("");
-        let filename_regex = Regex::new("\\.vms$").unwrap();
-        let gen_output_file: &str = &(filename_regex.replace(input_file, "") + ".vmi");
-        let output_file = matches.value_of("OUTPUT").unwrap_or(gen_output_file);
-        let game = matches.is_present("game");
+        },
+        cli::Command::Vmi { input, output, copyright, game } => {
+            let filename_regex = Regex::new("\\.vms$").unwrap();
+            let gen_output_file: &str = &(filename_regex.replace(input, "") + ".vmi");
+            let output_file = output.as_deref().unwrap_or(&gen_output_file);
 
-        let offset: usize = if game { 0x200 } else { 0 };
+            let offset: usize = if *game { 0x200 } else { 0 };
 
-        match generate_vmi(input_file, output_file, copyright, offset) {
-            Ok(_num_bytes) => {}
-            Err(ref _err) => {
-                stderr
-                    .write_error()
-                    .space()
-                    .write("Failed to generate VMI from ")
-                    .cyan()
-                    .write(input_file)
-                    .reset()
-                    .newline()
-                    .newline()
-                    .red()
-                    .write("✘")
-                    .reset()
-                    .space();
-                //print_error(&mut files, err, &mut stderr);
-                std::process::exit(1);
+            match generate_vmi(input, output_file, copyright.as_deref().unwrap_or(""), offset) {
+                Ok(_num_bytes) => {}
+                Err(ref _err) => {
+                    stderr
+                        .write_error()
+                        .space()
+                        .write("Failed to generate VMI from ")
+                        .cyan()
+                        .write(input)
+                        .reset()
+                        .newline()
+                        .newline()
+                        .red()
+                        .write("✘")
+                        .reset()
+                        .space();
+                    //print_error(&mut files, err, &mut stderr);
+                    std::process::exit(1);
+                }
             }
-        }
-    } else if let Some(matches) = matches.subcommand_matches("expand") {
-        let input_file = matches.value_of("INPUT").unwrap();
-
-        let mut files = files::SourceFiles::new();
-        match expand_cmd(&mut files, matches) {
-            Ok(_) => {}
-            Err(ref err) => {
-                stderr
-                    .write_error()
-                    .space()
-                    .write("Failed to expand ")
-                    .cyan()
-                    .write(input_file)
-                    .reset()
-                    .newline()
-                    .newline()
-                    .red()
-                    .write("✘")
-                    .reset()
-                    .space();
-                print_error(&mut files, err, &mut stderr);
-                std::process::exit(1);
-            }
-        }
-    } else if let Some(_) = matches.subcommand_matches("version") {
-        stdout
-            .magenta()
-            .writeln("               _            _")
-            .writeln("              | |          | |")
-            .writeln("__      ____ _| |_ ___ _ __| |__   ___  __ _ _ __ ")
-            .writeln("\\ \\ /\\ / / _` | __/ _ | '__| '_ \\ / _ \\/ _` | '__|")
-            .writeln(" \\ V  V | (_| | ||  __| |  | |_) |  __| (_| | |")
-            .writeln("  \\_/\\_/ \\__,_|\\__\\___|_|  |_.__/ \\___|\\__,_|_|")
-            .reset()
-            .newline()
-            .yellow()
-            .write(NAME)
-            .reset()
-            .space()
-            .bold()
-            .write("v")
-            .writeln(VERSION)
-            .reset()
-            .writeln(DESCRIPTION)
-            .newline()
-            .bold()
-            .writeln("Build Info")
-            .reset()
-            .cyan()
-            .write("  Compiler")
-            .reset()
-            .write(": ")
-            .writeln(RUSTC)
-            .cyan()
-            .write("  Cargo")
-            .reset()
-            .write(":    ")
-            .writeln(CARGO)
-            .cyan()
-            .write("  git SHA")
-            .reset()
-            .write(":  ")
-            .writeln(GITSHA)
-            .reset()
-            .newline();
-    } else {
-        eprintln!("No subcommand specified");
-        std::process::exit(1);
+        },
+        cli::Command::Version => {
+            stdout
+                .magenta()
+                .writeln("               _            _")
+                .writeln("              | |          | |")
+                .writeln("__      ____ _| |_ ___ _ __| |__   ___  __ _ _ __ ")
+                .writeln("\\ \\ /\\ / / _` | __/ _ | '__| '_ \\ / _ \\/ _` | '__|")
+                .writeln(" \\ V  V | (_| | ||  __| |  | |_) |  __| (_| | |")
+                .writeln("  \\_/\\_/ \\__,_|\\__\\___|_|  |_.__/ \\___|\\__,_|_|")
+                .reset()
+                .newline()
+                .yellow()
+                .write(NAME)
+                .reset()
+                .space()
+                .bold()
+                .write("v")
+                .writeln(VERSION)
+                .reset()
+                .writeln(DESCRIPTION)
+                .newline()
+                .bold()
+                .writeln("Build Info")
+                .reset()
+                .cyan()
+                .write("  Compiler")
+                .reset()
+                .write(": ")
+                .writeln(RUSTC)
+                .cyan()
+                .write("  Cargo")
+                .reset()
+                .write(":    ")
+                .writeln(CARGO)
+                .cyan()
+                .write("  git SHA")
+                .reset()
+                .write(":  ")
+                .writeln(GITSHA)
+                .reset()
+                .newline();
+        },
+        cli::Command::Chip8(command) => {
+            chip8::cli::chip8_command(command);
+        },
     }
 }
 
@@ -476,7 +421,7 @@ fn generate_vmi(
 fn disassemble_cmd(
     positions: bool,
     arrived_from: bool,
-    file_type: &str,
+    file_type: FileType,
     filename: &str,
     output_file: &str,
 ) -> Result<(), DisasmError> {
@@ -489,10 +434,10 @@ fn disassemble_cmd(
         contents
     };
     let entry_points = match file_type {
-        "game" | "file" | "raw" => vec![
+        FileType::Game | FileType::Raw => vec![
             0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130,
         ],
-        "bios" => vec![
+        FileType::Bios => vec![
             0, 0x3, 0xb, 0x13, 0x1b, 0x23, 0x2b, 0x33, 0x3b, 0x43, 0x4b, 0x130,
             0x100, // BIOS_ADDR_FM_WRT_EX
             0x108, // BIOS_ADDR_FM_WRTA_EX
@@ -502,7 +447,6 @@ fn disassemble_cmd(
             0x140, // BIOS_ADDR_SLEEP_EX
             0x1f0, // BIOS_ADDR_EXIT_EX: MODE button?
         ],
-        _ => return Err(DisasmError::UnknownFileType(file_type.to_string())),
     };
     let statements = disasm::disassemble(arrived_from, &entry_points, &bytes)?;
 
@@ -525,22 +469,13 @@ fn disassemble_cmd(
     Ok(())
 }
 
-fn expand_cmd(
-    mut files: &mut SourceFiles,
-    matches: &clap::ArgMatches,
-) -> Result<(), AssemblyError> {
-    let input_file = matches.value_of("INPUT").unwrap();
-    asm::expand_file(&mut files, input_file)
-}
-
 fn assemble_cmd(
     mut files: &mut SourceFiles,
     stderr: &mut ColorWriter,
-    matches: &clap::ArgMatches,
+    input_file: &str,
+    output_file: &str,
 ) -> Result<usize, AssemblyError> {
-    let input_file = matches.value_of("INPUT").unwrap();
     let bytes = asm::assemble_file(&mut files, input_file)?;
-    let output_file = matches.value_of("OUTPUT").unwrap();
     let mut outfile = File::create(output_file).unwrap();
     outfile.write_all(&bytes).unwrap();
 

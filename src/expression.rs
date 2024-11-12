@@ -76,8 +76,8 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn num(num: i32) -> Expr {
-        Expr::Number(Span::default(), num, Radix::Hex)
+    pub fn num<T: Into<i32>>(num: T) -> Expr {
+        Expr::Number(Span::default(), num.into(), Radix::Hex)
     }
 
     pub fn binary(num: i32) -> Expr {

@@ -1,3 +1,4 @@
+use clap::ValueEnum;
 use enum_iterator::Sequence;
 use image;
 use image::codecs::gif::GifDecoder;
@@ -33,12 +34,23 @@ impl std::convert::From<ImageLoadError> for IconError {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Deserialize, Serialize, Sequence)]
+#[derive(Debug, Clone, Copy, ValueEnum, Hash, Eq, PartialEq, Deserialize, Serialize, Sequence)]
+#[clap(rename_all = "kebab")]
 pub enum ImageFormat {
     Json,
     JsonPretty,
+
+    #[clap(name = "1bit-asm")]
     Asm1Bit,
+
+    #[clap(name = "1bit-asm-masked")]
     Asm1BitMasked,
+}
+
+impl std::default::Default for ImageFormat {
+    fn default() -> Self {
+        ImageFormat::Asm1Bit
+    }
 }
 
 impl ImageFormat {
@@ -552,7 +564,7 @@ fn eyecatch_type(palette: &Option<HashMap<Color, usize>>) -> u16 {
 
 pub fn to_icon<E: AsRef<Path>>(
     icon_path: impl AsRef<Path>,
-    speed: Option<u16>,
+    speed: u16,
     eyecatch_file: Option<E>,
 ) -> Result<crate::ast::Statements, IconError> {
     use crate::ast::{ByteValue, Statement};
@@ -591,7 +603,7 @@ pub fn to_icon<E: AsRef<Path>>(
 
     let eyecatch_type = eyecatch_type(&eyecatch_palette);
 
-    let mut stmts = image.to_frame_count_and_speed(&icon_path.display(), speed.unwrap_or(10));
+    let mut stmts = image.to_frame_count_and_speed(&icon_path.display(), speed);
     let eyecatch_comment = match eyecatch_type {
         0 => "Eyecatch type is 0: there is no eyecatch image.",
         1 => "Eyecatch type is 1: the eyecatch is stored as a 16-bit true color image.",

@@ -9,12 +9,12 @@ license="Apache-2.0"
 [dependencies]
 lazy_static = "*"
 unicode-segmentation = "*"
-clap = "2.33.3"
+clap = { version = "*", features = ["derive"] }
 regex = "*"
 termcolor = "*"
 atty = "*"
 uuid = { version = "*", features = ["v4"] }
-image = "*"
+image = "0.24.5"
 chrono = "*"
 serde_json = "*"
 serde = { version = "*", features = ["derive"] }
