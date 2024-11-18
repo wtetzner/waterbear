@@ -100,6 +100,10 @@ pub enum Command {
     /// CHIP-8 related subcommands
     #[clap(subcommand, hide = true)]
     Chip8(Chip8Command),
+
+    /// WebAssembly related subcommands
+    #[clap(subcommand)]
+    Wasm(crate::wasm::cli::WasmCommand)
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, PartialOrd, Ord, Hash)]
