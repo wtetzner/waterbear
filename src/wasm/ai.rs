@@ -1,19 +1,18 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Index};
 
-use walrus::{ir::{BinaryOp, Binop, Value}, Function, FunctionId, FunctionKind, Global, GlobalId, InstrLocId, Local, LocalId, Module, ValType};
+use walrus::{ir::{BinaryOp, Binop, Const, Value}, Function, FunctionId, FunctionKind, Global, GlobalId, InstrLocId, Local, LocalId, Module, ValType};
 use core::fmt::Debug;
 use core::clone::Clone;
 use core::cmp::PartialEq;
 use core::cmp::Eq;
 
 #[derive(Debug)]
-enum AnalysisError<T> {
+pub enum AnalysisError<T> {
     AnalyzerError(T),
     EmptyStack,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ValueState<T: Debug + Default + Clone + PartialEq + Eq> {
+pub struct ValueState<T: Debug + Default + Clone + PartialEq + Eq> {
     id: Option<InstrLocId>,
     value_type: ValType,
     state: T,
@@ -67,6 +66,14 @@ impl<T: Debug + Default + Clone + PartialEq + Eq> AnalysisState<T> {
     }
 }
 
+impl<T: Debug + Default + Clone + PartialEq + Eq> Index<LocalId> for AnalysisState<T> {
+    type Output = T;
+
+    fn index(&self, index: LocalId) -> &Self::Output {
+        &self.locals[&index]
+    }
+}
+
 pub fn analyze<T: Debug + Default + Clone + PartialEq + Eq, A: Analyzer<T>>(
     module: &Module,
     analyzer: &mut A,
@@ -96,11 +103,10 @@ where AnalysisError<A::Error>: From<A::Error> {
                     walrus::ir::Instr::LocalSet(local_set) => {
                         let local_id = local_set.local;
                         let local = module.locals.get(local_id);
-                        let local_value = state.locals[&local_id];
                         let new_value = state.pop()?;
+                        let local_value = &state.locals[&local_id];
                         let computed = analyzer.local_set(function, local, &local_value, new_value)?;
-                        
-                        // TODO
+                        state.locals.insert(local_id, computed);
                     },
                     walrus::ir::Instr::LocalTee(local_id) => {},
                     walrus::ir::Instr::GlobalGet(global_get) => {
@@ -112,11 +118,21 @@ where AnalysisError<A::Error>: From<A::Error> {
                             analyzer.global_get(global, global_value)?,
                         ));
                     },
-                    walrus::ir::Instr::GlobalSet(global) => {
-                        state.stack.pop();
+                    walrus::ir::Instr::GlobalSet(global_set) => {
+                        let global_id = global_set.global;
+                        let global = module.globals.get(global_set.global);
+                        let new_value = state.pop()?;
+                        let global_value = &state.globals[&global_id];
+                        let computed = analyzer.global_set(global, global_value, &new_value.state)?;
+                        state.globals.insert(global_id, computed);
                     },
                     walrus::ir::Instr::Const(value) => {
-                        state.stack.push(ValueState::new(*id, type_of(value.value)));
+                        let value = ValueState::new(
+                            *id,
+                            type_of(value.value),
+                            analyzer.const_op(&value)?,
+                        );
+                        state.stack.push(value);
                     },
                     walrus::ir::Instr::Binop(op) => {
                         let right = state.pop()?;
@@ -408,9 +424,10 @@ fn type_of(value: Value) -> ValType {
 pub trait Analyzer<T: Debug + Default + Clone + PartialEq + Eq> {
     type Error;
 
-    // fn const_op(&self, ) -> Result<T, Self::Error>;
+    fn const_op(&self, cnst: &Const) -> Result<T, Self::Error>;
     fn local_set(&self, function: &Function, local: &Local, current: &T, set: ValueState<T>) -> Result<T, Self::Error>;
     fn local_get(&self, function: &Function, local: &Local, value: &T) -> Result<T, Self::Error>;
     fn global_get(&self, global: &Global, value: &T) -> Result<T, Self::Error>;
+    fn global_set(&self, global: &Global, current: &T, set: &T) -> Result<T, Self::Error>;
     fn binop(&self, binop: &Binop, left: ValueState<T>, right: ValueState<T>) -> Result<T, Self::Error>;
 }

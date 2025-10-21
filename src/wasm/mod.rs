@@ -1,10 +1,7 @@
-use std::{any::Any, borrow::Borrow, path::Path, rc::Rc, sync::Arc};
+use std::path::Path;
 
-use dwarf::parse_dwarf_entries;
-use gimli::{read::Dwarf, EndianSlice, LittleEndian};
 use ir::wasm_to_ir;
-// use gimli::{DebugAbbrev, DebugInfo, Dwarf, EndianSlice, LittleEndian, Section};
-use walrus::{Module, ModuleDebugData};
+use walrus::Module;
 mod ai;
 pub mod cli;
 mod dwarf;
@@ -14,12 +11,6 @@ mod ir;
 pub enum WasmError {
     Anyhow(anyhow::Error),
     GimliError(gimli::Error),
-}
-
-fn extract_dwarf<'a>(module: &'a Module) -> Dwarf<EndianSlice<'a, LittleEndian>> {
-    module.debug.dwarf.borrow(|section| {
-        EndianSlice::new(section.as_slice(), LittleEndian)
-    })
 }
 
 pub fn build<O: AsRef<Path>>(path: impl AsRef<Path>, output: Option<O>) -> Result<(), WasmError> {
@@ -34,7 +25,6 @@ pub fn build<O: AsRef<Path>>(path: impl AsRef<Path>, output: Option<O>) -> Resul
 
     let ir = wasm_to_ir(&module)?;
 
-    let dwarf = extract_dwarf(&module);
 
     // parse_dwarf_entries(&dwarf)?;
 
