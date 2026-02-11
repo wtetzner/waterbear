@@ -157,7 +157,7 @@ fn replace_byte_includes(
                         byte_vals,
                     )));
                 }
-                IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
+                IncludeType::Icon(speed_opt, eyecatch_opt) => {
                     let speed = match speed_opt {
                         Some(expr) => Some(expr.eval(&HashMap::new())? as u16),
                         None => None,
@@ -181,7 +181,7 @@ fn replace_byte_includes(
                         results.push(stmt.clone());
                     }
                 }
-                IncludeType::Sprite(ref typ, ref include_header) => {
+                IncludeType::Sprite(typ, include_header) => {
                     let path = files.path(Some(filename), path);
                     let image = img::load_image(&path)?;
                     if include_header.is_yes() {

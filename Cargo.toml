@@ -1,5 +1,5 @@
 [package]
-edition = "2018" 
+edition = "2021"
 name = "waterbear"
 description = "Assembler/Disassembler for the Dreamcast VMU"
 version = "0.24.0-wip"

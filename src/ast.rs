@@ -201,7 +201,7 @@ impl fmt::Display for IncludeType {
             IncludeType::Asm => write!(f, "asm"),
             IncludeType::Bytes => write!(f, "bytes"),
             IncludeType::CHeader => write!(f, "cpp"),
-            IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
+            IncludeType::Icon(speed_opt, eyecatch_opt) => {
                 write!(f, "icon")?;
                 let mut comma = false;
                 if let Some(speed) = speed_opt {
@@ -217,7 +217,7 @@ impl fmt::Display for IncludeType {
                 }
                 write!(f, "")
             }
-            IncludeType::Sprite(ref typ, ref include_header) => {
+            IncludeType::Sprite(typ, include_header) => {
                 write!(f, "sprite")?;
                 write!(f, " type = \"{}\", ", typ)?;
                 write!(f, "header = \"{}\"", include_header)
@@ -393,7 +393,7 @@ impl fmt::Display for Directive {
             }
             Directive::Include(_, typ, path) => match typ {
                 IncludeType::Asm => write!(f, "  .include \"{}\"", path.display()),
-                IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
+                IncludeType::Icon(speed_opt, eyecatch_opt) => {
                     write!(f, "  .include icon \"{}\"", path.display())?;
                     let mut comma = false;
                     if let Some(speed) = speed_opt {
@@ -506,7 +506,7 @@ impl fmt::Display for Statement {
             Statement::Alias(_, name, expr) => {
                 write!(f, "{} EQU {}", name, expr)
             }
-            Statement::Comment(ref comment) => {
+            Statement::Comment(comment) => {
                 if comment.trim().is_empty() {
                     write!(f, "{}", comment)
                 } else if comment.starts_with("\n") {

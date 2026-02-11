@@ -638,7 +638,7 @@ impl Parser {
                             let (str_span, string) = tokens.read_string()?;
                             let properties = self.parse_keyval_pairs(tokens)?;
                             let typ = match properties.get("type") {
-                                Some(ByteValue::String(span, ref value)) => {
+                                Some(ByteValue::String(span, value)) => {
                                     let value_str = std::str::from_utf8(value).unwrap();
                                     match value_str {
                                         "simple" => SpriteType::Simple,
@@ -651,7 +651,7 @@ impl Parser {
                                         }
                                     }
                                 }
-                                Some(ByteValue::Expr(ref expr)) => {
+                                Some(ByteValue::Expr(expr)) => {
                                     return Err(ParseError::InvalidSpriteType(
                                         expr.span(),
                                         format!("{}", expr),
@@ -660,7 +660,7 @@ impl Parser {
                                 None => SpriteType::Simple,
                             };
                             let include_header = match properties.get("header") {
-                                Some(ByteValue::String(span, ref value)) => {
+                                Some(ByteValue::String(span, value)) => {
                                     let value_str = std::str::from_utf8(value).unwrap();
                                     match value_str {
                                         "yes" => IncludeHeader::Yes,
@@ -673,7 +673,7 @@ impl Parser {
                                         }
                                     }
                                 }
-                                Some(ByteValue::Expr(ref expr)) => {
+                                Some(ByteValue::Expr(expr)) => {
                                     return Err(ParseError::InvalidSpriteHeader(
                                         expr.span(),
                                         format!("{}", expr),

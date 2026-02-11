@@ -180,7 +180,7 @@ impl Token {
 
     pub fn get_name(&self) -> Option<&str> {
         match self.token_type() {
-            TokenType::Name(ref n) => Some(n),
+            TokenType::Name(n) => Some(n),
             _ => None,
         }
     }
