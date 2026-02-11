@@ -13,7 +13,6 @@ extern crate waterbear_instruction_derive;
 
 mod asm;
 pub mod ast;
-mod chip8;
 mod cli;
 mod cheader;
 mod disasm;
@@ -25,9 +24,7 @@ pub mod input;
 pub mod instruction;
 pub mod lexer;
 pub mod location;
-mod metadata;
 pub mod parser;
-mod wasm;
 
 use crate::ast::ArgType;
 use crate::disasm::DisasmError;
@@ -284,16 +281,6 @@ pub fn run_command(args: &[String]) {
                 .writeln(GITSHA)
                 .reset()
                 .newline();
-        },
-        cli::Command::Chip8(command) => {
-            chip8::cli::chip8_command(command);
-        },
-        cli::Command::Wasm(command) => {
-            match command {
-                wasm::cli::WasmCommand::Build { input, output } => {
-                    wasm::build(input, output.as_ref()).unwrap();
-                },
-            }
         },
     }
 }

@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::{chip8::cli::Chip8Command, img::ImageFormat};
+use crate::img::ImageFormat;
 
 #[derive(Parser, Debug)]
 #[command(name = "waterbear", version, about, long_about = None)]
@@ -96,21 +96,18 @@ pub enum Command {
 
     /// Version info about this build
     Version,
-
-    /// CHIP-8 related subcommands
-    #[clap(subcommand, hide = true)]
-    Chip8(Chip8Command),
-
-    /// WebAssembly related subcommands
-    #[clap(subcommand)]
-    Wasm(crate::wasm::cli::WasmCommand)
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[clap(rename_all = "kebab")]
 pub enum FileType {
+    /// A game
     Game,
+
+    /// A bios dump
     Bios,
+
+    /// A raw, unknown file type
     Raw,
 }
 
@@ -120,14 +117,6 @@ impl FileType {
             FileType::Game => "game",
             FileType::Bios => "bios",
             FileType::Raw => "raw",
-        }
-    }
-
-    pub fn description(&self) -> &'static str {
-        match self {
-            FileType::Game => "A game",
-            FileType::Bios => "A bios dump",
-            FileType::Raw => "A raw, unknown file type",
         }
     }
 }
