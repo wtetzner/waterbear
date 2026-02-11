@@ -19,8 +19,6 @@ chrono = "*"
 serde_json = "*"
 serde = { version = "*", features = ["derive"] }
 enum-iterator = "*"
-walrus = "*"
-anyhow = "*"
 
 # custom derives
 waterbear-instruction-derive = { version = "0.1", path = "waterbear-instruction-derive" }
