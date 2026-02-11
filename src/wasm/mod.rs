@@ -2,6 +2,8 @@ use std::path::Path;
 
 use ir::wasm_to_ir;
 use walrus::Module;
+
+use crate::wasm::ai::analyze;
 mod ai;
 pub mod cli;
 mod dwarf;
@@ -25,6 +27,9 @@ pub fn build<O: AsRef<Path>>(path: impl AsRef<Path>, output: Option<O>) -> Resul
 
     let ir = wasm_to_ir(&module)?;
 
+    let mut analyzer = ai::signedness::SignAnalyzer;
+    let sign_state = analyze(&module, &mut analyzer).unwrap();
+    println!("sign_state: {sign_state:#?}");
 
     // parse_dwarf_entries(&dwarf)?;
 

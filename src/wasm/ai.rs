@@ -1,24 +1,29 @@
 use std::{collections::BTreeMap, ops::Index};
 
-use walrus::{ir::{BinaryOp, Binop, Const, Value}, Function, FunctionId, FunctionKind, Global, GlobalId, InstrLocId, Local, LocalId, Module, ValType};
+use walrus::{ir::{BinaryOp, Binop, Const, Value}, Function, FunctionId, FunctionKind, Global, GlobalId, InstrLocId, Local, LocalId, Module, TypeId, ValType};
 use core::fmt::Debug;
 use core::clone::Clone;
 use core::cmp::PartialEq;
 use core::cmp::Eq;
+
+pub mod int_size;
+pub mod signedness;
+pub mod ir0;
 
 #[derive(Debug)]
 pub enum AnalysisError<T> {
     AnalyzerError(T),
     EmptyStack,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueState<T: Debug + Default + Clone + PartialEq + Eq> {
+pub struct ValueState<T: Lattice> {
     id: Option<InstrLocId>,
     value_type: ValType,
     state: T,
 }
 
-impl<T: Debug + Default + Clone + PartialEq + Eq> ValueState<T> {
+impl<T: Lattice> ValueState<T> {
     pub fn new(id: InstrLocId, value_type: ValType, state: T) -> ValueState<T> {
         ValueState {
             id: Some(id),
@@ -37,19 +42,19 @@ impl<T: Debug + Default + Clone + PartialEq + Eq> ValueState<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct FunctionData<T: Debug + Default + Clone + PartialEq + Eq> {
+struct FunctionData<T: Lattice> {
     args: Vec<T>,
     return_values: Vec<T>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct InstructionData<T: Debug + Default + Clone + PartialEq + Eq> {
+struct InstructionData<T: Lattice> {
     args: Vec<T>,
     return_values: Vec<T>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct AnalysisState<T: Debug + Default + Clone + PartialEq + Eq> {
+pub struct AnalysisState<T: Lattice> {
     stack: Vec<ValueState<T>>,
     globals: BTreeMap<GlobalId, T>,
     locals: BTreeMap<LocalId, T>,
@@ -57,16 +62,50 @@ struct AnalysisState<T: Debug + Default + Clone + PartialEq + Eq> {
     instructions: BTreeMap<InstrLocId, InstructionData<T>>,
 }
 
-impl<T: Debug + Default + Clone + PartialEq + Eq> AnalysisState<T> {
+impl<T: Lattice> AnalysisState<T> {
+    pub fn new() -> AnalysisState<T> {
+        AnalysisState {
+            stack: vec![],
+            globals: BTreeMap::new(),
+            locals: BTreeMap::new(),
+            functions: BTreeMap::new(),
+            instructions: BTreeMap::new(),
+        }
+    }
+
     pub fn pop<E>(&mut self) -> Result<ValueState<T>, AnalysisError<E>> {
         match self.stack.pop() {
             Some(value) => Ok(value),
             None => Err(AnalysisError::EmptyStack),
         }
     }
+
+    pub fn set_local(&mut self, id: LocalId, value: T) {
+        self.locals.insert(id, value);
+    }
+
+    pub fn get_local(&self, id: LocalId) -> T {
+        if let Some(value) = self.locals.get(&id) {
+            value.clone()
+        } else {
+            T::bottom()
+        }
+    }
+
+    pub fn set_global(&mut self, id: GlobalId, value: T) {
+        self.globals.insert(id, value);
+    }
+
+    pub fn get_global(&self, id: GlobalId) -> T {
+        if let Some(value) = self.globals.get(&id) {
+            value.clone()
+        } else {
+            T::bottom()
+        }
+    }
 }
 
-impl<T: Debug + Default + Clone + PartialEq + Eq> Index<LocalId> for AnalysisState<T> {
+impl<T: Lattice> Index<LocalId> for AnalysisState<T> {
     type Output = T;
 
     fn index(&self, index: LocalId) -> &Self::Output {
@@ -74,12 +113,72 @@ impl<T: Debug + Default + Clone + PartialEq + Eq> Index<LocalId> for AnalysisSta
     }
 }
 
-pub fn analyze<T: Debug + Default + Clone + PartialEq + Eq, A: Analyzer<T>>(
+pub fn analyze<T: Lattice, A: Analyzer<T>>(
     module: &Module,
     analyzer: &mut A,
-) -> Result<(), AnalysisError<A::Error>>
+) -> Result<AnalysisState<T>, AnalysisError<A::Error>>
 where AnalysisError<A::Error>: From<A::Error> {
-    let mut state: AnalysisState<T> = Default::default();
+    let mut state: AnalysisState<T> = AnalysisState::new();
+
+    for global in module.globals.iter() {
+        let global_id = global.id();
+        match global.kind {
+            walrus::GlobalKind::Import(id) => {
+                // TODO: Capture info from "known" external globals.
+                state.globals.insert(global_id, T::bottom());
+            },
+            walrus::GlobalKind::Local(const_expr) => match const_expr {
+                walrus::ConstExpr::Value(value) => {
+                    let computed = analyzer.const_op(&Const { value: value.clone() })?;
+                    state.globals.insert(global_id, computed);
+                },
+                _ => {
+                    state.globals.insert(global_id, T::bottom());
+                },
+            },
+        }
+    }
+
+    for function in module.functions() {
+        let function_id = function.id();
+        let mut args = vec![];
+        let mut return_values = vec![];
+        match &function.kind {
+            FunctionKind::Import(imported_function) => {
+                // TODO: Take a table of supported import functions, and use the type info from
+                // that.
+                let func_type = module.types.get(imported_function.ty);
+                for _ in func_type.params() {
+                    args.push(T::bottom());
+                }
+                for _ in func_type.results() {
+                    return_values.push(T::bottom());
+                }
+            },
+            FunctionKind::Local(local_function) => {
+                let func_type = module.types.get(local_function.ty());
+                for _ in func_type.params() {
+                    args.push(T::bottom());
+                }
+                for _ in func_type.results() {
+                    return_values.push(T::bottom());
+                }
+                for arg in &local_function.args {
+                    state.locals.insert(*arg, T::bottom());
+                }
+            },
+            FunctionKind::Uninitialized(id) => {
+                let func_type = module.types.get(*id);
+                for _ in func_type.params() {
+                    args.push(T::bottom());
+                }
+                for _ in func_type.results() {
+                    return_values.push(T::bottom());
+                }
+            },
+        }
+        state.functions.insert(function_id, FunctionData { args, return_values });
+    }
 
     for function in module.functions() {
         if let FunctionKind::Local(body) = &function.kind {
@@ -93,38 +192,36 @@ where AnalysisError<A::Error>: From<A::Error> {
                     walrus::ir::Instr::LocalGet(local_get) => {
                         let local_id = local_get.local;
                         let local = module.locals.get(local_id);
-                        let local_value = &state.locals[&local_id];
+                        let local_value = state.get_local(local_id);
                         state.stack.push(ValueState::new(
                             *id,
                             local.ty(),
-                            analyzer.local_get(function, local, local_value)?,
+                            local_value,
                         ));
                     },
                     walrus::ir::Instr::LocalSet(local_set) => {
                         let local_id = local_set.local;
-                        let local = module.locals.get(local_id);
                         let new_value = state.pop()?;
-                        let local_value = &state.locals[&local_id];
-                        let computed = analyzer.local_set(function, local, &local_value, new_value)?;
-                        state.locals.insert(local_id, computed);
+                        let local_value = state.get_local(local_id);
+                        let computed = local_value.join(&new_value.state);
+                        state.set_local(local_id, computed);
                     },
                     walrus::ir::Instr::LocalTee(local_id) => {},
                     walrus::ir::Instr::GlobalGet(global_get) => {
                         let global = module.globals.get(global_get.global);
-                        let global_value = &state.globals[&global_get.global];
+                        let global_value = state.get_global(global_get.global);
                         state.stack.push(ValueState::new(
                             *id,
                             global.ty,
-                            analyzer.global_get(global, global_value)?,
+                            global_value,
                         ));
                     },
                     walrus::ir::Instr::GlobalSet(global_set) => {
                         let global_id = global_set.global;
-                        let global = module.globals.get(global_set.global);
                         let new_value = state.pop()?;
-                        let global_value = &state.globals[&global_id];
-                        let computed = analyzer.global_set(global, global_value, &new_value.state)?;
-                        state.globals.insert(global_id, computed);
+                        let global_value = state.get_global(global_id);
+                        let computed = global_value.join(&new_value.state);
+                        state.set_global(global_id, computed);
                     },
                     walrus::ir::Instr::Const(value) => {
                         let value = ValueState::new(
@@ -140,7 +237,7 @@ where AnalysisError<A::Error>: From<A::Error> {
                         state.stack.push(ValueState::new(
                             *id,
                             return_type(&op.op),
-                            analyzer.binop(op, left, right)?,
+                            analyzer.binop(op, left.state, right.state)?,
                         ));
                     },
                     walrus::ir::Instr::Unop(_) => {},
@@ -187,7 +284,7 @@ where AnalysisError<A::Error>: From<A::Error> {
         }
     }
 
-    Ok(())
+    Ok(state)
 }
 
 fn return_type(binop: &BinaryOp) -> ValType {
@@ -418,16 +515,23 @@ fn type_of(value: Value) -> ValType {
     }
 }
 
+pub trait Lattice: Clone + Debug {
+    fn bottom() -> Self;
+    fn join(&self, other: &Self) -> Self;
+}
+
 // fn analyze_block<A: Analyzer>() -> Result<(), A::Error> {
 // }
 
-pub trait Analyzer<T: Debug + Default + Clone + PartialEq + Eq> {
+pub struct BinopValues<T: Lattice> {
+    return_value: T,
+    left_input: T,
+    right_input: T,
+}
+
+pub trait Analyzer<T: Lattice> {
     type Error;
 
     fn const_op(&self, cnst: &Const) -> Result<T, Self::Error>;
-    fn local_set(&self, function: &Function, local: &Local, current: &T, set: ValueState<T>) -> Result<T, Self::Error>;
-    fn local_get(&self, function: &Function, local: &Local, value: &T) -> Result<T, Self::Error>;
-    fn global_get(&self, global: &Global, value: &T) -> Result<T, Self::Error>;
-    fn global_set(&self, global: &Global, current: &T, set: &T) -> Result<T, Self::Error>;
-    fn binop(&self, binop: &Binop, left: ValueState<T>, right: ValueState<T>) -> Result<T, Self::Error>;
+    fn binop(&self, binop: &Binop, left: T, right: T) -> Result<BinopValues<T>, Self::Error>;
 }
