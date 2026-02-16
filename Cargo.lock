@@ -1252,7 +1252,7 @@ dependencies = [
 
 [[package]]
 name = "waterbear"
-version = "0.24.0-wip"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
