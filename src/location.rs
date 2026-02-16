@@ -1,9 +1,14 @@
+use serde::{ser::SerializeStruct, Serialize};
+
 use crate::files::FileID;
 use std::fmt;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
+#[derive(Debug, Serialize, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 pub struct Location {
+    #[serde(rename = "source")]
     file: FileID,
+
+    #[serde(rename = "byte-offset")]
     pos: usize,
     line: usize,
     column: usize,
@@ -103,6 +108,17 @@ impl fmt::Display for Span {
         } else {
             write!(f, "{}-{})", self.start, self.end)
         }
+    }
+}
+
+impl Serialize for Span {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        let mut state = serializer.serialize_struct("Span", 2)?;
+        state.serialize_field("start", &self.start)?;
+        state.serialize_field("end", &self.end)?;
+        state.end()
     }
 }
 

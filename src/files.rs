@@ -5,6 +5,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 #[derive(Debug)]
 pub enum FileLoadError {
     FileLoadFailure(String, std::io::Error),
@@ -25,6 +27,14 @@ impl FileID {
 impl fmt::Display for FileID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FileID({})", self.value)
+    }
+}
+
+impl Serialize for FileID {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        serializer.serialize_u64(self.value as u64)
     }
 }
 
@@ -89,6 +99,10 @@ impl SourceFiles {
             },
             files: vec![],
         }
+    }
+
+    pub fn sources(&self) -> &[SourceFile] {
+        &self.files
     }
 
     pub fn for_id(&self, id: FileID) -> Option<&SourceFile> {

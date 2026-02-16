@@ -19,6 +19,10 @@ pub enum Command {
         /// The output file to generate. Usually ends in `.vms`.
         #[arg(short = 'o', long)]
         output: String,
+
+        /// Generate debug info.
+        #[arg(long)]
+        debug: bool,
     },
 
     /// Expand macros and output to stdout.

@@ -15,6 +15,7 @@ mod asm;
 pub mod ast;
 mod cli;
 mod cheader;
+mod debug;
 mod disasm;
 mod env;
 pub mod expression;
@@ -34,8 +35,11 @@ use cli::FileType;
 use regex::Regex;
 use std::fmt::Display;
 use std::fs::File;
+use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
+use std::path::Path;
+use std::process::exit;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::cli::Opt;
@@ -73,10 +77,10 @@ pub fn run_command(args: &[String]) {
     }));
 
     match &opt.command {
-        cli::Command::Assemble { input, output } => {
+        cli::Command::Assemble { input, output, debug } => {
             let mut files = files::SourceFiles::new();
-            match assemble_cmd(&mut files, &mut stderr, input, output) {
-                Ok(_num_bytes) => {}
+            match assemble_cmd(&mut files, &mut stderr, input, output, *debug) {
+                Ok(_) => {}
                 Err(ref err) => {
                     stderr
                         .write_error()
@@ -469,24 +473,87 @@ fn assemble_cmd(
     stderr: &mut ColorWriter,
     input_file: &str,
     output_file: &str,
+    debug: bool,
 ) -> Result<usize, AssemblyError> {
-    let bytes = asm::assemble_file(&mut files, input_file)?;
-    let mut outfile = File::create(output_file).unwrap();
-    outfile.write_all(&bytes).unwrap();
+    if let Some(parent) = Path::new(output_file).parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            stderr
+                .write_error()
+                .write("Failed to create directory \"")
+                .bold()
+                .write(parent.display())
+                .reset()
+                .writeln("\" for output file:");
+
+            stderr
+                .write_error()
+                .red()
+                .bold()
+                .write(error.to_string())
+                .reset();
+            exit(3);
+        }
+    } else {
+        stderr.write_error()
+            .writeln("Output file is root directory?");
+        exit(2);
+    }
+
+    let output_file = Path::new(output_file).to_owned();
+    let mut output = asm::assemble_file(&mut files, input_file, debug)?;
+    {
+        let outfile = File::create(&output_file).unwrap();
+        let mut output_writer = BufWriter::new(outfile);
+        output_writer.write_all(&output.bytes).unwrap();
+    }
+
+    let output_file = output_file.canonicalize().unwrap();
 
     stderr
         .write_ok()
         .write(" Assembled ")
         .bold()
-        .write(bytes.len())
+        .write(output.bytes.len())
         .reset()
         .write(" bytes to ")
         .bold()
-        .write(output_file)
+        .write(&output_file.display())
         .reset()
         .writeln(".");
 
-    Ok(bytes.len())
+    if let Some(debug_info) = &mut output.debug_info {
+        debug_info.version = Some("1".to_owned());
+        debug_info.language = Some("asm".to_owned());
+        debug_info.producer = Some(format!("{NAME} {VERSION}; git SHA={GITSHA}"));
+        debug_info.binary = Some(output_file.clone());
+
+        let debug_filename = if let Some(filename) = output_file.file_name() {
+            let mut filename = filename.to_owned();
+            filename.push(".debug.json");
+            filename
+        } else {
+            stderr
+                .write_error()
+                .writeln("No filename on output file?");
+            exit(4);
+        };
+
+        let debug_path = output_file.parent().unwrap().join(debug_filename);
+        let outfile = File::create(&debug_path).unwrap();
+        let mut output_writer = BufWriter::new(outfile);
+        serde_json::to_writer_pretty(&mut output_writer, debug_info).unwrap();
+        output_writer.write(b"\n").unwrap();
+
+        stderr
+            .write_ok()
+            .write(" Wrote debug info to ")
+            .bold()
+            .write(debug_path.display())
+            .reset()
+            .writeln(".");
+    }
+
+    Ok(output.bytes.len())
 }
 
 fn print_error(files: &SourceFiles, err: &AssemblyError, stderr: &mut ColorWriter) {
