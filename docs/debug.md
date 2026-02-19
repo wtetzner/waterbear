@@ -13,16 +13,17 @@ Format
 
 This is the structure of the JSON file.
 
-| Field        | Type                            | Contents                                      |
-|--------------|---------------------------------|-----------------------------------------------|
-| version      | `String`                        | File format version                           | 
-| language     | `String`                        | Original source language (default is `"asm"`) |
-| binary       | `String`                        | Path to the VMS binary                        |
-| producer     | `String`                        | Name of the software that generated this file |
-| sources      | [`[Source]`](#source)           | List of [`Source`](#source) files             |
-| labels       | [`[Label]`](#labels)            | List of [`Labels`](#label)                    |
-| constants    | [`[Constant]`](#constant)       | List of [`Constants`](#constant)              |
-| instructions | [`[Instruction]`](#instruction) | List of [`Instructions`](#instruction)        |
+| Field          | Type                            | Contents                                      |
+|----------------|---------------------------------|-----------------------------------------------|
+| version        | `String`                        | File format version                           | 
+| language       | `String`                        | Original source language (default is `"asm"`) |
+| binary         | `String`                        | Path to the VMS binary                        |
+| producer       | `String`                        | Name of the software that generated this file |
+| hash-algorithm | `String`                        | The algorithm used to hash sources            |
+| sources        | [`[Source]`](#source)           | List of [`Source`](#source) files             |
+| labels         | [`[Label]`](#labels)            | List of [`Labels`](#label)                    |
+| constants      | [`[Constant]`](#constant)       | List of [`Constants`](#constant)              |
+| instructions   | [`[Instruction]`](#instruction) | List of [`Instructions`](#instruction)        |
 
 ### Source
 
@@ -30,6 +31,7 @@ This is the structure of the JSON file.
 |-------|-----------|-------------------------------------------------------|
 | path  | `String`  | File path of the source file                          |
 | id    | `Integer` | ID of the file, referenced by [`Location`](#location) |
+| hash  | `String`  | Hash of the source file, using `hash-algorithm`       |
 
 ### Label
 
@@ -69,6 +71,6 @@ This is the structure of the JSON file.
 |-------------|-----------|---------------------------------------------------------------------------------------------------------|
 | source      | `Integer` | The ID of the source file, as listed in the `sources` field                                             |
 | byte-offset | `Integer` | The byte offset into the original source file. Makes slicing a chunk of text out of a source file easy. |
-| line        | `Integer` | Line number                                                                                             |
-| column      | `Integer` | Column number, computed in terms of Unicode grapheme clusters                                           |
+| line        | `Integer` | Line number (starts at 1)                                                                               |
+| column      | `Integer` | Column number, computed in terms of Unicode grapheme clusters (starts at 0)                             |
 

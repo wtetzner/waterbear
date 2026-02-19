@@ -33,7 +33,8 @@ impl fmt::Display for FileID {
 impl Serialize for FileID {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         serializer.serialize_u64(self.value as u64)
     }
 }
@@ -160,7 +161,9 @@ impl SourceFiles {
                     correct_path.display(),
                     filename.display()
                 );
-                eprintln!("         Please change the path to be relative to the source file, instead of relative to your working directory.");
+                eprintln!(
+                    "         Please change the path to be relative to the source file, instead of relative to your working directory."
+                );
                 filename.to_path_buf()
             }
         } else {

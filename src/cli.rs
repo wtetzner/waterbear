@@ -49,7 +49,12 @@ pub enum Command {
         file_type: FileType,
 
         /// Output instruction locations that target each instruction.
-        #[arg(name = "arrived-from", short = 'a', long = "arrived-from", alias = "arrived_from")]
+        #[arg(
+            name = "arrived-from",
+            short = 'a',
+            long = "arrived-from",
+            alias = "arrived_from"
+        )]
         arrived_from: bool,
     },
 

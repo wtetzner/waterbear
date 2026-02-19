@@ -13,8 +13,8 @@ extern crate waterbear_instruction_derive;
 
 mod asm;
 pub mod ast;
-mod cli;
 mod cheader;
+mod cli;
 mod debug;
 mod disasm;
 mod env;
@@ -77,7 +77,11 @@ pub fn run_command(args: &[String]) {
     }));
 
     match &opt.command {
-        cli::Command::Assemble { input, output, debug } => {
+        cli::Command::Assemble {
+            input,
+            output,
+            debug,
+        } => {
             let mut files = files::SourceFiles::new();
             match assemble_cmd(&mut files, &mut stderr, input, output, *debug) {
                 Ok(_) => {}
@@ -99,7 +103,7 @@ pub fn run_command(args: &[String]) {
                     std::process::exit(1);
                 }
             }
-        },
+        }
         cli::Command::Expand { input } => {
             let mut files = files::SourceFiles::new();
             match asm::expand_file(&mut files, input) {
@@ -122,17 +126,25 @@ pub fn run_command(args: &[String]) {
                     std::process::exit(1);
                 }
             }
-        },
-        cli::Command::Disassemble { input, output, positions, file_type, arrived_from } => {
-            match disassemble_cmd(*positions, *arrived_from, *file_type, input, output) {
-                Ok(_) => {}
-                Err(ref err) => {
-                    eprintln!("ERROR: {:?}", err);
-                    std::process::exit(1);
-                }
+        }
+        cli::Command::Disassemble {
+            input,
+            output,
+            positions,
+            file_type,
+            arrived_from,
+        } => match disassemble_cmd(*positions, *arrived_from, *file_type, input, output) {
+            Ok(_) => {}
+            Err(ref err) => {
+                eprintln!("ERROR: {:?}", err);
+                std::process::exit(1);
             }
         },
-        cli::Command::Icon { input, speed, eyecatch } => {
+        cli::Command::Icon {
+            input,
+            speed,
+            eyecatch,
+        } => {
             use img::IconError;
 
             match img::to_icon(input, *speed, eyecatch.as_ref()) {
@@ -194,8 +206,12 @@ pub fn run_command(args: &[String]) {
                     std::process::exit(1);
                 }
             }
-        },
-        cli::Command::Image { input, output, format } => {
+        }
+        cli::Command::Image {
+            input,
+            output,
+            format,
+        } => {
             let image = img::load_image(input).unwrap();
 
             use img::ImageFormat;
@@ -215,15 +231,25 @@ pub fn run_command(args: &[String]) {
                     println!("{}", serialized);
                 }
             }
-        },
-        cli::Command::Vmi { input, output, copyright, game } => {
+        }
+        cli::Command::Vmi {
+            input,
+            output,
+            copyright,
+            game,
+        } => {
             let filename_regex = Regex::new("\\.vms$").unwrap();
             let gen_output_file: &str = &(filename_regex.replace(input, "") + ".vmi");
             let output_file = output.as_deref().unwrap_or(&gen_output_file);
 
             let offset: usize = if *game { 0x200 } else { 0 };
 
-            match generate_vmi(input, output_file, copyright.as_deref().unwrap_or(""), offset) {
+            match generate_vmi(
+                input,
+                output_file,
+                copyright.as_deref().unwrap_or(""),
+                offset,
+            ) {
                 Ok(_num_bytes) => {}
                 Err(ref _err) => {
                     stderr
@@ -243,7 +269,7 @@ pub fn run_command(args: &[String]) {
                     std::process::exit(1);
                 }
             }
-        },
+        }
         cli::Command::Version => {
             stdout
                 .magenta()
@@ -285,7 +311,7 @@ pub fn run_command(args: &[String]) {
                 .writeln(GITSHA)
                 .reset()
                 .newline();
-        },
+        }
     }
 }
 
@@ -494,7 +520,8 @@ fn assemble_cmd(
             exit(3);
         }
     } else {
-        stderr.write_error()
+        stderr
+            .write_error()
             .writeln("Output file is root directory?");
         exit(2);
     }
@@ -532,9 +559,7 @@ fn assemble_cmd(
             filename.push(".debug.json");
             filename
         } else {
-            stderr
-                .write_error()
-                .writeln("No filename on output file?");
+            stderr.write_error().writeln("No filename on output file?");
             exit(4);
         };
 

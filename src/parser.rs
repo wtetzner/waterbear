@@ -647,7 +647,7 @@ impl Parser {
                                             return Err(ParseError::InvalidSpriteType(
                                                 span.clone(),
                                                 value_str.to_string(),
-                                            ))
+                                            ));
                                         }
                                     }
                                 }
@@ -669,7 +669,7 @@ impl Parser {
                                             return Err(ParseError::InvalidSpriteHeader(
                                                 span.clone(),
                                                 value_str.to_string(),
-                                            ))
+                                            ));
                                         }
                                     }
                                 }

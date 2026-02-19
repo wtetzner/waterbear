@@ -1,4 +1,4 @@
-use serde::{ser::SerializeStruct, Serialize};
+use serde::{Serialize, ser::SerializeStruct};
 
 use crate::files::FileID;
 use std::fmt;
@@ -114,7 +114,8 @@ impl fmt::Display for Span {
 impl Serialize for Span {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         let mut state = serializer.serialize_struct("Span", 2)?;
         state.serialize_field("start", &self.start)?;
         state.serialize_field("end", &self.end)?;

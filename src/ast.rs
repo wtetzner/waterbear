@@ -80,19 +80,11 @@ pub enum ArgType {
 
 impl ArgType {
     pub fn is_immediate(&self) -> bool {
-        if let ArgType::Imm = self {
-            true
-        } else {
-            false
-        }
+        if let ArgType::Imm = self { true } else { false }
     }
 
     pub fn is_indirection_mode(&self) -> bool {
-        if let ArgType::IM = self {
-            true
-        } else {
-            false
-        }
+        if let ArgType::IM = self { true } else { false }
     }
 
     pub fn is_mem(&self) -> bool {

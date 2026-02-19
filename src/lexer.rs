@@ -526,7 +526,7 @@ mod tests {
     use crate::files::FileID;
     use crate::input::Input;
     use crate::lexer;
-    use crate::lexer::{skip_whitespace_and_comments, LexerError, Token, TokenType};
+    use crate::lexer::{LexerError, Token, TokenType, skip_whitespace_and_comments};
     use crate::location::{Location, Span};
 
     #[test]

@@ -26,13 +26,27 @@ pub struct AssembleOutput {
     pub debug_info: Option<DebugInfo>,
 }
 
-pub fn assemble_file(files: &mut SourceFiles, filename: &str, debug: bool) -> Result<AssembleOutput, AssemblyError> {
+pub fn assemble_file(
+    files: &mut SourceFiles,
+    filename: &str,
+    debug: bool,
+) -> Result<AssembleOutput, AssemblyError> {
     let statements = read_statements(files, filename)?;
     let statements = expand_macros(&statements)?;
     let mut output = assemble(&statements, debug)?;
     if let Some(debug_info) = &mut output.debug_info {
+        debug_info.hash_algorithm = "SHA-256".to_owned();
         for source in files.sources() {
-            debug_info.source(source.name(), source.id());
+            use sha2::Digest;
+            let contents = source.contents();
+            let digest = {
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(&contents.as_bytes());
+                hasher.finalize()
+            };
+            let digest_string = data_encoding::HEXLOWER.encode(digest.as_ref());
+            let source_path = source.name().canonicalize().unwrap();
+            debug_info.source(&source_path, source.id(), digest_string);
         }
     }
     Ok(output)
