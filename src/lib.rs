@@ -225,7 +225,7 @@ pub fn run_command(args: &[String]) {
             match output {
                 Some(output) => {
                     let mut outfile = File::create(output).unwrap();
-                    outfile.write(serialized.as_bytes()).unwrap();
+                    outfile.write_all(serialized.as_bytes()).unwrap();
                 }
                 None => {
                     println!("{}", serialized);
@@ -567,7 +567,7 @@ fn assemble_cmd(
         let outfile = File::create(&debug_path).unwrap();
         let mut output_writer = BufWriter::new(outfile);
         serde_json::to_writer_pretty(&mut output_writer, debug_info).unwrap();
-        output_writer.write(b"\n").unwrap();
+        output_writer.write_all(b"\n").unwrap();
 
         stderr
             .write_ok()
