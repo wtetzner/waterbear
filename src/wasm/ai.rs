@@ -234,10 +234,11 @@ where AnalysisError<A::Error>: From<A::Error> {
                     walrus::ir::Instr::Binop(op) => {
                         let right = state.pop()?;
                         let left = state.pop()?;
+                        let computed = analyzer.binop(op, left.state, right.state)?;
                         state.stack.push(ValueState::new(
                             *id,
                             return_type(&op.op),
-                            analyzer.binop(op, left.state, right.state)?,
+                            computed.return_value,
                         ));
                     },
                     walrus::ir::Instr::Unop(_) => {},

@@ -539,20 +539,15 @@ impl Instr<Expr, IndirectionMode> {
 
 fn decode_from_raw(instr: Instr<i32, u8>) -> Instr<i32, u8> {
     fn rel16(rel: i32) -> i32 {
-        use std::mem;
-        unsafe {
-            let r16 = mem::transmute::<u16, i16>(rel as u16);
-            r16 as i32
-        }
+        let r16 = u16::cast_signed(rel as u16);
+        r16 as i32
     }
 
     fn rel8(rel: i32) -> i32 {
-        use std::mem;
-        unsafe {
-            let r8 = mem::transmute::<u8, i8>(rel as u8);
-            r8 as i32
-        }
+        let r8 = u8::cast_signed(rel as u8);
+        r8 as i32
     }
+
     use crate::instruction::Instr::*;
     match instr {
         Add_i8(val) => Add_i8(val),

@@ -3,6 +3,7 @@ use crate::ast::{
     ArgType, ByteValue, Directive, IncludeType, MacroStatement, SpriteType, Statement, Statements,
 };
 use crate::cheader;
+use crate::debug::{DebugInfo, DebugStorage};
 use crate::env::{Env, Names};
 use crate::expression::{Arg, EvaluationError, Expr};
 use crate::files;
@@ -20,10 +21,35 @@ use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
-pub fn assemble_file(files: &mut SourceFiles, filename: &str) -> Result<Vec<u8>, AssemblyError> {
+pub struct AssembleOutput {
+    pub bytes: Vec<u8>,
+    pub debug_info: Option<DebugInfo>,
+}
+
+pub fn assemble_file(
+    files: &mut SourceFiles,
+    filename: &str,
+    debug: bool,
+) -> Result<AssembleOutput, AssemblyError> {
     let statements = read_statements(files, filename)?;
     let statements = expand_macros(&statements)?;
-    assemble(&statements)
+    let mut output = assemble(&statements, debug)?;
+    if let Some(debug_info) = &mut output.debug_info {
+        debug_info.hash_algorithm = "SHA-256".to_owned();
+        for source in files.sources() {
+            use sha2::Digest;
+            let contents = source.contents();
+            let digest = {
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(&contents.as_bytes());
+                hasher.finalize()
+            };
+            let digest_string = data_encoding::HEXLOWER.encode(digest.as_ref());
+            let source_path = source.name().canonicalize().unwrap();
+            debug_info.source(&source_path, source.id(), digest_string);
+        }
+    }
+    Ok(output)
 }
 
 pub fn expand_file(files: &mut SourceFiles, filename: &str) -> Result<(), AssemblyError> {
@@ -157,7 +183,7 @@ fn replace_byte_includes(
                         byte_vals,
                     )));
                 }
-                IncludeType::Icon(ref speed_opt, ref eyecatch_opt) => {
+                IncludeType::Icon(speed_opt, eyecatch_opt) => {
                     let speed = match speed_opt {
                         Some(expr) => Some(expr.eval(&HashMap::new())? as u16),
                         None => None,
@@ -181,7 +207,7 @@ fn replace_byte_includes(
                         results.push(stmt.clone());
                     }
                 }
-                IncludeType::Sprite(ref typ, ref include_header) => {
+                IncludeType::Sprite(typ, include_header) => {
                     let path = files.path(Some(filename), path);
                     let image = img::load_image(&path)?;
                     if include_header.is_yes() {
@@ -229,17 +255,31 @@ fn replace_byte_includes(
     Ok(statements.with_statements(results))
 }
 
-pub fn assemble(statements: &Statements) -> Result<Vec<u8>, AssemblyError> {
+pub fn assemble(statements: &Statements, debug: bool) -> Result<AssembleOutput, AssemblyError> {
     let (max_pos, names) = compute_names(statements)?;
     let mut output = vec![0; max_pos - 1];
-    generate_bytes(statements, &names, &mut output)?;
-    Ok(output)
+    if debug {
+        let mut debug_info = DebugInfo::default();
+        generate_bytes(statements, &names, &mut output, &mut debug_info)?;
+        Ok(AssembleOutput {
+            bytes: output,
+            debug_info: Some(debug_info),
+        })
+    } else {
+        let mut debug_info = ();
+        generate_bytes(statements, &names, &mut output, &mut debug_info)?;
+        Ok(AssembleOutput {
+            bytes: output,
+            debug_info: None,
+        })
+    }
 }
 
 fn generate_bytes(
     statements: &Statements,
     names: &Names,
     output: &mut Vec<u8>,
+    debug_info: &mut dyn DebugStorage,
 ) -> Result<(), AssemblyError> {
     let mut pos: usize = 0;
     let mut current_global = "".to_owned();
@@ -347,9 +387,13 @@ fn generate_bytes(
             Label(_, name) => {
                 if !name.starts_with(".") {
                     current_global = name.clone();
+                    debug_info.label(&statement.span(), name, pos);
+                } else {
+                    debug_info.nested_label(&statement.span(), &current_global, name, pos);
                 }
             }
             Instr(_, instr) => {
+                debug_info.instruction(&statement.span(), instr, pos);
                 let next_pos = pos + instr.size();
                 let bytes = instr.eval(next_pos, &current_global, &names)?.encode();
                 for b in bytes.iter() {
@@ -357,7 +401,10 @@ fn generate_bytes(
                     pos = pos + 1;
                 }
             }
-            Variable(_, _, _) | Alias(_, _, _) => {}
+            Variable(_, name, _) | Alias(_, name, _) => {
+                let env = names.as_env("Name", &current_global);
+                debug_info.constant(&statement.span(), name, env.get(name).unwrap());
+            }
             Comment(_) => {}
             MacroCall(span, name, args) => {
                 panic!(

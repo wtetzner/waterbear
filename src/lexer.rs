@@ -180,7 +180,7 @@ impl Token {
 
     pub fn get_name(&self) -> Option<&str> {
         match self.token_type() {
-            TokenType::Name(ref n) => Some(n),
+            TokenType::Name(n) => Some(n),
             _ => None,
         }
     }
@@ -526,7 +526,7 @@ mod tests {
     use crate::files::FileID;
     use crate::input::Input;
     use crate::lexer;
-    use crate::lexer::{skip_whitespace_and_comments, LexerError, Token, TokenType};
+    use crate::lexer::{LexerError, Token, TokenType, skip_whitespace_and_comments};
     use crate::location::{Location, Span};
 
     #[test]

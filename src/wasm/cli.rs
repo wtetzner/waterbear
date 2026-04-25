@@ -1,8 +1,8 @@
-use clap::{Subcommand};
+use clap::Subcommand;
 
 #[derive(Debug, Subcommand)]
 pub enum WasmCommand {
-    /// Disassemble a CHIP-8 binary
+    /// Build from WebAssembly.
     Build {
         /// Input file
         input: String,

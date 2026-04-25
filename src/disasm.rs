@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum DisasmError {
     NoInstruction(usize, u8),
     NoSuchFile(String, std::io::Error),

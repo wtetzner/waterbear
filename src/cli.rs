@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::{chip8::cli::Chip8Command, img::ImageFormat};
+use crate::{img::ImageFormat, wasm::cli::WasmCommand};
 
 #[derive(Parser, Debug)]
 #[command(name = "waterbear", version, about, long_about = None)]
@@ -19,6 +19,10 @@ pub enum Command {
         /// The output file to generate. Usually ends in `.vms`.
         #[arg(short = 'o', long)]
         output: String,
+
+        /// Generate debug info.
+        #[arg(long)]
+        debug: bool,
     },
 
     /// Expand macros and output to stdout.
@@ -45,7 +49,12 @@ pub enum Command {
         file_type: FileType,
 
         /// Output instruction locations that target each instruction.
-        #[arg(name = "arrived-from", short = 'a', long = "arrived-from", alias = "arrived_from")]
+        #[arg(
+            name = "arrived-from",
+            short = 'a',
+            long = "arrived-from",
+            alias = "arrived_from"
+        )]
         arrived_from: bool,
     },
 
@@ -97,20 +106,21 @@ pub enum Command {
     /// Version info about this build
     Version,
 
-    /// CHIP-8 related subcommands
-    #[clap(subcommand, hide = true)]
-    Chip8(Chip8Command),
-
     /// WebAssembly related subcommands
     #[clap(subcommand)]
-    Wasm(crate::wasm::cli::WasmCommand)
+    Wasm(WasmCommand),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[clap(rename_all = "kebab")]
 pub enum FileType {
+    /// A game
     Game,
+
+    /// A bios dump
     Bios,
+
+    /// A raw, unknown file type
     Raw,
 }
 
@@ -120,14 +130,6 @@ impl FileType {
             FileType::Game => "game",
             FileType::Bios => "bios",
             FileType::Raw => "raw",
-        }
-    }
-
-    pub fn description(&self) -> &'static str {
-        match self {
-            FileType::Game => "A game",
-            FileType::Bios => "A bios dump",
-            FileType::Raw => "A raw, unknown file type",
         }
     }
 }

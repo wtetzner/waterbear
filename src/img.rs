@@ -1,9 +1,9 @@
 use clap::ValueEnum;
 use enum_iterator::Sequence;
 use image;
+use image::AnimationDecoder;
 use image::codecs::gif::GifDecoder;
 use image::codecs::png::PngDecoder;
-use image::AnimationDecoder;
 use image::{DynamicImage, GenericImageView, Rgba};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -127,11 +127,7 @@ impl Color {
 
     // If transparent, return 1, else 0.
     pub fn transparency(&self) -> u8 {
-        if self.alpha <= 127 {
-            1u8
-        } else {
-            0u8
-        }
+        if self.alpha <= 127 { 1u8 } else { 0u8 }
     }
 }
 

@@ -3,7 +3,31 @@ waterbear
 
 `waterbear` is an assembler/disassembler for the Dreamcast VMU.
 
-It aims to be a robust, easy-to-use tool, and meant to make VMU
+Download
+========
+
+You can download prebuilt binaries from here: [waterbear latest release](https://github.com/wtetzner/waterbear/releases/latest).
+
+Usage
+=====
+
+To assemble a file, use the `waterbear assemble` command:
+
+    waterbear assemble example.s -o example.vms
+
+
+Reference
+=========
+
+* [Instructions](instructions.md)
+* [Directives](directives.md)
+* [Macros](macros.md)
+* [Debug Info](debug.md)
+
+Info
+====
+
+`waterbear` aims to be a robust, easy-to-use tool, and meant to make VMU
 programming bit more approachable.
 
 The error messages are designed to make it easy to find out what went
@@ -66,26 +90,6 @@ through which macro expansions occured to generate the invalid code.
 
 In this example, you can see the `...expanded from` sections, showing
 each step of multiple nested macro expansions.
-
-Download
-========
-
-You can download prebuilt binaries from here: [waterbear latest release](https://github.com/wtetzner/waterbear/releases/latest).
-
-Usage
-=====
-
-To assemble a file, use the `waterbear assemble` command:
-
-    waterbear assemble example.s -o example.vms
-
-
-Reference
-=========
-
-* [Instructions](instructions.md)
-* [Directives](directives.md)
-* [Macros](macros.md)
 
 Credits
 =======
