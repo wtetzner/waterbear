@@ -21,7 +21,6 @@ serde = { version = "*", features = ["derive"] }
 enum-iterator = "*"
 walrus = "0.22.0"
 anyhow = "*"
-gimli = "0.26.2"
 sha2 = "*"
 data-encoding = "*"
 

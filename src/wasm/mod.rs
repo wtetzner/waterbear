@@ -1,37 +1,55 @@
-use std::path::Path;
+use std::{error::Error, fmt, path::Path};
 
-use ir::wasm_to_ir;
 use walrus::Module;
 
-use crate::wasm::ai::analyze;
-mod ai;
+use crate::wasm::analysis::AnalysisDb;
+
+pub mod analysis;
 pub mod cli;
-mod dwarf;
-mod ir;
 
 #[derive(Debug)]
 pub enum WasmError {
     Anyhow(anyhow::Error),
-    GimliError(gimli::Error),
+    Analysis(analysis::AnalysisError),
 }
 
-pub fn build<O: AsRef<Path>>(path: impl AsRef<Path>, output: Option<O>) -> Result<(), WasmError> {
-    // use gimli::read::Reader;
+impl fmt::Display for WasmError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Anyhow(error) => error.fmt(f),
+            Self::Analysis(error) => error.fmt(f),
+        }
+    }
+}
 
+impl Error for WasmError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Anyhow(error) => Some(error.as_ref()),
+            Self::Analysis(error) => Some(error),
+        }
+    }
+}
+
+pub fn build<O: AsRef<Path>>(path: impl AsRef<Path>, entry: &str, _output: Option<O>) -> Result<(), WasmError> {
     let path = path.as_ref();
-    let output = match &output {
-        Some(value) => Some(value.as_ref()),
-        None => None,
-    };
     let module = load_module(path)?;
+    let analyses = analysis::analyze(&module)?;
 
-    let ir = wasm_to_ir(&module)?;
+    let recovered_objects: usize = analyses
+        .frames
+        .functions
+        .values()
+        .map(|frame| frame.objects.len())
+        .sum();
+    println!(
+        "analyzed {} functions, {} instructions, and {} recoverable frame objects",
+        analyses.index.functions.len(),
+        analyses.index.instructions.len(),
+        recovered_objects
+    );
 
-    let mut analyzer = ai::signedness::SignAnalyzer;
-    let sign_state = analyze(&module, &mut analyzer).unwrap();
-    println!("sign_state: {sign_state:#?}");
-
-    // parse_dwarf_entries(&dwarf)?;
+    display(&module, &analyses)?;
 
     Ok(())
 }
@@ -48,8 +66,23 @@ impl From<anyhow::Error> for WasmError {
     }
 }
 
-impl From<gimli::Error> for WasmError {
-    fn from(value: gimli::Error) -> Self {
-        WasmError::GimliError(value)
+impl From<analysis::AnalysisError> for WasmError {
+    fn from(value: analysis::AnalysisError) -> Self {
+        WasmError::Analysis(value)
     }
+}
+
+fn display(module: &Module, analyses: &AnalysisDb) -> Result<(), WasmError> {
+    println!("module: {:?}", module.name);
+    println!("start: {:?}", module.start);
+
+    for import in module.imports.iter() {
+        println!("import: {import:#?}");
+    }
+
+    for export in module.exports.iter() {
+        println!("export: {export:#?}");
+    }
+
+    Ok(())
 }

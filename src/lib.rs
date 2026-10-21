@@ -26,7 +26,7 @@ pub mod instruction;
 pub mod lexer;
 pub mod location;
 pub mod parser;
-mod wasm;
+pub mod wasm;
 
 use crate::ast::ArgType;
 use crate::disasm::DisasmError;
@@ -314,8 +314,14 @@ pub fn run_command(args: &[String]) {
                 .newline();
         }
         cli::Command::Wasm(command) => match command {
-            wasm::cli::WasmCommand::Build { input, output } => {
-                wasm::build(input, output.as_ref()).unwrap();
+            wasm::cli::WasmCommand::Build { input, entry, output } => {
+                let entry = if let Some(value) = entry {
+                    value
+                } else {
+                    eprintln!("No entry specified. Using \"main\".");
+                    "main"
+                };
+                wasm::build(input, entry, output.as_ref()).unwrap();
             }
         },
     }

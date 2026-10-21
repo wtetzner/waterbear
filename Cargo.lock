@@ -1373,7 +1373,6 @@ dependencies = [
  "clap",
  "data-encoding",
  "enum-iterator",
- "gimli",
  "image",
  "lazy_static",
  "predicates",
