@@ -737,7 +737,7 @@ fn lift_instr(
 }
 
 fn rel16(rel: i32, next: usize) -> usize {
-    (rel + (next as i32) - 1) as usize
+    (rel + (next as i32) - 1).rem_euclid(0x1_0000) as usize
 }
 
 fn rel8(rel: i32, next: usize) -> usize {
@@ -1284,5 +1284,18 @@ impl DStatement {
             statement: self.statement,
             comment: cmt,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::rel16;
+
+    #[test]
+    fn test_rel16_targets_wrap_modulo_65536() {
+        assert_eq!(rel16(0x013f, 0x0f21), 0x105f);
+        assert_eq!(rel16(0xfff9, 0x1f16), 0x1f0e);
+        assert_eq!(rel16(0x8ffe, 0x0003), 0x9000);
+        assert_eq!(rel16(0x6ffe, 0x9003), 0x0000);
     }
 }

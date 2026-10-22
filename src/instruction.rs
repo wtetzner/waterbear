@@ -405,12 +405,10 @@ fn eval12<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
 fn rel16<E: Env<i32>>(expr: &Expr, pos: usize, env: &E) -> EncResult<i32> {
     let address = expr.eval(env)?;
     if address >= 0 && address <= 65535 {
-        let value = address - (pos as i32) + 1;
-        if value >= -32768 && value <= 32767 {
-            Ok(value)
-        } else {
-            Err(EncodingError::signed_out_of_range(expr.span(), 16, value))
-        }
+        // BRF and CALLR add an unsigned 16-bit offset to the address of
+        // the following instruction minus one. Since the program counter
+        // is 16 bits, the subtraction wraps modulo 65536.
+        Ok((address - (pos as i32) + 1).rem_euclid(0x1_0000))
     } else {
         Err(EncodingError::invalid_addr(expr.span(), address))
     }
@@ -538,11 +536,6 @@ impl Instr<Expr, IndirectionMode> {
 }
 
 fn decode_from_raw(instr: Instr<i32, u8>) -> Instr<i32, u8> {
-    fn rel16(rel: i32) -> i32 {
-        let r16 = u16::cast_signed(rel as u16);
-        r16 as i32
-    }
-
     fn rel8(rel: i32) -> i32 {
         let r8 = u8::cast_signed(rel as u8);
         r8 as i32
@@ -614,7 +607,7 @@ fn decode_from_raw(instr: Instr<i32, u8>) -> Instr<i32, u8> {
         Jmpf(abs) => Jmpf(abs),
 
         Br(rel) => Br(rel8(rel)),
-        Brf(rel) => Brf(rel16(rel)),
+        Brf(rel) => Brf(rel),
         Bz(rel) => Bz(rel8(rel)),
         Bnz(rel) => Bnz(rel8(rel)),
         Bp(dir, b3, rel) => Bp(dir, b3, rel8(rel)),
@@ -631,7 +624,7 @@ fn decode_from_raw(instr: Instr<i32, u8>) -> Instr<i32, u8> {
 
         Call(a12) => Call(a12),
         Callf(a16) => Callf(a16),
-        Callr(r16) => Callr(rel16(r16)),
+        Callr(r16) => Callr(r16),
 
         Ret => Ret,
         Reti => Reti,
@@ -648,7 +641,24 @@ fn decode_from_raw(instr: Instr<i32, u8>) -> Instr<i32, u8> {
 
 #[cfg(test)]
 mod test {
+    use crate::env::Names;
+    use crate::expression::{Expr, IndirectionMode};
     use crate::instruction::Instr;
+    use std::collections::HashMap;
+
+    fn empty_names() -> Names {
+        let mut locals = HashMap::new();
+        locals.insert(String::new(), HashMap::new());
+        Names {
+            globals: HashMap::new(),
+            locals,
+        }
+    }
+
+    fn encode_relative(instr: Instr<Expr, IndirectionMode>, pos: usize) -> Vec<u8> {
+        let next = pos + instr.size();
+        instr.eval(next, "", &empty_names()).unwrap().encode()
+    }
 
     #[test]
     fn test_encode() {
@@ -675,5 +685,52 @@ mod test {
         let instr = Instr::Jmp(a);
         let decoded = Instr::<i32, u8>::decode(&bytes);
         assert_eq!(decoded.unwrap(), instr);
+    }
+
+    #[test]
+    fn test_encode_rel16_modulo_65536() {
+        // Examples from the VMU programming manual.
+        assert_eq!(
+            encode_relative(Instr::Brf(Expr::num(0x105f)), 0x0f1e),
+            vec![0x11, 0x3f, 0x01]
+        );
+        assert_eq!(
+            encode_relative(Instr::Callr(Expr::num(0x1100)), 0x0ffc),
+            vec![0x10, 0x02, 0x01]
+        );
+        assert_eq!(
+            encode_relative(Instr::Callr(Expr::num(0x1100)), 0x0ffd),
+            vec![0x10, 0x01, 0x01]
+        );
+
+        // The manual's backward BRF example prints FFF8, but its documented
+        // PC calculation requires FFF9 to reach 1F0E from 1F13.
+        assert_eq!(
+            encode_relative(Instr::Brf(Expr::num(0x1f0e)), 0x1f13),
+            vec![0x11, 0xf9, 0xff]
+        );
+
+        // These cross the signed 16-bit boundary but are valid because r16
+        // is an unsigned offset applied modulo 65536.
+        assert_eq!(
+            encode_relative(Instr::Brf(Expr::num(0x9000)), 0x0000),
+            vec![0x11, 0xfe, 0x8f]
+        );
+        assert_eq!(
+            encode_relative(Instr::Callr(Expr::num(0x0000)), 0x9000),
+            vec![0x10, 0xfe, 0x6f]
+        );
+    }
+
+    #[test]
+    fn test_decode_rel16_as_unsigned() {
+        assert_eq!(
+            Instr::<i32, u8>::decode(&[0x11, 0xf9, 0xff]),
+            Some(Instr::Brf(0xfff9))
+        );
+        assert_eq!(
+            Instr::<i32, u8>::decode(&[0x10, 0xfe, 0x8f]),
+            Some(Instr::Callr(0x8ffe))
+        );
     }
 }
