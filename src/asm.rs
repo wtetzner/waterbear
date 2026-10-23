@@ -21,6 +21,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
+const BUILTIN_MACROS_NAME: &str = "<waterbear built-in macros>";
+const BUILTIN_MACROS: &str = include_str!("builtin_macros.s");
+
 pub struct AssembleOutput {
     pub bytes: Vec<u8>,
     pub debug_info: Option<DebugInfo>,
@@ -45,7 +48,11 @@ pub fn assemble_file(
                 hasher.finalize()
             };
             let digest_string = data_encoding::HEXLOWER.encode(digest.as_ref());
-            let source_path = source.name().canonicalize().unwrap();
+            let source_path = if source.is_embedded() {
+                source.name().to_owned()
+            } else {
+                source.name().canonicalize().unwrap()
+            };
             debug_info.source(&source_path, source.id(), digest_string);
         }
     }
@@ -67,7 +74,7 @@ fn read_statements(
     let filename = files.path(no_root, filename);
     let parser = parser::Parser::create();
 
-    let tokens = {
+    let user_tokens = {
         let tokens = {
             let including_file: Option<&Path> = None;
             let file = files.load(including_file, &filename)?;
@@ -76,6 +83,12 @@ fn read_statements(
         };
         replace_includes(&filename, &parser, &mut files, &tokens)?
     };
+    let mut tokens = {
+        let file = files.add_embedded(BUILTIN_MACROS_NAME, BUILTIN_MACROS);
+        let input = Input::new(file.id(), file.contents());
+        lexer::lex_input(&input)?
+    };
+    tokens.extend(user_tokens);
     let stmts = parser.parse(&tokens)?;
     let stmts = replace_byte_includes(&filename, &mut files, &stmts)?;
     Ok(stmts)

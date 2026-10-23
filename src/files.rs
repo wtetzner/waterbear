@@ -43,6 +43,7 @@ pub struct SourceFile {
     id: FileID,
     name: PathBuf,
     contents: String,
+    embedded: bool,
 }
 
 impl SourceFile {
@@ -56,6 +57,10 @@ impl SourceFile {
 
     pub fn contents(&self) -> &str {
         &self.contents
+    }
+
+    pub(crate) fn is_embedded(&self) -> bool {
+        self.embedded
     }
 }
 
@@ -104,6 +109,23 @@ impl SourceFiles {
 
     pub fn sources(&self) -> &[SourceFile] {
         &self.files
+    }
+
+    pub(crate) fn add_embedded(&mut self, name: impl AsRef<Path>, contents: &str) -> &SourceFile {
+        let name = name.as_ref();
+        match self.get_id(name) {
+            Some(id) => &self.files[id.value],
+            None => {
+                let id_value = self.files.len();
+                self.files.push(SourceFile {
+                    id: FileID { value: id_value },
+                    name: name.to_owned(),
+                    contents: contents.to_owned(),
+                    embedded: true,
+                });
+                &self.files[id_value]
+            }
+        }
     }
 
     pub fn for_id(&self, id: FileID) -> Option<&SourceFile> {
@@ -187,6 +209,7 @@ impl SourceFiles {
                     id: FileID { value: id_value },
                     name: path.to_owned(),
                     contents,
+                    embedded: false,
                 };
                 self.files.push(file);
                 Ok(&self.files[id_value])
