@@ -2,10 +2,9 @@ use std::{error::Error, fmt, path::Path};
 
 use walrus::Module;
 
-use crate::wasm::analysis::AnalysisDb;
-
 pub mod analysis;
 pub mod cli;
+pub mod printer;
 
 #[derive(Debug)]
 pub enum WasmError {
@@ -31,25 +30,16 @@ impl Error for WasmError {
     }
 }
 
-pub fn build<O: AsRef<Path>>(path: impl AsRef<Path>, entry: &str, _output: Option<O>) -> Result<(), WasmError> {
+pub fn build<O: AsRef<Path>>(
+    path: impl AsRef<Path>,
+    _entry: &str,
+    _output: Option<O>,
+) -> Result<(), WasmError> {
     let path = path.as_ref();
     let module = load_module(path)?;
     let analyses = analysis::analyze(&module)?;
 
-    let recovered_objects: usize = analyses
-        .frames
-        .functions
-        .values()
-        .map(|frame| frame.objects.len())
-        .sum();
-    println!(
-        "analyzed {} functions, {} instructions, and {} recoverable frame objects",
-        analyses.index.functions.len(),
-        analyses.index.instructions.len(),
-        recovered_objects
-    );
-
-    display(&module, &analyses)?;
+    print!("{}", printer::render(&module, &analyses));
 
     Ok(())
 }
@@ -70,19 +60,4 @@ impl From<analysis::AnalysisError> for WasmError {
     fn from(value: analysis::AnalysisError) -> Self {
         WasmError::Analysis(value)
     }
-}
-
-fn display(module: &Module, analyses: &AnalysisDb) -> Result<(), WasmError> {
-    println!("module: {:?}", module.name);
-    println!("start: {:?}", module.start);
-
-    for import in module.imports.iter() {
-        println!("import: {import:#?}");
-    }
-
-    for export in module.exports.iter() {
-        println!("export: {export:#?}");
-    }
-
-    Ok(())
 }
