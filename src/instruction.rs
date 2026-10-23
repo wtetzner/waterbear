@@ -652,6 +652,7 @@ mod test {
         Names {
             globals: HashMap::new(),
             locals,
+            internals: HashMap::new(),
         }
     }
 

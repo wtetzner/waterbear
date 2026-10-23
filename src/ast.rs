@@ -1,4 +1,4 @@
-use crate::expression::{Arg, EvaluationError, Expr, IndirectionMode};
+use crate::expression::{Arg, EvaluationError, Expr, IndirectionMode, InternalLabelId};
 use crate::files::SourceFiles;
 use crate::instruction::Instr;
 use crate::location::{Positioned, Span};
@@ -411,6 +411,8 @@ impl fmt::Display for Directive {
 pub enum Statement {
     Directive(Directive),
     Label(Span, String),
+    /// Defines an optimizer-only label at `offset` bytes into the next statement.
+    InternalLabel(Span, InternalLabelId, usize),
     Instr(Span, Instr<Expr, IndirectionMode>),
     Variable(Span, String, Expr),
     Alias(Span, String, Expr),
@@ -473,6 +475,7 @@ impl Positioned for Statement {
         match self {
             Directive(dir) => dir.span(),
             Label(span, _) => span.clone(),
+            InternalLabel(span, _, _) => span.clone(),
             Instr(span, _) => span.clone(),
             Variable(span, _, _) => span.clone(),
             Alias(span, _, _) => span.clone(),
@@ -490,6 +493,9 @@ impl fmt::Display for Statement {
             }
             Statement::Label(_, text) => {
                 write!(f, "{}:", text)
+            }
+            Statement::InternalLabel(_, id, offset) => {
+                write!(f, "  ;; internal label {} + {}", id.0, offset)
             }
             Statement::Instr(_, inst) => write!(f, "  {}", inst),
             Statement::Variable(_, name, expr) => {

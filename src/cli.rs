@@ -23,6 +23,10 @@ pub enum Command {
         /// Generate debug info.
         #[arg(long)]
         debug: bool,
+
+        /// Reduce jumps, calls, and built-in conditional branch sequences when safe.
+        #[arg(long)]
+        optimize_jumps: bool,
     },
 
     /// Expand macros and output to stdout.

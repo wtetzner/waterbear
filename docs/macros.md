@@ -35,6 +35,10 @@ Built-ins behave like macro definitions included before the input source.
 Their temporary labels are hygienic, and redefining a built-in with the same
 number of arguments is an error.
 
+Passing `--optimize-jumps` to `waterbear assemble` folds these expansions back
+to direct conditional branches whenever their targets are in range. The same
+optimization applies to equivalent handwritten instruction sequences.
+
 Syntax
 ------
 

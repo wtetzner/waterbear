@@ -17,6 +17,20 @@ To assemble a file, use the `waterbear assemble` command:
 
     waterbear assemble example.s -o example.vms
 
+Add `--optimize-jumps` to select smaller jump and call encodings where possible
+and fold the built-in long-range conditional branch macros when their targets
+are in range:
+
+    waterbear assemble example.s -o example.vms --optimize-jumps
+
+The optimizer can replace `jmpf` with `br` or `jmp`, replace `callf` with
+`call`, and fold recognized conditional-branch macro patterns. It leaves
+`brf`, `callr`, and the `jmpf` in a `NOT1 EXT,0`/`JMPF` `CHANGE` sequence
+untouched. Each tentative reduction is kept only when the entire program still
+assembles successfully and every existing local control-flow target still
+identifies the same source byte. The pass repeats until no more reductions are
+possible.
+
 For help, run `waterbear help`:
 
     % waterbear help
