@@ -25,6 +25,7 @@ pub mod input;
 pub mod instruction;
 pub mod lexer;
 pub mod location;
+mod optimize;
 pub mod parser;
 pub mod wasm;
 
@@ -54,7 +55,7 @@ use crate::expression::EvaluationError;
 use crate::files::SourceFiles;
 use lazy_static::lazy_static;
 
-pub use crate::asm::{assemble, assemble_file};
+pub use crate::asm::{AssembleOptions, assemble, assemble_file, assemble_file_with_options};
 
 const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
 const NAME: &'static str = env!("CARGO_PKG_NAME");
@@ -82,9 +83,17 @@ pub fn run_command(args: &[String]) {
             input,
             output,
             debug,
+            optimize_jumps,
         } => {
             let mut files = files::SourceFiles::new();
-            match assemble_cmd(&mut files, &mut stderr, input, output, *debug) {
+            match assemble_cmd(
+                &mut files,
+                &mut stderr,
+                input,
+                output,
+                *debug,
+                *optimize_jumps,
+            ) {
                 Ok(_) => {}
                 Err(ref err) => {
                     stderr
@@ -512,6 +521,7 @@ fn assemble_cmd(
     input_file: &str,
     output_file: &str,
     debug: bool,
+    optimize_jumps: bool,
 ) -> Result<usize, AssemblyError> {
     if let Some(parent) = Path::new(output_file).parent() {
         if let Err(error) = std::fs::create_dir_all(parent) {
@@ -539,7 +549,14 @@ fn assemble_cmd(
     }
 
     let output_file = Path::new(output_file).to_owned();
-    let mut output = asm::assemble_file(&mut files, input_file, debug)?;
+    let mut output = asm::assemble_file_with_options(
+        &mut files,
+        input_file,
+        asm::AssembleOptions {
+            debug,
+            optimize_jumps,
+        },
+    )?;
     {
         let outfile = File::create(&output_file).unwrap();
         let mut output_writer = BufWriter::new(outfile);

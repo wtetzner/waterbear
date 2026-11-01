@@ -46,6 +46,16 @@ pub enum Radix {
     Octal,
 }
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Copy)]
+/// An optimizer-only symbol that cannot be written in source code.
+pub struct InternalLabelId(pub(crate) usize);
+
+impl InternalLabelId {
+    pub(crate) fn new(value: usize) -> Self {
+        Self(value)
+    }
+}
+
 impl Radix {
     pub fn from(radix: &lexer::Radix) -> Radix {
         match radix {
@@ -60,6 +70,8 @@ impl Radix {
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 pub enum Expr {
     Name(Span, String),
+    /// A reference to an optimizer-only label.
+    InternalName(Span, InternalLabelId),
     Plus(Span, Box<Expr>, Box<Expr>),
     Minus(Span, Box<Expr>, Box<Expr>),
     UnaryMinus(Span, Box<Expr>),
@@ -103,6 +115,7 @@ impl Expr {
             BitwiseAnd(_, left, right) => BitwiseAnd(new_span, left.clone(), right.clone()),
             BitwiseOr(_, left, right) => BitwiseOr(new_span, left.clone(), right.clone()),
             Name(_, name) => Name(new_span, name.clone()),
+            InternalName(_, id) => InternalName(new_span, *id),
             Plus(_, left, right) => Plus(new_span, left.clone(), right.clone()),
             Minus(_, left, right) => Minus(new_span, left.clone(), right.clone()),
             UnaryMinus(_, expr) => UnaryMinus(new_span, expr.clone()),
@@ -140,6 +153,9 @@ impl Expr {
                 Box::new(right.replace_macro_args(inv_span.clone(), labels, args)?),
             )),
             Name(span, name) => Ok(Expr::Name(span.with_parent(inv_span.clone()), name.clone())),
+            InternalName(span, id) => {
+                Ok(Expr::InternalName(span.with_parent(inv_span.clone()), *id))
+            }
             Plus(span, left, right) => Ok(Expr::Plus(
                 span.with_parent(inv_span.clone()),
                 Box::new(left.replace_macro_args(inv_span.clone(), labels, args)?),
@@ -215,6 +231,7 @@ impl Positioned for Expr {
             Expr::BitwiseAnd(span, _, _) => span.clone(),
             Expr::BitwiseOr(span, _, _) => span.clone(),
             Expr::Name(span, _) => span.clone(),
+            Expr::InternalName(span, _) => span.clone(),
             Expr::Plus(span, _, _) => span.clone(),
             Expr::Minus(span, _, _) => span.clone(),
             Expr::UnaryMinus(span, _) => span.clone(),
@@ -299,6 +316,7 @@ impl fmt::Display for Expr {
                 write!(f, "")
             }
             Expr::Name(_, name) => write!(f, "{}", name),
+            Expr::InternalName(_, id) => write!(f, "<internal:{}>", id.0),
             Expr::Plus(_, left, right) => {
                 let left_paren = left.complex();
                 let right_paren = right.complex();
@@ -448,6 +466,7 @@ impl Expr {
             Expr::BitwiseAnd(_, _, _) => true,
             Expr::BitwiseOr(_, _, _) => true,
             Expr::Name(_, _) => false,
+            Expr::InternalName(_, _) => false,
             Expr::Plus(_, _, _) => true,
             Expr::Minus(_, _, _) => true,
             Expr::UnaryMinus(_, _) => true,
@@ -477,6 +496,13 @@ impl Expr {
                 None => Err(EvaluationError::NameNotFound(
                     self.span(),
                     format!("{} '{}' not found", name_lookup.name(), name),
+                )),
+            },
+            Expr::InternalName(_, id) => match name_lookup.get_internal(*id) {
+                Some(num) => Ok(num),
+                None => Err(EvaluationError::NameNotFound(
+                    self.span(),
+                    format!("{} internal label {} not found", name_lookup.name(), id.0),
                 )),
             },
             Expr::Plus(_, left, right) => Ok(left.eval(name_lookup)? + right.eval(name_lookup)?),

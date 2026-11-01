@@ -118,6 +118,25 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
                 }
             }).collect();
 
+            let expression_fields: Vec<quote::Tokens> = data.iter().map(|variant| {
+                let vname = &variant.ident;
+                let ty = &variant.data;
+                let names = names(ty);
+                let expressions: Vec<syn::Ident> = name_types(ty).iter()
+                    .filter(|tuple| tuple.2 == "Ex")
+                    .map(|tuple| tuple.0.clone())
+                    .collect();
+                if names.len() > 0 {
+                    quote! {
+                        #name::#vname (#(#names),*) => vec![#(#expressions),*]
+                    }
+                } else {
+                    quote! {
+                        #name::#vname => vec![]
+                    }
+                }
+            }).collect();
+
             let instr_names: Vec<String> = {
                 let mut names: Vec<String> = data.iter().map(|variant| {
                     lazy_static! {
@@ -140,6 +159,13 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
                     pub fn size(&self) -> usize {
                         match self {
                             #(#size_fields),*
+                        }
+                    }
+
+                    #[inline]
+                    pub fn expression_args(&self) -> Vec<&Ex> {
+                        match self {
+                            #(#expression_fields),*
                         }
                     }
 

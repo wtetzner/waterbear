@@ -1,8 +1,14 @@
 use std::collections::HashMap;
 
+use crate::expression::InternalLabelId;
+
 pub trait Env<T> {
     fn name(&self) -> &str;
     fn get(&self, name: &str) -> Option<T>;
+
+    fn get_internal(&self, _id: InternalLabelId) -> Option<T> {
+        None
+    }
 }
 
 impl<T: Clone> Env<T> for HashMap<String, T> {
@@ -19,6 +25,7 @@ impl<T: Clone> Env<T> for HashMap<String, T> {
 pub struct Names {
     pub globals: HashMap<String, i32>,
     pub locals: HashMap<String, HashMap<String, i32>>,
+    pub(crate) internals: HashMap<InternalLabelId, i32>,
 }
 
 impl Names {
@@ -27,6 +34,7 @@ impl Names {
             name: name,
             globals: &self.globals,
             locals: &self.locals.get(current_global).unwrap(),
+            internals: &self.internals,
         }
     }
 }
@@ -36,6 +44,7 @@ pub struct NamesEnv<'n, 'g, 'l> {
     name: &'n str,
     globals: &'g HashMap<String, i32>,
     locals: &'l HashMap<String, i32>,
+    internals: &'g HashMap<InternalLabelId, i32>,
 }
 
 impl<'n, 'g, 'l> Env<i32> for NamesEnv<'n, 'g, 'l> {
@@ -49,5 +58,9 @@ impl<'n, 'g, 'l> Env<i32> for NamesEnv<'n, 'g, 'l> {
         } else {
             self.globals.get(name).map(|r| *r)
         }
+    }
+
+    fn get_internal(&self, id: InternalLabelId) -> Option<i32> {
+        self.internals.get(&id).copied()
     }
 }

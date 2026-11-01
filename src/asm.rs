@@ -5,7 +5,7 @@ use crate::ast::{
 use crate::cheader;
 use crate::debug::{DebugInfo, DebugStorage};
 use crate::env::{Env, Names};
-use crate::expression::{Arg, EvaluationError, Expr};
+use crate::expression::{Arg, EvaluationError, Expr, InternalLabelId};
 use crate::files;
 use crate::files::{FileLoadError, SourceFiles};
 use crate::img::{self, ImageLoadError};
@@ -14,6 +14,7 @@ use crate::instruction::EncodingError;
 use crate::lexer::{self, TokenType};
 use crate::lexer::{LexerError, Token};
 use crate::location::{Location, Positioned, Span};
+use crate::optimize;
 use crate::parser;
 use crate::parser::{ParseError, Parser};
 use std;
@@ -21,9 +22,18 @@ use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
+const BUILTIN_MACROS_NAME: &str = "<waterbear built-in macros>";
+const BUILTIN_MACROS: &str = include_str!("builtin_macros.s");
+
 pub struct AssembleOutput {
     pub bytes: Vec<u8>,
     pub debug_info: Option<DebugInfo>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AssembleOptions {
+    pub debug: bool,
+    pub optimize_jumps: bool,
 }
 
 pub fn assemble_file(
@@ -31,9 +41,27 @@ pub fn assemble_file(
     filename: &str,
     debug: bool,
 ) -> Result<AssembleOutput, AssemblyError> {
+    assemble_file_with_options(
+        files,
+        filename,
+        AssembleOptions {
+            debug,
+            ..AssembleOptions::default()
+        },
+    )
+}
+
+pub fn assemble_file_with_options(
+    files: &mut SourceFiles,
+    filename: &str,
+    options: AssembleOptions,
+) -> Result<AssembleOutput, AssemblyError> {
     let statements = read_statements(files, filename)?;
-    let statements = expand_macros(&statements)?;
-    let mut output = assemble(&statements, debug)?;
+    let mut statements = expand_macros(&statements)?;
+    if options.optimize_jumps {
+        statements = optimize::optimize_jumps(&statements)?;
+    }
+    let mut output = assemble(&statements, options.debug)?;
     if let Some(debug_info) = &mut output.debug_info {
         debug_info.hash_algorithm = "SHA-256".to_owned();
         for source in files.sources() {
@@ -45,7 +73,11 @@ pub fn assemble_file(
                 hasher.finalize()
             };
             let digest_string = data_encoding::HEXLOWER.encode(digest.as_ref());
-            let source_path = source.name().canonicalize().unwrap();
+            let source_path = if source.is_embedded() {
+                source.name().to_owned()
+            } else {
+                source.name().canonicalize().unwrap()
+            };
             debug_info.source(&source_path, source.id(), digest_string);
         }
     }
@@ -67,7 +99,7 @@ fn read_statements(
     let filename = files.path(no_root, filename);
     let parser = parser::Parser::create();
 
-    let tokens = {
+    let user_tokens = {
         let tokens = {
             let including_file: Option<&Path> = None;
             let file = files.load(including_file, &filename)?;
@@ -76,6 +108,12 @@ fn read_statements(
         };
         replace_includes(&filename, &parser, &mut files, &tokens)?
     };
+    let mut tokens = {
+        let file = files.add_embedded(BUILTIN_MACROS_NAME, BUILTIN_MACROS);
+        let input = Input::new(file.id(), file.contents());
+        lexer::lex_input(&input)?
+    };
+    tokens.extend(user_tokens);
     let stmts = parser.parse(&tokens)?;
     let stmts = replace_byte_includes(&filename, &mut files, &stmts)?;
     Ok(stmts)
@@ -392,6 +430,7 @@ fn generate_bytes(
                     debug_info.nested_label(&statement.span(), &current_global, name, pos);
                 }
             }
+            InternalLabel(..) => {}
             Instr(_, instr) => {
                 debug_info.instruction(&statement.span(), instr, pos);
                 let next_pos = pos + instr.size();
@@ -638,12 +677,14 @@ struct NameValue {
 struct NamesBuilder {
     globals: HashMap<String, NameValue>,
     locals: HashMap<String, HashMap<String, NameValue>>,
+    internals: HashMap<InternalLabelId, NameValue>,
 }
 
 fn compute_labels(statements: &Statements) -> Result<NamesBuilder, AssemblyError> {
     let mut globals = HashMap::new();
     let mut locals = HashMap::new();
     let mut local = HashMap::new();
+    let mut internals = HashMap::new();
     let mut current_global = "".to_owned();
     let mut pos: i32 = 0;
     for statement in statements.iter() {
@@ -668,6 +709,15 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder, AssemblyError
                     current_global = name.to_lowercase();
                 }
             }
+            InternalLabel(span, id, offset) => {
+                internals.insert(
+                    *id,
+                    NameValue {
+                        span: span.clone(),
+                        value: pos + *offset as i32,
+                    },
+                );
+            }
             Instr(_, instr) => {
                 pos += instr.size() as i32;
             }
@@ -684,20 +734,25 @@ fn compute_labels(statements: &Statements) -> Result<NamesBuilder, AssemblyError
     if !locals.contains_key(&current_global) {
         locals.insert(current_global.clone(), local);
     }
-    Ok(NamesBuilder { globals, locals })
+    Ok(NamesBuilder {
+        globals,
+        locals,
+        internals,
+    })
 }
 
-fn compute_names(statements: &Statements) -> Result<(usize, Names), AssemblyError> {
+pub(crate) fn compute_names(statements: &Statements) -> Result<(usize, Names), AssemblyError> {
     let labels = compute_labels(statements)?;
     let mut globals = labels.globals;
     let locals = labels.locals;
+    let internals = labels.internals;
     let mut pos: i32 = 0;
     let mut max_pos = 0;
     for statement in statements.iter() {
         use crate::ast::Statement::*;
         match statement {
             Directive(dir) => pos += dir.size(pos)?,
-            Label(_, _name) => (),
+            Label(..) | InternalLabel(..) => (),
             Instr(_, instr) => {
                 pos += instr.size() as i32;
             }
@@ -735,11 +790,16 @@ fn compute_names(statements: &Statements) -> Result<(usize, Names), AssemblyErro
         }
         new_locals.insert(key.to_owned(), new_local);
     }
+    let mut new_internals = HashMap::new();
+    for (id, value) in internals {
+        new_internals.insert(id, value.value);
+    }
     Ok((
         (max_pos + 1) as usize,
         Names {
             globals: new_globals,
             locals: new_locals,
+            internals: new_internals,
         },
     ))
 }

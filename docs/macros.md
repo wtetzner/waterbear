@@ -7,6 +7,38 @@ program. They are invoked using syntax that looks just like an
 instruction, but the assembler automatically expands them into actual
 instructions before assembling the final binary.
 
+Built-in macros
+---------------
+
+Waterbear makes the following VMU conditional branch macros available
+without an explicit `.include`:
+
+| Macro | Equivalent instruction |
+| --- | --- |
+| `bzo target` | `bz target` |
+| `bnzo target` | `bnz target` |
+| `bpo direct, bit, target` | `bp direct, bit, target` |
+| `bpco direct, bit, target` | `bpc direct, bit, target` |
+| `bno direct, bit, target` | `bn direct, bit, target` |
+| `dbnzo value, target` | `dbnz value, target` |
+| `beo value, target` | `be value, target` |
+| `beo source, value, target` | `be source, value, target` |
+| `bneo value, target` | `bne value, target` |
+| `bneo source, value, target` | `bne source, value, target` |
+
+Unlike the corresponding instructions, these forms can reach any address.
+They currently expand to a short conditional branch around a `jmpf`, or to
+the documented three-instruction sequence for `bp`, `bpc`, `bn`, and `dbnz`.
+Consequently, the expanded code can be larger than the direct instruction.
+
+Built-ins behave like macro definitions included before the input source.
+Their temporary labels are hygienic, and redefining a built-in with the same
+number of arguments is an error.
+
+Passing `--optimize-jumps` to `waterbear assemble` folds these expansions back
+to direct conditional branches whenever their targets are in range. The same
+optimization applies to equivalent handwritten instruction sequences.
+
 Syntax
 ------
 
