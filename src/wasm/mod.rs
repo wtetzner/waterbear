@@ -4,6 +4,9 @@ use walrus::Module;
 
 pub mod analysis;
 pub mod cli;
+pub mod hir;
+pub mod hir_printer;
+pub mod lir;
 pub mod printer;
 
 #[derive(Debug)]
