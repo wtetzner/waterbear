@@ -202,9 +202,9 @@ impl fmt::Display for IncludeType {
                 }
                 if let Some(eyecatch) = eyecatch_opt {
                     if comma {
-                        write!(f, ", eyecatch = \"{}\"", eyecatch)?;
+                        write!(f, ", eyecatch = {}", eyecatch)?;
                     } else {
-                        write!(f, " eyecatch = \"{}\"", eyecatch)?;
+                        write!(f, " eyecatch = {}", eyecatch)?;
                     }
                 }
                 write!(f, "")
@@ -358,10 +358,10 @@ impl fmt::Display for Directive {
                 write!(f, "")
             }
             Directive::Text(_, size, bytes) => {
-                write!(f, "  .text {} {}", size, escape_string(&bytes))
+                write!(f, "  .text {} \"{}\"", size, escape_string(bytes))
             }
             Directive::String(_, size, bytes) => {
-                write!(f, "  .string {} {}", size, escape_string(&bytes))
+                write!(f, "  .string {} \"{}\"", size, escape_string(bytes))
             }
             Directive::Org(_, num) => {
                 if *num == 0 {
@@ -456,6 +456,14 @@ impl Statement {
         Statement::Instr(Span::default(), instr)
     }
 
+    pub fn macro_call(name: &str, args: Vec<Arg>) -> Statement {
+        Statement::MacroCall(Span::default(), name.to_owned(), args)
+    }
+
+    pub fn org(location: usize) -> Statement {
+        Statement::Directive(Directive::Org(Span::default(), location))
+    }
+
     pub fn word(exprs: Vec<Expr>) -> Statement {
         Statement::Directive(Directive::Word(Span::default(), exprs))
     }
@@ -515,9 +523,13 @@ impl fmt::Display for Statement {
                 }
             }
             Statement::MacroCall(_, name, args) => {
-                write!(f, "{}", name)?;
-                for arg in args.iter() {
-                    write!(f, " {}", arg)?;
+                write!(f, "  {}", name)?;
+                for (index, arg) in args.iter().enumerate() {
+                    if index == 0 {
+                        write!(f, " {}", arg)?;
+                    } else {
+                        write!(f, ", {}", arg)?;
+                    }
                 }
                 Ok(())
             }
@@ -569,6 +581,14 @@ impl Statements {
         self.statements.push(Statement::instr(instr));
     }
 
+    pub fn push_macro_call(&mut self, name: &str, args: Vec<Arg>) {
+        self.statements.push(Statement::macro_call(name, args));
+    }
+
+    pub fn push_org(&mut self, location: usize) {
+        self.statements.push(Statement::org(location));
+    }
+
     pub fn push_comment(&mut self, comment: &str) {
         self.statements.push(Statement::comment(comment));
     }
@@ -601,7 +621,7 @@ impl fmt::Display for Statements {
     }
 }
 
-fn escape_string<'a>(bytes: &Vec<u8>) -> String {
+fn escape_string(bytes: &[u8]) -> String {
     let mut escaped = Vec::new();
     let mut index = 0;
     loop {
@@ -658,9 +678,53 @@ fn escape_string<'a>(bytes: &Vec<u8>) -> String {
                 escaped.push(b'0');
             }
 
+            b'\\' => {
+                escaped.push(b'\\');
+                escaped.push(b'\\');
+            }
+
+            b'"' => {
+                escaped.push(b'\\');
+                escaped.push(b'"');
+            }
+
             _ => escaped.push(current),
         }
         index = index + 1;
     }
     String::from_utf8(escaped).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        ast::{Directive, Statement, Statements},
+        files::FileID,
+        input::Input,
+        lexer,
+        location::Span,
+        parser::Parser,
+    };
+
+    #[test]
+    fn string_directives_print_as_parseable_assembly() {
+        let mut statements = Statements::empty();
+        statements.push(Statement::Directive(Directive::Text(
+            Span::default(),
+            16,
+            br#"quote: " slash: \"#.to_vec(),
+        )));
+        statements.push(Statement::Directive(Directive::String(
+            Span::default(),
+            16,
+            b"line\nend".to_vec(),
+        )));
+
+        let rendered = statements.to_string();
+        let input = Input::new(FileID::new(0), &rendered);
+        let tokens = lexer::lex_input(&input).unwrap();
+        let reparsed = Parser::create().parse(&tokens).unwrap();
+
+        assert_eq!(reparsed.to_string(), rendered);
+    }
 }

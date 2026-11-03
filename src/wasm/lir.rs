@@ -5,13 +5,22 @@
 //! placement constraints before allocation and concrete VMU placements after
 //! allocation.
 
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::NonZeroUsize;
+
+use super::intrinsics::Intrinsic;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BlockId(pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StorageId(pub usize);
+
+/// A byte within an abstract storage object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ByteStorage {
+    pub storage: StorageId,
+    pub offset: usize,
+}
 
 pub type VirtualProgram = Program<VirtualPlacement>;
 pub type AllocatedProgram = Program<PhysicalPlacement>;
@@ -22,7 +31,6 @@ pub struct Program<P> {
     pub interrupt_handlers: InterruptHandlers,
     pub functions: Vec<Function>,
     pub statics: Vec<Static>,
-    pub calling_conventions: Vec<CallingConvention>,
     pub storages: Vec<Storage<P>>,
 }
 
@@ -45,7 +53,8 @@ pub struct InterruptHandlers {
 pub struct Function {
     pub name: String,
     pub kind: FunctionKind,
-    pub calling_convention: String,
+    /// The concrete storage assignments used at this function's boundary.
+    pub abi: FunctionAbi,
     pub blocks: Vec<Block>,
     pub entry: BlockId,
 }
@@ -73,7 +82,7 @@ pub struct Instruction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstructionKind {
     CopyByte {
-        destination: StorageId,
+        destination: ByteStorage,
         source: ByteOperand,
     },
     CopyBit {
@@ -85,24 +94,24 @@ pub enum InstructionKind {
     ToggleBit(StorageId),
     ByteUnary {
         op: ByteUnaryOp,
-        destination: StorageId,
+        destination: ByteStorage,
         input: ByteOperand,
     },
     ByteBinary {
         op: ByteBinaryOp,
-        destination: StorageId,
+        destination: ByteStorage,
         left: ByteOperand,
         right: ByteOperand,
     },
     Add {
-        destination: StorageId,
+        destination: ByteStorage,
         left: ByteOperand,
         right: ByteOperand,
         carry_in: Option<StorageId>,
         carry_out: Option<StorageId>,
     },
     Subtract {
-        destination: StorageId,
+        destination: ByteStorage,
         left: ByteOperand,
         right: ByteOperand,
         borrow_in: Option<StorageId>,
@@ -112,50 +121,121 @@ pub enum InstructionKind {
         left_high: ByteOperand,
         left_low: ByteOperand,
         right: ByteOperand,
-        result_high: StorageId,
-        result_middle: StorageId,
-        result_low: StorageId,
+        result_high: ByteStorage,
+        result_middle: ByteStorage,
+        result_low: ByteStorage,
     },
     Divide {
         dividend_high: ByteOperand,
         dividend_low: ByteOperand,
         divisor: ByteOperand,
-        quotient_high: StorageId,
-        quotient_low: StorageId,
-        remainder: StorageId,
+        quotient_high: ByteStorage,
+        quotient_low: ByteStorage,
+        remainder: ByteStorage,
     },
     Rotate {
         direction: RotateDirection,
         through_carry: bool,
-        destination: StorageId,
+        destination: ByteStorage,
         input: ByteOperand,
         carry_in: Option<StorageId>,
         carry_out: Option<StorageId>,
     },
     LoadIndirect {
-        destination: StorageId,
+        destination: ByteStorage,
         address: Address,
     },
     StoreIndirect {
         address: Address,
         value: ByteOperand,
     },
+    /// Pushes a byte onto the VMU's small hardware stack in system RAM.
     Push(ByteOperand),
-    Pop(StorageId),
+    /// Pops a byte from the VMU's small hardware stack in system RAM.
+    Pop(ByteStorage),
+    /// Materializes the allocated address of an abstract storage object.
+    AddressOf {
+        destination_low: ByteStorage,
+        destination_high: ByteStorage,
+        storage: StorageId,
+        offset: usize,
+    },
+    /// Materializes a symbolic function label as a 16-bit code address.
+    FunctionAddress {
+        destination_low: ByteStorage,
+        destination_high: ByteStorage,
+        function: String,
+    },
+    /// Computes a multi-byte shift. Bytes are ordered least-significant first.
+    ShiftBytes {
+        op: ShiftOp,
+        destinations: Vec<ByteStorage>,
+        value: Vec<ByteOperand>,
+        amount: Vec<ByteOperand>,
+        width: u8,
+    },
+    /// Compares equally-sized little-endian integers and writes one abstract bit.
+    CompareBytes {
+        op: CompareOp,
+        destination: StorageId,
+        left: Vec<ByteOperand>,
+        right: Vec<ByteOperand>,
+        width: u8,
+    },
+    SelectByte {
+        destination: ByteStorage,
+        condition: BitOperand,
+        when_true: ByteOperand,
+        when_false: ByteOperand,
+    },
+    SelectBit {
+        destination: StorageId,
+        condition: BitOperand,
+        when_true: BitOperand,
+        when_false: BitOperand,
+    },
+    BitToByte {
+        destination: ByteStorage,
+        source: BitOperand,
+    },
+    ByteToBit {
+        destination: StorageId,
+        source: ByteOperand,
+    },
+    SignExtend {
+        destinations: Vec<ByteStorage>,
+        source: Vec<ByteOperand>,
+        source_width: u8,
+    },
+    IntegerUnaryBytes {
+        op: IntegerUnaryBytesOp,
+        destinations: Vec<ByteStorage>,
+        input: Vec<ByteOperand>,
+        width: u8,
+    },
+    IntegerBinaryBytes {
+        op: IntegerBinaryBytesOp,
+        destinations: Vec<ByteStorage>,
+        left: Vec<ByteOperand>,
+        right: Vec<ByteOperand>,
+        width: u8,
+    },
+    /// Calls a function using the ABI assignments stored on the callee.
     Call {
         function: String,
-        calling_convention: String,
+    },
+    /// Calls a function through a code address. Every possible target uses
+    /// the concrete boundary assignments in `abi`.
+    CallIndirect {
+        target: CodeAddress,
+        abi: FunctionAbi,
     },
     Intrinsic {
         operation: Intrinsic,
-        inputs: Vec<StorageId>,
-        outputs: Vec<StorageId>,
+        inputs: Vec<ValueOperand>,
+        outputs: Vec<ValueStorage>,
     },
 }
-
-/// The name of an operation supplied and validated by the VMU compiler.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Intrinsic(pub String);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ByteUnaryOp {
@@ -179,9 +259,76 @@ pub enum RotateDirection {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftOp {
+    Left,
+    RightUnsigned,
+    RightSigned,
+    RotateLeft,
+    RotateRight,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompareOp {
+    Equal,
+    NotEqual,
+    LessThanUnsigned,
+    LessThanSigned,
+    LessThanOrEqualUnsigned,
+    LessThanOrEqualSigned,
+    GreaterThanUnsigned,
+    GreaterThanSigned,
+    GreaterThanOrEqualUnsigned,
+    GreaterThanOrEqualSigned,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerUnaryBytesOp {
+    CountLeadingZeros,
+    CountTrailingZeros,
+    PopulationCount,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerBinaryBytesOp {
+    Multiply,
+    DivideUnsigned,
+    DivideSigned,
+    RemainderUnsigned,
+    RemainderSigned,
+    SaturatingAddUnsigned,
+    SaturatingAddSigned,
+    SaturatingSubtractUnsigned,
+    SaturatingSubtractSigned,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ByteOperand {
     Immediate(u8),
-    Storage(StorageId),
+    Storage(ByteStorage),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueOperand {
+    Bit(BitOperand),
+    Byte(ByteOperand),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueStorage {
+    Bit(StorageId),
+    Byte(ByteStorage),
+}
+
+/// A 16-bit address in VMU code space.
+///
+/// Function labels remain symbolic through assembly emission. Code generation
+/// emits waterbear's `<label` and `>label` expressions for their low and high
+/// bytes. A computed address is already decomposed in the order consumed by
+/// the synthesized push/push/ret call sequence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CodeAddress {
+    Function(String),
+    Computed { low: ByteOperand, high: ByteOperand },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,11 +342,21 @@ pub enum BitOperand {
 pub struct Address {
     space: AddressSpace,
     bytes: Vec<ByteOperand>,
+    offset: u16,
 }
 
 impl Address {
     pub fn new(space: AddressSpace, bytes: Vec<ByteOperand>) -> Option<Self> {
-        (!bytes.is_empty()).then_some(Self { space, bytes })
+        (!bytes.is_empty()).then_some(Self {
+            space,
+            bytes,
+            offset: 0,
+        })
+    }
+
+    pub fn with_offset(mut self, offset: u16) -> Self {
+        self.offset = offset;
+        self
     }
 
     pub fn space(&self) -> AddressSpace {
@@ -208,6 +365,10 @@ impl Address {
 
     pub fn bytes(&self) -> &[ByteOperand] {
         &self.bytes
+    }
+
+    pub fn offset(&self) -> u16 {
+        self.offset
     }
 }
 
@@ -223,6 +384,23 @@ pub enum TerminatorKind {
         condition: BranchCondition,
         when_true: BlockId,
         when_false: BlockId,
+    },
+    Switch {
+        value: Vec<ByteOperand>,
+        width: u8,
+        cases: Vec<(u128, BlockId)>,
+        default: BlockId,
+    },
+    /// Calls `function` and returns directly to this function's caller.
+    /// Code generation may use a jump or an equivalent call/return sequence.
+    TailCall {
+        function: String,
+    },
+    /// Returns through an indirectly addressed function. Code generation
+    /// pushes the low byte, pushes the high byte, then emits `ret`.
+    TailCallIndirect {
+        target: CodeAddress,
+        abi: FunctionAbi,
     },
     /// Emits `ret` for a normal function and `reti` for an interrupt function.
     Return,
@@ -268,27 +446,12 @@ pub enum StorageKind {
     Bit,
     Byte,
     /// An addressable object made up of multiple bytes, rather than a scalar
-    /// value that has not yet been decomposed.
+    /// value that has not yet been decomposed. Its bytes may begin at any
+    /// address and are kept contiguous only so the object remains addressable.
     Bytes {
         length: NonZeroUsize,
-        alignment: Alignment,
     },
     Carry,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Alignment(NonZeroU32);
-
-impl Alignment {
-    pub fn new(bytes: u32) -> Option<Self> {
-        NonZeroU32::new(bytes)
-            .filter(|bytes| bytes.get().is_power_of_two())
-            .map(Self)
-    }
-
-    pub fn get(self) -> u32 {
-        self.0.get()
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -297,6 +460,45 @@ pub struct BitIndex(u8);
 impl BitIndex {
     pub fn new(index: u8) -> Option<Self> {
         (index < 8).then_some(Self(index))
+    }
+
+    pub fn get(self) -> u8 {
+        self.0
+    }
+}
+
+/// A byte offset into the VMU's 512-byte work RAM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WorkRamOffset(u16);
+
+impl WorkRamOffset {
+    pub const MAX: u16 = 0x01ff;
+
+    pub fn new(offset: u16) -> Option<Self> {
+        (offset <= Self::MAX).then_some(Self(offset))
+    }
+
+    pub fn get(self) -> u16 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum XRamBank {
+    DisplayTop,
+    DisplayBottom,
+    Icons,
+}
+
+/// An addressable byte offset within one XRAM bank.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct XRamOffset(u8);
+
+impl XRamOffset {
+    pub const MAX: u8 = 0x7b;
+
+    pub fn new(offset: u8) -> Option<Self> {
+        (offset <= Self::MAX).then_some(Self(offset))
     }
 
     pub fn get(self) -> u8 {
@@ -315,10 +517,12 @@ pub struct VirtualPlacement {
 pub enum StorageRegion {
     Accumulator,
     CarryFlag,
-    DirectRam,
+    ApplicationRam,
     SpecialRegister,
     IndirectRegister,
-    StackFrame,
+    /// Function-frame storage in compiler-managed work RAM.
+    ShadowStack,
+    /// Statically allocated compiler-owned work RAM.
     WorkRam,
     Flash,
     XRam,
@@ -328,26 +532,26 @@ pub enum StorageRegion {
 pub enum PhysicalPlacement {
     Accumulator,
     CarryFlag,
-    DirectRam {
-        bank: RamBank,
+    /// A byte in application RAM (main RAM bank 1).
+    ApplicationRam {
         offset: u8,
     },
-    DirectBit {
-        bank: RamBank,
+    /// A packed bit in application RAM (main RAM bank 1).
+    ApplicationBit {
         offset: u8,
         bit: BitIndex,
     },
-    /// A byte at an offset from the base of the current function's frame.
-    StackSlot {
-        frame_offset: u8,
+    /// A byte at an offset from the current function's work-RAM frame.
+    ShadowStack {
+        frame_offset: WorkRamOffset,
     },
-    /// A packed bit in a byte belonging to the current function's frame.
-    StackBit {
-        frame_offset: u8,
+    /// A packed bit in the current function's work-RAM frame.
+    ShadowStackBit {
+        frame_offset: WorkRamOffset,
         bit: BitIndex,
     },
     WorkRamBit {
-        offset: u16,
+        offset: WorkRamOffset,
         bit: BitIndex,
     },
     SpecialRegister(SpecialRegister),
@@ -356,14 +560,14 @@ pub enum PhysicalPlacement {
         register: IndirectRegister,
     },
     WorkRam {
-        offset: u16,
+        offset: WorkRamOffset,
     },
     Flash {
         address: u16,
     },
     XRam {
-        bank: u8,
-        offset: u8,
+        bank: XRamBank,
+        offset: XRamOffset,
     },
 }
 
@@ -402,7 +606,8 @@ pub enum IndirectRegisterBank {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddressSpace {
     MainRam(RamBank),
-    StackFrame,
+    /// Frame-relative addressing in compiler-managed work RAM.
+    ShadowStack,
     WorkRam,
     Flash,
     XRam,
@@ -410,9 +615,8 @@ pub enum AddressSpace {
     Code,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CallingConvention {
-    pub name: String,
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FunctionAbi {
     pub parameters: Vec<AbiValue>,
     pub results: Vec<AbiValue>,
     pub preserved: Vec<StorageId>,
@@ -424,34 +628,66 @@ pub struct AbiValue {
     pub logical_index: usize,
     /// Pieces are ordered from least to most significant. A boolean has one
     /// bit-sized piece.
-    pub pieces: Vec<StorageId>,
+    pub pieces: Vec<ValueStorage>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Static {
     pub name: String,
     pub storage: StorageId,
-    pub initializer: Vec<u8>,
+    pub initializer: Vec<StaticByte>,
     pub mutable: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AddressByte {
+    Low,
+    High,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StaticByte {
+    Value(u8),
+    StorageAddress {
+        storage: StorageId,
+        offset: usize,
+        byte: AddressByte,
+    },
+    FunctionAddress {
+        function: String,
+        byte: AddressByte,
+    },
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Address, AddressSpace, Alignment, BitIndex, ByteOperand, RamBank};
-
-    #[test]
-    fn alignment_accepts_only_nonzero_powers_of_two() {
-        assert_eq!(Alignment::new(0), None);
-        assert_eq!(Alignment::new(1).map(Alignment::get), Some(1));
-        assert_eq!(Alignment::new(8).map(Alignment::get), Some(8));
-        assert_eq!(Alignment::new(12), None);
-    }
+    use super::{Address, AddressSpace, BitIndex, ByteOperand, RamBank, WorkRamOffset, XRamOffset};
 
     #[test]
     fn bit_index_accepts_only_positions_within_a_byte() {
         assert_eq!(BitIndex::new(0).map(BitIndex::get), Some(0));
         assert_eq!(BitIndex::new(7).map(BitIndex::get), Some(7));
         assert_eq!(BitIndex::new(8), None);
+    }
+
+    #[test]
+    fn work_ram_offset_accepts_only_physical_work_ram() {
+        assert_eq!(WorkRamOffset::new(0).map(WorkRamOffset::get), Some(0));
+        assert_eq!(
+            WorkRamOffset::new(WorkRamOffset::MAX).map(WorkRamOffset::get),
+            Some(0x01ff)
+        );
+        assert_eq!(WorkRamOffset::new(0x0200), None);
+    }
+
+    #[test]
+    fn xram_offset_accepts_only_the_addressable_bank_window() {
+        assert_eq!(XRamOffset::new(0).map(XRamOffset::get), Some(0));
+        assert_eq!(
+            XRamOffset::new(XRamOffset::MAX).map(XRamOffset::get),
+            Some(0x7b)
+        );
+        assert_eq!(XRamOffset::new(0x7c), None);
     }
 
     #[test]

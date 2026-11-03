@@ -18,6 +18,7 @@ image = "0.24.5"
 chrono = "*"
 serde_json = "*"
 serde = { version = "*", features = ["derive"] }
+toml = "*"
 enum-iterator = "*"
 walrus = "0.22.0"
 anyhow = "*"

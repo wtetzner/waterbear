@@ -14,17 +14,17 @@ pub mod forward;
 pub mod frame;
 pub mod index;
 pub mod integer;
-mod shape;
+pub(crate) mod shape;
 pub mod value_flow;
 
-use std::{convert::Infallible, error::Error, fmt};
+use std::{collections::BTreeMap, convert::Infallible, error::Error, fmt};
 
-use walrus::Module;
+use walrus::{FunctionId, Module};
 
 use self::{
     address::{AddressFact, AffineAddressAnalysis},
     backward::{BackwardError, BackwardResults, BitDemand, DemandedBitsAnalysis, run_backward},
-    calls::{CallResolver, ConservativeCallResolver},
+    calls::{CallResolver, CallSummary, ConservativeCallResolver, InferredCallResolver},
     forward::{ForwardError, ForwardResults, run_forward},
     frame::{FrameResults, recover_frames},
     index::ProgramIndex,
@@ -40,6 +40,7 @@ pub struct AnalysisDb {
     pub demanded_bits: BackwardResults<BitDemand>,
     pub addresses: ForwardResults<AddressFact>,
     pub frames: FrameResults,
+    pub calls: BTreeMap<FunctionId, CallSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,7 +61,25 @@ impl fmt::Display for AnalysisError {
 impl Error for AnalysisError {}
 
 pub fn analyze(module: &Module) -> Result<AnalysisDb, AnalysisError> {
-    analyze_with_calls(module, &ConservativeCallResolver)
+    analyze_with_imports(module, &ConservativeCallResolver)
+}
+
+/// Infers summaries for local functions while asking `imports` for the
+/// semantics of imported functions.
+pub fn analyze_with_imports<R: CallResolver>(
+    module: &Module,
+    imports: &R,
+) -> Result<AnalysisDb, AnalysisError> {
+    let index = ProgramIndex::build(module);
+    let value_flow = run_forward(
+        module,
+        &index,
+        &ConservativeCallResolver,
+        &mut ValueFlowAnalysis,
+    )
+    .map_err(forward_error)?;
+    let calls = InferredCallResolver::infer(module, &index, &value_flow, imports);
+    finish_analysis(module, index, value_flow, &calls)
 }
 
 pub fn analyze_with_calls<R: CallResolver>(
@@ -68,9 +87,17 @@ pub fn analyze_with_calls<R: CallResolver>(
     calls: &R,
 ) -> Result<AnalysisDb, AnalysisError> {
     let index = ProgramIndex::build(module);
-
     let value_flow =
         run_forward(module, &index, calls, &mut ValueFlowAnalysis).map_err(forward_error)?;
+    finish_analysis(module, index, value_flow, calls)
+}
+
+fn finish_analysis<R: CallResolver>(
+    module: &Module,
+    index: ProgramIndex,
+    value_flow: ForwardResults<ValueSet>,
+    calls: &R,
+) -> Result<AnalysisDb, AnalysisError> {
     let integers =
         run_forward(module, &index, calls, &mut IntegerValueAnalysis).map_err(forward_error)?;
 
@@ -87,6 +114,11 @@ pub fn analyze_with_calls<R: CallResolver>(
     )
     .map_err(backward_error)?;
     let frames = recover_frames(module, &index, calls, &addresses);
+    let calls = module
+        .funcs
+        .iter()
+        .map(|function| (function.id(), calls.resolve(module, function.id())))
+        .collect();
 
     Ok(AnalysisDb {
         index,
@@ -95,6 +127,7 @@ pub fn analyze_with_calls<R: CallResolver>(
         demanded_bits,
         addresses,
         frames,
+        calls,
     })
 }
 
@@ -243,6 +276,61 @@ mod tests {
             .unwrap();
 
         assert_eq!(analyses.demanded_bits.values[argument.0].demanded, 0xff);
+    }
+
+    #[test]
+    fn infers_local_pointer_behavior_from_memory_uses() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+
+        let read_pointer = module.locals.add(ValType::I32);
+        let mut read_builder = FunctionBuilder::new(&mut module.types, &[ValType::I32], &[]);
+        read_builder
+            .func_body()
+            .instr(LocalGet {
+                local: read_pointer,
+            })
+            .instr(Load {
+                memory,
+                kind: LoadKind::I32_8 {
+                    kind: walrus::ir::ExtendedLoad::ZeroExtend,
+                },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            })
+            .instr(Drop {});
+        let reader = read_builder.finish(vec![read_pointer], &mut module.funcs);
+
+        let escaped_pointer = module.locals.add(ValType::I32);
+        let mut escape_builder = FunctionBuilder::new(&mut module.types, &[ValType::I32], &[]);
+        escape_builder
+            .func_body()
+            .i32_const(0)
+            .instr(LocalGet {
+                local: escaped_pointer,
+            })
+            .instr(Store {
+                memory,
+                kind: StoreKind::I32 { atomic: false },
+                arg: MemArg {
+                    align: 4,
+                    offset: 0,
+                },
+            });
+        let escape = escape_builder.finish(vec![escaped_pointer], &mut module.funcs);
+
+        let analyses = analyze(&module).unwrap();
+
+        assert_eq!(
+            analyses.calls[&reader].arguments[0].pointer,
+            PointerBehavior::ReadOnly
+        );
+        assert_eq!(
+            analyses.calls[&escape].arguments[0].pointer,
+            PointerBehavior::Escapes
+        );
     }
 
     #[test]

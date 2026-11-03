@@ -4,7 +4,9 @@
 //! Expressions compute values and may read recovered places; evaluating an
 //! expression can still trap.
 
-use std::num::{NonZeroU8, NonZeroU32};
+use std::num::NonZeroU8;
+
+use super::intrinsics::Intrinsic;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
@@ -80,6 +82,9 @@ pub enum Statement {
     Store {
         address: Expression,
         value: Expression,
+        /// The physical type written by the memory operation. This remains
+        /// explicit when analysis proves that `value` needs fewer bits.
+        ty: Type,
         access: MemoryAccess,
     },
     /// Evaluates arguments from left to right, performs the call, then
@@ -87,6 +92,32 @@ pub enum Statement {
     Call {
         destination: Option<Place>,
         function: String,
+        arguments: Vec<Expression>,
+    },
+    /// Evaluates arguments from left to right, evaluates the function target,
+    /// performs the call, then evaluates and assigns the destination.
+    ///
+    /// The signature is explicit because an indirect target does not name a
+    /// function whose declaration could otherwise supply it.
+    CallIndirect {
+        destination: Option<Place>,
+        target: Expression,
+        signature: FunctionType,
+        arguments: Vec<Expression>,
+    },
+    /// Calls a function and immediately returns its result. Backends may use a
+    /// jump when the caller and callee ABIs permit it, or fall back to a call
+    /// followed by the function's normal return sequence.
+    TailCall {
+        function: String,
+        arguments: Vec<Expression>,
+    },
+    /// Calls an indirectly addressed function and immediately returns its
+    /// result. The target uses the same signature and evaluation order as
+    /// `CallIndirect`.
+    TailCallIndirect {
+        target: Expression,
+        signature: FunctionType,
         arguments: Vec<Expression>,
     },
     /// Evaluates arguments from left to right, performs the intrinsic, then
@@ -129,6 +160,13 @@ pub enum Statement {
 pub struct SwitchCase {
     pub value: IntegerConstant,
     pub body: Block,
+}
+
+/// The statically known type of an indirectly called function.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionType {
+    pub parameters: Vec<Type>,
+    pub result: Type,
 }
 
 /// A value expression together with the smallest type proven by analysis.
@@ -197,10 +235,6 @@ pub enum ExpressionKind {
         value: Box<Expression>,
     },
 }
-
-/// The name of an operation supplied and validated by the VMU compiler.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Intrinsic(pub String);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntegerUnaryOp {
@@ -290,13 +324,13 @@ pub enum ConversionOp {
     IntegerToBoolean,
 }
 
+/// Static data has no alignment constraint: the VMU accesses storage in bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Static {
     pub name: String,
     pub ty: Type,
     pub mutable: bool,
     pub initializer: StaticInitializer,
-    pub alignment: Alignment,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -328,24 +362,9 @@ pub enum Place {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Alignment(NonZeroU32);
-
-impl Alignment {
-    pub fn new(bytes: u32) -> Option<Self> {
-        NonZeroU32::new(bytes)
-            .filter(|bytes| bytes.get().is_power_of_two())
-            .map(Self)
-    }
-
-    pub fn get(self) -> u32 {
-        self.0.get()
-    }
-}
-
+/// Properties that still affect a VMU memory access after WASM lowering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MemoryAccess {
-    pub alignment: Alignment,
     pub volatile: bool,
 }
 
@@ -425,15 +444,7 @@ impl IntegerConstant {
 
 #[cfg(test)]
 mod tests {
-    use super::{Alignment, BitWidth, IntegerConstant};
-
-    #[test]
-    fn alignment_accepts_only_nonzero_powers_of_two() {
-        assert_eq!(Alignment::new(0), None);
-        assert_eq!(Alignment::new(1).map(Alignment::get), Some(1));
-        assert_eq!(Alignment::new(8).map(Alignment::get), Some(8));
-        assert_eq!(Alignment::new(12), None);
-    }
+    use super::{BitWidth, IntegerConstant};
 
     #[test]
     fn bit_width_accepts_only_representable_integer_widths() {

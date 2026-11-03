@@ -1,5 +1,4 @@
 #![recursion_limit = "300"]
-
 #![allow(unused_variables)]
 
 extern crate proc_macro;
@@ -10,17 +9,17 @@ extern crate quote;
 extern crate lazy_static;
 extern crate regex;
 
-use std::fmt;
 use proc_macro::TokenStream;
-use syn::{VariantData, Variant, MetaItem, Lit};
 use regex::Regex;
 use std::collections::HashMap;
+use std::fmt;
+use syn::{Lit, MetaItem, Variant, VariantData};
 
 #[proc_macro_derive(Instruction, attributes(instr))]
 pub fn instruction(input: TokenStream) -> TokenStream {
     // Construct a string representation of the type definition
     let s = input.to_string();
-    
+
     // Parse the string representation
     let ast = syn::parse_derive_input(&s).unwrap();
 
@@ -29,7 +28,7 @@ pub fn instruction(input: TokenStream) -> TokenStream {
 
     let toks: TokenStream = gen.parse().unwrap();
     // println!("toks: {}", toks);
-    
+
     // Return the generated impl
     gen.parse().unwrap()
 }
@@ -39,115 +38,133 @@ fn expand_instr(ast: &syn::DeriveInput) -> quote::Tokens {
         syn::Body::Struct(_) => panic!("#[derive(Instruction)] can only be used with enums"),
         syn::Body::Enum(ref data) => {
             let name = &ast.ident;
-            let fields: Vec<quote::Tokens> = data.iter().map(|variant| {
-                let vname = &variant.ident;
-                let ty = &variant.data;
-                let names = names(ty);
-                let bit_pattern = extract_bit_pattern(variant);
-                let ranges = parse_bit_pattern(&bit_pattern);
-                let byte_tokens: Vec<quote::Tokens> = ranges.iter().map(|byte| byte_to_tokens(&byte)).collect();
-                if names.len() > 0 {
-                    quote! {
-                        #name::#vname (#(#names),*) => vec![
-                            #(#byte_tokens),*
-                        ]
+            let fields: Vec<quote::Tokens> = data
+                .iter()
+                .map(|variant| {
+                    let vname = &variant.ident;
+                    let ty = &variant.data;
+                    let names = names(ty);
+                    let bit_pattern = extract_bit_pattern(variant);
+                    let ranges = parse_bit_pattern(&bit_pattern);
+                    let byte_tokens: Vec<quote::Tokens> =
+                        ranges.iter().map(|byte| byte_to_tokens(&byte)).collect();
+                    if names.len() > 0 {
+                        quote! {
+                            #name::#vname (#(#names),*) => vec![
+                                #(#byte_tokens),*
+                            ]
+                        }
+                    } else {
+                        quote! {
+                            #name::#vname => vec![
+                                #(#byte_tokens),*
+                            ]
+                        }
                     }
-                } else {
-                    quote! {
-                        #name::#vname => vec![
-                            #(#byte_tokens),*
-                        ]
-                    }
-                }
-            }).collect();
+                })
+                .collect();
 
             let bytes_ident = syn::Ident::new("bytes");
 
-            let extractors: Vec<quote::Tokens> = data.iter().map(|variant| {
-                let vname = &variant.ident;
-                let ty = &variant.data;
-                let bit_pattern = extract_bit_pattern(variant);
-                let ranges = parse_bit_pattern(&bit_pattern);
+            let extractors: Vec<quote::Tokens> = data
+                .iter()
+                .map(|variant| {
+                    let vname = &variant.ident;
+                    let ty = &variant.data;
+                    let bit_pattern = extract_bit_pattern(variant);
+                    let ranges = parse_bit_pattern(&bit_pattern);
 
-                let opcodes = byte_to_matcher(&ranges[0]);
-                let name_types = name_types(ty);
-                let names = names(ty);
+                    let opcodes = byte_to_matcher(&ranges[0]);
+                    let name_types = name_types(ty);
+                    let names = names(ty);
 
-                let extractors = ranges_to_extractors(&bytes_ident, &ranges);
+                    let extractors = ranges_to_extractors(&bytes_ident, &ranges);
 
-                let extracted: Vec<quote::Tokens> = name_types.iter().map(|(ident,tyident,ty)| {
-                    let var_name = format!("{}", ident);
-                    let body = &extractors[&var_name];
-                    quote! {
-                        let #ident = (#body) as #tyident;
-                    }
-                }).collect();
+                    let extracted: Vec<quote::Tokens> = name_types
+                        .iter()
+                        .map(|(ident, tyident, ty)| {
+                            let var_name = format!("{}", ident);
+                            let body = &extractors[&var_name];
+                            quote! {
+                                let #ident = (#body) as #tyident;
+                            }
+                        })
+                        .collect();
 
-                let len = ranges.len();
+                    let len = ranges.len();
 
-                if extracted.len() == 0 {
-                    quote! {
-                        #opcodes => Some(#name :: #vname)
-                    }
-                } else {
-                    quote! {
-                        #opcodes if #bytes_ident.len() >= #len => {
-                            #(#extracted)*
-                            Some(#name :: #vname (#(#names),*))
+                    if extracted.len() == 0 {
+                        quote! {
+                            #opcodes => Some(#name :: #vname)
+                        }
+                    } else {
+                        quote! {
+                            #opcodes if #bytes_ident.len() >= #len => {
+                                #(#extracted)*
+                                Some(#name :: #vname (#(#names),*))
+                            }
                         }
                     }
-                }
-                
-            }).collect();
-
-            let size_fields: Vec<quote::Tokens> = data.iter().map(|variant| {
-                let vname = &variant.ident;
-                let ty = &variant.data;
-                let names = names(ty);
-                let bit_pattern = extract_bit_pattern(variant);
-                let ranges = parse_bit_pattern(&bit_pattern);
-                let size: usize = ranges.len();
-                if names.len() > 0 {
-                    quote! {
-                        #name::#vname (#(#names),*) => #size
-                    }
-                } else {
-                    quote! {
-                        #name::#vname => #size
-                    }
-                }
-            }).collect();
-
-            let expression_fields: Vec<quote::Tokens> = data.iter().map(|variant| {
-                let vname = &variant.ident;
-                let ty = &variant.data;
-                let names = names(ty);
-                let expressions: Vec<syn::Ident> = name_types(ty).iter()
-                    .filter(|tuple| tuple.2 == "Ex")
-                    .map(|tuple| tuple.0.clone())
-                    .collect();
-                if names.len() > 0 {
-                    quote! {
-                        #name::#vname (#(#names),*) => vec![#(#expressions),*]
-                    }
-                } else {
-                    quote! {
-                        #name::#vname => vec![]
-                    }
-                }
-            }).collect();
-
-            let instr_names: Vec<String> = {
-                let mut names: Vec<String> = data.iter().map(|variant| {
-                    lazy_static! {
-                        static ref NAME: Regex = Regex::new("^([^_]+)").unwrap();
-                    }
-                    let vname = &variant.ident;
-                    let name_str = format!("{}", vname);
-                    let name  = NAME.captures_iter(&name_str).next().unwrap()[1].to_lowercase();
-                    name
                 })
                 .collect();
+
+            let size_fields: Vec<quote::Tokens> = data
+                .iter()
+                .map(|variant| {
+                    let vname = &variant.ident;
+                    let ty = &variant.data;
+                    let names = names(ty);
+                    let bit_pattern = extract_bit_pattern(variant);
+                    let ranges = parse_bit_pattern(&bit_pattern);
+                    let size: usize = ranges.len();
+                    if names.len() > 0 {
+                        quote! {
+                            #name::#vname (#(#names),*) => #size
+                        }
+                    } else {
+                        quote! {
+                            #name::#vname => #size
+                        }
+                    }
+                })
+                .collect();
+
+            let expression_fields: Vec<quote::Tokens> = data
+                .iter()
+                .map(|variant| {
+                    let vname = &variant.ident;
+                    let ty = &variant.data;
+                    let names = names(ty);
+                    let expressions: Vec<syn::Ident> = name_types(ty)
+                        .iter()
+                        .filter(|tuple| tuple.2 == "Ex")
+                        .map(|tuple| tuple.0.clone())
+                        .collect();
+                    if names.len() > 0 {
+                        quote! {
+                            #name::#vname (#(#names),*) => vec![#(#expressions),*]
+                        }
+                    } else {
+                        quote! {
+                            #name::#vname => vec![]
+                        }
+                    }
+                })
+                .collect();
+
+            let instr_names: Vec<String> = {
+                let mut names: Vec<String> = data
+                    .iter()
+                    .map(|variant| {
+                        lazy_static! {
+                            static ref NAME: Regex = Regex::new("^([^_]+)").unwrap();
+                        }
+                        let vname = &variant.ident;
+                        let name_str = format!("{}", vname);
+                        let name = NAME.captures_iter(&name_str).next().unwrap()[1].to_lowercase();
+                        name
+                    })
+                    .collect();
                 names.dedup();
                 names
             };
@@ -206,33 +223,37 @@ fn type_name(ty: &syn::Ty) -> String {
                 result.push_str(&name);
             }
             result
-        },
-        _ => unreachable!()
+        }
+        _ => unreachable!(),
     }
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 enum Bit {
     Literal(u8),
-    Ref(String, usize)
+    Ref(String, usize),
 }
 
 impl Bit {
     fn is_literal(&self) -> bool {
         match self {
             Bit::Literal(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }
 
-#[derive(Debug,Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 enum BitRange {
     Literal(u8, usize),
-    Ref { name: String, high: usize, low: usize }
+    Ref {
+        name: String,
+        high: usize,
+        low: usize,
+    },
 }
 
-#[derive(Eq,PartialEq,Ord,PartialOrd,Hash,Clone)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 struct BitLiteral(u8, usize);
 
 impl fmt::Debug for BitLiteral {
@@ -247,7 +268,7 @@ impl fmt::Debug for BitLiteral {
             6 => write!(f, "{:06b}", value),
             7 => write!(f, "{:07b}", value),
             8 => write!(f, "{:08b}", value),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -264,7 +285,7 @@ impl fmt::Display for BitLiteral {
             6 => write!(f, "{:06b}", value),
             7 => write!(f, "{:07b}", value),
             8 => write!(f, "{:08b}", value),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -276,10 +297,13 @@ fn match_token(pattern: &str) -> Option<(usize, Bit)> {
     if let Some(cap) = BIT.captures_iter(pattern).next() {
         let text: &str = &cap[0];
         if text.starts_with("[") {
-            Some((text.len(), Bit::Ref(
-                text[1..2].to_owned(),
-                usize::from_str_radix(&text[2..(text.len() - 1)], 10).unwrap()
-            )))
+            Some((
+                text.len(),
+                Bit::Ref(
+                    text[1..2].to_owned(),
+                    usize::from_str_radix(&text[2..(text.len() - 1)], 10).unwrap(),
+                ),
+            ))
         } else if text == "1" {
             Some((1, Bit::Literal(1u8)))
         } else if text == "0" {
@@ -305,8 +329,8 @@ fn tokenize_bit_pattern(pattern: &str) -> Vec<Bit> {
                 results.push(bit.clone());
                 pos = pos + size;
                 text = &text[size..text.len()];
-            },
-            None => panic!("Invalid bit pattern at {}: {}", pos, pattern)
+            }
+            None => panic!("Invalid bit pattern at {}: {}", pos, pattern),
         }
     }
     results
@@ -327,7 +351,11 @@ fn chunk_to_range(chunk: &[Bit]) -> BitRange {
     } else {
         if let Bit::Ref(name, idx) = &chunk[0] {
             if let Bit::Ref(_, end) = chunk[chunk.len() - 1] {
-                BitRange::Ref { name: name.to_owned(), high: *idx, low: end }
+                BitRange::Ref {
+                    name: name.to_owned(),
+                    high: *idx,
+                    low: end,
+                }
             } else {
                 panic!("Found literal in non-literal chunk. Should never happen.");
             }
@@ -346,15 +374,17 @@ fn bits_to_range(bits: &[Bit]) -> Vec<BitRange> {
         } else {
             let last = current[current.len() - 1].clone();
             match last {
-                Bit::Literal(_) => if bit.is_literal() {
-                    current.push(bit.clone());
-                } else {
-                    if !current.is_empty() {
-                        chunks.push(current.clone());
-                        current.clear();
+                Bit::Literal(_) => {
+                    if bit.is_literal() {
+                        current.push(bit.clone());
+                    } else {
+                        if !current.is_empty() {
+                            chunks.push(current.clone());
+                            current.clear();
+                        }
+                        current.push(bit.clone());
                     }
-                    current.push(bit.clone());
-                },
+                }
                 Bit::Ref(name, idx) => match bit {
                     Bit::Literal(_) => {
                         if !current.is_empty() {
@@ -362,8 +392,8 @@ fn bits_to_range(bits: &[Bit]) -> Vec<BitRange> {
                             current.clear();
                         }
                         current.push(bit.clone());
-                    },
-                    Bit::Ref(cname, cidx) =>
+                    }
+                    Bit::Ref(cname, cidx) => {
                         if name == *cname && (idx - 1) == *cidx {
                             current.push(bit.clone());
                         } else {
@@ -373,7 +403,8 @@ fn bits_to_range(bits: &[Bit]) -> Vec<BitRange> {
                             }
                             current.push(bit.clone());
                         }
-                }
+                    }
+                },
             }
         }
     }
@@ -416,11 +447,16 @@ fn literal_combinations(ranges: &[BitRange]) -> Vec<Vec<BitLiteral>> {
         match ranges[0] {
             BitRange::Literal(bits, size) => {
                 vec![vec![BitLiteral(bits, size)]]
-            },
-            BitRange::Ref { ref name, high, low } => {
+            }
+            BitRange::Ref {
+                ref name,
+                high,
+                low,
+            } => {
                 let size = (1 + high) - low;
                 let nums = bit_combinations(size);
-                let literals: Vec<BitLiteral> = nums.iter().map(|num| BitLiteral(*num, size)).collect();
+                let literals: Vec<BitLiteral> =
+                    nums.iter().map(|num| BitLiteral(*num, size)).collect();
                 vec![literals]
             }
         }
@@ -430,12 +466,19 @@ fn literal_combinations(ranges: &[BitRange]) -> Vec<Vec<BitLiteral>> {
                 let mut combos = literal_combinations(&ranges[1..ranges.len()]);
                 combos.push(vec![BitLiteral(bits, size)]);
                 combos
-            },
-            BitRange::Ref { ref name, high, low } => {
+            }
+            BitRange::Ref {
+                ref name,
+                high,
+                low,
+            } => {
                 let size = (1 + high) - low;
                 let mut combos = literal_combinations(&ranges[1..ranges.len()]);
                 let bit_combos = bit_combinations(size);
-                let literals: Vec<BitLiteral> = bit_combos.iter().map(|num| BitLiteral(*num, size)).collect();
+                let literals: Vec<BitLiteral> = bit_combos
+                    .iter()
+                    .map(|num| BitLiteral(*num, size))
+                    .collect();
                 combos.push(literals);
                 combos
             }
@@ -446,18 +489,18 @@ fn literal_combinations(ranges: &[BitRange]) -> Vec<Vec<BitLiteral>> {
 fn combinations_to_bits(combos: &[Vec<BitLiteral>]) -> (usize, Vec<u8>) {
     if combos.len() == 1 {
         let mut results = vec![];
-        let BitLiteral(_,size) = combos[0][0];
+        let BitLiteral(_, size) = combos[0][0];
         for literal in combos[0].iter() {
-            let BitLiteral(num,_) = literal;
+            let BitLiteral(num, _) = literal;
             results.push(*num);
         }
-        (size,results)
+        (size, results)
     } else {
         let mut results = vec![];
         let (size, bytes) = combinations_to_bits(&combos[1..combos.len()]);
-        let BitLiteral(_,local_size) = combos[0][0];
+        let BitLiteral(_, local_size) = combos[0][0];
         for literal in combos[0].iter() {
-            let BitLiteral(num,_) = literal;
+            let BitLiteral(num, _) = literal;
             for byte in bytes.iter() {
                 let new_num = (num << size) | byte;
                 results.push(new_num);
@@ -485,14 +528,21 @@ fn byte_to_matcher(ranges: &[BitRange]) -> quote::Tokens {
     }
 }
 
-fn ranges_to_extractors(bytes_ident: &syn::Ident, ranges: &[Vec<BitRange>]) -> HashMap<String,quote::Tokens> {
+fn ranges_to_extractors(
+    bytes_ident: &syn::Ident,
+    ranges: &[Vec<BitRange>],
+) -> HashMap<String, quote::Tokens> {
     let names = {
         let mut name_map = HashMap::new();
         for byte in ranges {
             for range in byte {
                 match range {
                     BitRange::Literal(bits, size) => (),
-                    BitRange::Ref { ref name, high, low } => {
+                    BitRange::Ref {
+                        ref name,
+                        high,
+                        low,
+                    } => {
                         name_map.insert(name.clone(), ());
                     }
                 }
@@ -502,7 +552,7 @@ fn ranges_to_extractors(bytes_ident: &syn::Ident, ranges: &[Vec<BitRange>]) -> H
         names.sort();
         names
     };
-    let mut mapping: HashMap<String,Vec<quote::Tokens>> = HashMap::new();
+    let mut mapping: HashMap<String, Vec<quote::Tokens>> = HashMap::new();
     for name in names.iter() {
         mapping.insert(name.clone(), vec![]);
     }
@@ -513,8 +563,12 @@ fn ranges_to_extractors(bytes_ident: &syn::Ident, ranges: &[Vec<BitRange>]) -> H
             match range {
                 BitRange::Literal(bits, size) => {
                     bit = bit - size;
-                },
-                BitRange::Ref { ref name, high, low } => {
+                }
+                BitRange::Ref {
+                    ref name,
+                    high,
+                    low,
+                } => {
                     let size = (high + 1) - low;
                     let mask = make_mask(size) << (bit - size);
                     let shift_back: usize = bit - size;
@@ -526,16 +580,19 @@ fn ranges_to_extractors(bytes_ident: &syn::Ident, ranges: &[Vec<BitRange>]) -> H
 
                     bit = bit - size;
                 }
-            }            
+            }
         }
         byte_num += 1;
     }
     let mut results = HashMap::new();
     for name in names.iter() {
         let toks = &mapping[name];
-        results.insert(name.clone(), quote! {
-            #(#toks)|*
-        });
+        results.insert(
+            name.clone(),
+            quote! {
+                #(#toks)|*
+            },
+        );
     }
     results
 }
@@ -549,8 +606,12 @@ fn byte_to_tokens(ranges: &[BitRange]) -> quote::Tokens {
                 let val: u8 = bits << (pos - size);
                 toks.push(quote! { #val });
                 pos = pos - size;
-            },
-            BitRange::Ref { ref name, high, low } => {
+            }
+            BitRange::Ref {
+                ref name,
+                high,
+                low,
+            } => {
                 let ident = syn::Ident::new(name.as_str());
                 let size = (1 + high) - low;
                 let mask: u32 = make_mask(size) << ((high + 1) - size);
@@ -605,18 +666,17 @@ fn parse_bit_pattern(pattern: &str) -> Vec<Vec<BitRange>> {
     results
 }
 
-const LETTERS: &'static [&'static str] = &["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"];
+const LETTERS: &'static [&'static str] = &[
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
+    "t", "u", "v", "w", "x", "y", "z",
+];
 
-fn name_types(variant: &VariantData) -> Vec<(syn::Ident,syn::Ident,String)> {
+fn name_types(variant: &VariantData) -> Vec<(syn::Ident, syn::Ident, String)> {
     let empty = vec![];
     let fields = match variant {
-        VariantData::Struct(ref struct_fields) => {
-            struct_fields
-        },
-        VariantData::Tuple(ref struct_fields) => {
-            struct_fields
-        },
-        _ => &empty
+        VariantData::Struct(ref struct_fields) => struct_fields,
+        VariantData::Tuple(ref struct_fields) => struct_fields,
+        _ => &empty,
     };
     let mut idents = vec![];
     for (idx, field) in fields.iter().enumerate() {
@@ -626,33 +686,41 @@ fn name_types(variant: &VariantData) -> Vec<(syn::Ident,syn::Ident,String)> {
             match type_name.as_str() {
                 "Ex" => syn::Ident::new("i32".to_string()),
                 "IM" => syn::Ident::new("u8".to_string()),
-                _ => unreachable!()
+                _ => unreachable!(),
             },
-            type_name));
+            type_name,
+        ));
     }
     idents
 }
 
 fn names(variant: &VariantData) -> Vec<syn::Ident> {
-    name_types(variant).iter().map(|tuple| tuple.0.clone()).collect()
+    name_types(variant)
+        .iter()
+        .map(|tuple| tuple.0.clone())
+        .collect()
 }
 
 fn extract_bit_pattern(variant: &Variant) -> String {
-    let attr = variant.attrs.iter()
+    let attr = variant
+        .attrs
+        .iter()
         .filter(|attr| attr.name() == "instr")
         .next()
-        .expect(&format!("No instr attribute with bit pattern on variant: {}", variant.ident));
+        .expect(&format!(
+            "No instr attribute with bit pattern on variant: {}",
+            variant.ident
+        ));
     match attr.value {
         MetaItem::NameValue(_, ref value) => {
             return match value {
                 Lit::Str(pattern, _) => pattern.clone(),
-                _ => panic!("Expected string for bit pattern, found: {:?}", attr)
+                _ => panic!("Expected string for bit pattern, found: {:?}", attr),
             };
-        },
-        _ => panic!("Invalid instr attribute: {:?}", attr)
+        }
+        _ => panic!("Invalid instr attribute: {:?}", attr),
     };
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -670,7 +738,6 @@ mod tests {
             Bit::Literal(0),
             Bit::Literal(0),
             Bit::Literal(1),
-
             Bit::Ref("a".to_owned(), 7),
             Bit::Ref("a".to_owned(), 6),
             Bit::Ref("a".to_owned(), 5),
@@ -678,7 +745,7 @@ mod tests {
             Bit::Ref("a".to_owned(), 3),
             Bit::Ref("a".to_owned(), 2),
             Bit::Ref("a".to_owned(), 1),
-            Bit::Ref("a".to_owned(), 0)
+            Bit::Ref("a".to_owned(), 0),
         ];
         assert_eq!(tokenize_bit_pattern(input), output);
     }
@@ -688,7 +755,11 @@ mod tests {
         let input = "10000001 [a7][a6][a5][a4][a3][a2][a1][a0]";
         let output = vec![
             vec![BitRange::Literal(0b10000001, 8)],
-            vec![BitRange::Ref { name: "a".to_owned(), high: 7, low: 0 }]
+            vec![BitRange::Ref {
+                name: "a".to_owned(),
+                high: 7,
+                low: 0,
+            }],
         ];
         assert_eq!(parse_bit_pattern(input), output);
     }
@@ -699,9 +770,17 @@ mod tests {
         let output = vec![
             vec![
                 BitRange::Literal(0b1000001, 7),
-                BitRange::Ref { name: "a".to_owned(), high: 8, low: 8 }
+                BitRange::Ref {
+                    name: "a".to_owned(),
+                    high: 8,
+                    low: 8,
+                },
             ],
-            vec![BitRange::Ref { name: "a".to_owned(), high: 7, low: 0 }]
+            vec![BitRange::Ref {
+                name: "a".to_owned(),
+                high: 7,
+                low: 0,
+            }],
         ];
         assert_eq!(parse_bit_pattern(input), output);
     }
@@ -710,7 +789,10 @@ mod tests {
     fn test_bit_combinations() {
         assert_eq!(
             bit_combinations(4),
-            vec![0b1111, 0b0111, 0b1011, 0b0011, 0b1101, 0b0101, 0b1001, 0b0001, 0b1110, 0b0110, 0b1010, 0b0010, 0b1100, 0b0100, 0b1000, 0b0000]
+            vec![
+                0b1111, 0b0111, 0b1011, 0b0011, 0b1101, 0b0101, 0b1001, 0b0001, 0b1110, 0b0110,
+                0b1010, 0b0010, 0b1100, 0b0100, 0b1000, 0b0000
+            ]
         );
     }
 
@@ -730,30 +812,14 @@ mod tests {
         results.sort();
 
         let mut expected = vec![
-            0b00011111,
-            0b00001111,
-            0b00011011,
-            0b00001011,
-            0b00011101,
-            0b00001101,
-            0b00011001,
-            0b00001001,
-            0b00011110,
-            0b00001110,
-            0b00011010,
-            0b00001010,
-            0b00011100,
-            0b00001100,
-            0b00011000,
-            0b00001000
+            0b00011111, 0b00001111, 0b00011011, 0b00001011, 0b00011101, 0b00001101, 0b00011001,
+            0b00001001, 0b00011110, 0b00001110, 0b00011010, 0b00001010, 0b00011100, 0b00001100,
+            0b00011000, 0b00001000,
         ];
         expected.sort();
 
         assert_eq!(8, size);
-        assert_eq!(
-            results,
-            expected
-        );
+        assert_eq!(results, expected);
     }
 
     #[test]
@@ -763,22 +829,9 @@ mod tests {
         let range = &ranges[0];
         let opcodes = all_possible_opcodes(range);
         let mut expected = vec![
-            0b00011111,
-            0b00001111,
-            0b00011011,
-            0b00001011,
-            0b00011101,
-            0b00001101,
-            0b00011001,
-            0b00001001,
-            0b00011110,
-            0b00001110,
-            0b00011010,
-            0b00001010,
-            0b00011100,
-            0b00001100,
-            0b00011000,
-            0b00001000
+            0b00011111, 0b00001111, 0b00011011, 0b00001011, 0b00011101, 0b00001101, 0b00011001,
+            0b00001001, 0b00011110, 0b00001110, 0b00011010, 0b00001010, 0b00011100, 0b00001100,
+            0b00011000, 0b00001000,
         ];
         expected.sort();
 

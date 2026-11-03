@@ -23,6 +23,7 @@ Reference
 * [Directives](directives.md)
 * [Macros](macros.md)
 * [Debug Info](debug.md)
+* [WebAssembly builds](wasm.md)
 
 Info
 ====

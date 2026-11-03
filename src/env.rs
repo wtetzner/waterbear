@@ -30,10 +30,11 @@ pub struct Names {
 
 impl Names {
     pub fn as_env<'n, 'h>(&'h self, name: &'n str, current_global: &str) -> NamesEnv<'n, 'h, 'h> {
+        let current_global = current_global.to_lowercase();
         NamesEnv {
             name: name,
             globals: &self.globals,
-            locals: &self.locals.get(current_global).unwrap(),
+            locals: self.locals.get(&current_global).unwrap(),
             internals: &self.internals,
         }
     }
@@ -53,10 +54,11 @@ impl<'n, 'g, 'l> Env<i32> for NamesEnv<'n, 'g, 'l> {
     }
 
     fn get(&self, name: &str) -> Option<i32> {
+        let name = name.to_lowercase();
         if name.starts_with(".") {
-            self.locals.get(name).map(|r| *r)
+            self.locals.get(&name).copied()
         } else {
-            self.globals.get(name).map(|r| *r)
+            self.globals.get(&name).copied()
         }
     }
 

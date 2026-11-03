@@ -57,6 +57,33 @@ pub fn assemble_file_with_options(
     options: AssembleOptions,
 ) -> Result<AssembleOutput, AssemblyError> {
     let statements = read_statements(files, filename)?;
+    assemble_prepared_statements(files, statements, options)
+}
+
+/// Assembles an AST produced in memory, with the same built-in macros, binary
+/// includes, and optimization pipeline used for source files.
+pub fn assemble_statements_with_options(
+    files: &mut SourceFiles,
+    statements: &Statements,
+    options: AssembleOptions,
+) -> Result<AssembleOutput, AssemblyError> {
+    let parser = Parser::create();
+    let builtin_statements = {
+        let file = files.add_embedded(BUILTIN_MACROS_NAME, BUILTIN_MACROS);
+        let input = Input::new(file.id(), file.contents());
+        let tokens = lexer::lex_input(&input)?;
+        parser.parse(&tokens)?
+    };
+    let statements = builtin_statements.with_statements(statements.as_slice().to_vec());
+    let statements = replace_byte_includes(Path::new("<generated>"), files, &statements)?;
+    assemble_prepared_statements(files, statements, options)
+}
+
+fn assemble_prepared_statements(
+    files: &SourceFiles,
+    statements: Statements,
+    options: AssembleOptions,
+) -> Result<AssembleOutput, AssemblyError> {
     let mut statements = expand_macros(&statements)?;
     if options.optimize_jumps {
         statements = optimize::optimize_jumps(&statements)?;
@@ -981,5 +1008,41 @@ impl<'a, 'b> Env<i32> for MapEnv<'a, 'b> {
 
     fn get(&self, name: &str) -> Option<i32> {
         self.map.get(name).map(|v| v.value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AssembleOptions, assemble_statements_with_options};
+    use crate::{
+        ast::Statements,
+        expression::{Arg, Expr},
+        files::SourceFiles,
+        instruction::Instr,
+    };
+
+    #[test]
+    fn generated_statements_expand_macros_and_optimize_jumps() {
+        let mut statements = Statements::empty();
+        statements.push_label("start");
+        statements.push_macro_call("bzo", vec![Arg::Ex(Expr::name("target"))]);
+        statements.push_label("target");
+        statements.push_instr(Instr::Nop);
+
+        let mut files = SourceFiles::new();
+        let unoptimized =
+            assemble_statements_with_options(&mut files, &statements, AssembleOptions::default())
+                .unwrap();
+        let optimized = assemble_statements_with_options(
+            &mut files,
+            &statements,
+            AssembleOptions {
+                optimize_jumps: true,
+                ..AssembleOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert!(optimized.bytes.len() < unoptimized.bytes.len());
     }
 }

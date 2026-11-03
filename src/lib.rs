@@ -55,7 +55,10 @@ use crate::expression::EvaluationError;
 use crate::files::SourceFiles;
 use lazy_static::lazy_static;
 
-pub use crate::asm::{AssembleOptions, assemble, assemble_file, assemble_file_with_options};
+pub use crate::asm::{
+    AssembleOptions, assemble, assemble_file, assemble_file_with_options,
+    assemble_statements_with_options,
+};
 
 const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
 const NAME: &'static str = env!("CARGO_PKG_NAME");
@@ -323,14 +326,35 @@ pub fn run_command(args: &[String]) {
                 .newline();
         }
         cli::Command::Wasm(command) => match command {
-            wasm::cli::WasmCommand::Build { input, entry, output } => {
-                let entry = if let Some(value) = entry {
-                    value
+            wasm::cli::WasmCommand::Build {
+                input,
+                entry,
+                config,
+                out,
+                output_type,
+            } => {
+                if let Err(error) = wasm::build(
+                    input,
+                    entry.as_deref(),
+                    config.as_deref(),
+                    *output_type,
+                    out.as_ref(),
+                ) {
+                    stderr.write_error().space().writeln(error);
+                    exit(1);
+                }
+            }
+            wasm::cli::WasmCommand::Header { language, output } => {
+                let header = wasm::intrinsics::header::render(*language);
+                if let Some(path) = output {
+                    File::create(path)
+                        .and_then(|mut file| file.write_all(header.as_bytes()))
+                        .unwrap_or_else(|error| {
+                            panic!("could not write intrinsic header to {path:?}: {error}")
+                        });
                 } else {
-                    eprintln!("No entry specified. Using \"main\".");
-                    "main"
-                };
-                wasm::build(input, entry, output.as_ref()).unwrap();
+                    stdout.write(header);
+                }
             }
         },
     }

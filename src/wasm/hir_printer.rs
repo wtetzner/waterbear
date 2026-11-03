@@ -57,10 +57,9 @@ impl Printer {
         self.line(
             indent,
             format_args!(
-                "static {mutability}@{}: {} align {} = {};",
+                "static {mutability}@{}: {} = {};",
                 identifier(&static_.name),
                 format_type(&static_.ty),
-                static_.alignment.get(),
                 format_static_initializer(&static_.initializer),
             ),
         );
@@ -140,7 +139,7 @@ impl Printer {
                 access,
             } => {
                 let operation = format!(
-                    "load<{}>({}, {})",
+                    "load<{}>({}{})",
                     format_type(ty),
                     format_expression(address),
                     format_memory_access(*access),
@@ -150,11 +149,13 @@ impl Printer {
             Statement::Store {
                 address,
                 value,
+                ty,
                 access,
             } => self.line(
                 indent,
                 format_args!(
-                    "store({}, {}, {});",
+                    "store<{}>({}, {}{});",
+                    format_type(ty),
                     format_expression(address),
                     format_expression(value),
                     format_memory_access(*access),
@@ -172,14 +173,53 @@ impl Printer {
                 );
                 self.write_result_statement(indent, destination.as_ref(), &operation);
             }
+            Statement::CallIndirect {
+                destination,
+                target,
+                signature,
+                arguments,
+            } => {
+                let operation = format!(
+                    "call indirect {} as {}({})",
+                    format_expression(target),
+                    format_function_type(signature),
+                    format_expressions(arguments),
+                );
+                self.write_result_statement(indent, destination.as_ref(), &operation);
+            }
+            Statement::TailCall {
+                function,
+                arguments,
+            } => self.line(
+                indent,
+                format_args!(
+                    "tail call {}({});",
+                    identifier(function),
+                    format_expressions(arguments)
+                ),
+            ),
+            Statement::TailCallIndirect {
+                target,
+                signature,
+                arguments,
+            } => self.line(
+                indent,
+                format_args!(
+                    "tail call indirect {} as {}({});",
+                    format_expression(target),
+                    format_function_type(signature),
+                    format_expressions(arguments),
+                ),
+            ),
             Statement::Intrinsic {
                 destination,
                 operation,
                 arguments,
             } => {
+                let name = operation.display_name();
                 let operation = format!(
                     "intrinsic {}({})",
-                    identifier(&operation.0),
+                    identifier(&name),
                     format_expressions(arguments)
                 );
                 self.write_result_statement(indent, destination.as_ref(), &operation);
@@ -447,6 +487,16 @@ fn format_type(ty: &Type) -> String {
     }
 }
 
+fn format_function_type(signature: &hir::FunctionType) -> String {
+    let parameters = signature
+        .parameters
+        .iter()
+        .map(format_type)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("fn({parameters}) -> {}", format_type(&signature.result))
+}
+
 fn format_static_initializer(initializer: &StaticInitializer) -> String {
     match initializer {
         StaticInitializer::Zeroed => "zeroed".into(),
@@ -511,9 +561,9 @@ fn format_integer_constant(value: IntegerConstant) -> String {
 
 fn format_memory_access(access: hir::MemoryAccess) -> String {
     if access.volatile {
-        format!("align {}, volatile", access.alignment.get())
+        ", volatile".into()
     } else {
-        format!("align {}", access.alignment.get())
+        String::new()
     }
 }
 
@@ -662,10 +712,11 @@ fn identifier(name: &str) -> String {
 mod tests {
     use super::render;
     use crate::wasm::hir::{
-        Alignment, BitWidth, Block, Constant, Expression, ExpressionKind, Function,
-        IntegerBinaryOp, IntegerConstant, InterruptHandlers, Intrinsic, Parameter, Place, Program,
-        Statement, Static, StaticInitializer, Type,
+        BitWidth, Block, Constant, Expression, ExpressionKind, Function, FunctionType,
+        IntegerBinaryOp, IntegerConstant, InterruptHandlers, Parameter, Place, Program, Statement,
+        Static, StaticInitializer, Type,
     };
+    use crate::wasm::intrinsics::{Intrinsic, Sfr};
 
     #[test]
     fn renders_program_structure_types_and_expressions() {
@@ -742,7 +793,7 @@ mod tests {
                         then_body: Block {
                             statements: vec![Statement::Intrinsic {
                                 destination: None,
-                                operation: Intrinsic("display_on".into()),
+                                operation: Intrinsic::SfrRead(Sfr::Port7),
                                 arguments: Vec::new(),
                             }],
                         },
@@ -768,7 +819,6 @@ mod tests {
                 initializer: StaticInitializer::Constant(Constant::Integer(
                     IntegerConstant::new(bits_8, 3).unwrap(),
                 )),
-                alignment: Alignment::new(1).unwrap(),
             }],
         };
 
@@ -778,7 +828,7 @@ mod tests {
             output,
             concat!(
                 "program {\n",
-                "  static mut @counter: bits<8> align 1 = 3;\n",
+                "  static mut @counter: bits<8> = 3;\n",
                 "\n",
                 "  main fn main(value: bits<8>) -> unit {\n",
                 "    let mut flag: bool = (true : bool);\n",
@@ -793,7 +843,7 @@ mod tests {
                 "\n",
                 "  fn tick(enabled: bool) -> unit {\n",
                 "    if (read(enabled) : bool) {\n",
-                "      intrinsic display_on();\n",
+                "      intrinsic waterbear_vmu_sfr_p7_read();\n",
                 "    } else {\n",
                 "      trap;\n",
                 "    }\n",
@@ -821,5 +871,54 @@ mod tests {
         };
 
         assert!(render(&program).contains("main fn \"wasm entry\"() -> unit"));
+    }
+
+    #[test]
+    fn renders_typed_indirect_calls() {
+        let bits_8 = Type::Bits(BitWidth::new(8).unwrap());
+        let read = |name: &str, ty: Type| Expression {
+            ty,
+            kind: ExpressionKind::Read(Place::Variable(name.into())),
+        };
+        let signature = FunctionType {
+            parameters: vec![bits_8.clone()],
+            result: bits_8.clone(),
+        };
+        let target = read("function", Type::Pointer);
+        let argument = read("argument", bits_8.clone());
+        let program = Program {
+            main: Function {
+                name: "main".into(),
+                parameters: Vec::new(),
+                result: bits_8,
+                body: Block {
+                    statements: vec![
+                        Statement::CallIndirect {
+                            destination: Some(Place::Variable("result".into())),
+                            target: target.clone(),
+                            signature: signature.clone(),
+                            arguments: vec![argument.clone()],
+                        },
+                        Statement::TailCallIndirect {
+                            target,
+                            signature,
+                            arguments: vec![argument],
+                        },
+                    ],
+                },
+            },
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+        };
+
+        let output = render(&program);
+
+        assert!(output.contains(
+            "result = call indirect (read(function) : pointer) as fn(bits<8>) -> bits<8>((read(argument) : bits<8>));"
+        ));
+        assert!(output.contains(
+            "tail call indirect (read(function) : pointer) as fn(bits<8>) -> bits<8>((read(argument) : bits<8>));"
+        ));
     }
 }
