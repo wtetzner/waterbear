@@ -14,13 +14,7 @@ use super::hir::{
 /// Replaces calls whose results flow unchanged into a function return with the
 /// explicit HIR tail-call form.
 pub fn canonicalize(program: &mut Program) {
-    canonicalize_function(&mut program.main);
-    for function in interrupt_handlers(&mut program.interrupt_handlers) {
-        if let Some(function) = function {
-            canonicalize_function(function);
-        }
-    }
-    for function in &mut program.functions {
+    for function in program.all_functions_mut() {
         canonicalize_function(function);
     }
 }
@@ -141,17 +135,15 @@ fn tail_path_candidate(statements: &[Statement], result: &TailResult) -> Option<
         TailResult::Place(result) => {
             if let Some(index) = statements.len().checked_sub(1)
                 && let Some(call) = call_info(&statements[index])
+                && let Some(destination @ Place::Variable(temporary)) = &call.destination
+                && destination == result
             {
-                if let Some(destination @ Place::Variable(temporary)) = &call.destination
-                    && destination == result
-                {
-                    return Some(TailCandidate {
-                        call_index: index,
-                        temporary: Some(temporary.clone()),
-                        target: call.target,
-                        arguments: call.arguments,
-                    });
-                }
+                return Some(TailCandidate {
+                    call_index: index,
+                    temporary: Some(temporary.clone()),
+                    target: call.target,
+                    arguments: call.arguments,
+                });
             }
 
             let [.., call, assignment] = statements else {
@@ -321,23 +313,6 @@ impl TailResult {
             },
         }
     }
-}
-
-fn interrupt_handlers(
-    handlers: &mut super::hir::InterruptHandlers,
-) -> [&mut Option<super::hir::Function>; 10] {
-    [
-        &mut handlers.external_0,
-        &mut handlers.external_1,
-        &mut handlers.external_2_or_timer_0_low,
-        &mut handlers.external_3_or_base_timer,
-        &mut handlers.timer_0_high,
-        &mut handlers.timer_1,
-        &mut handlers.serial_0,
-        &mut handlers.serial_1,
-        &mut handlers.dreamcast_interface,
-        &mut handlers.port_3,
-    ]
 }
 
 #[cfg(test)]

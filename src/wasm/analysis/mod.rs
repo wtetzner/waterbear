@@ -17,6 +17,7 @@ pub mod index;
 pub mod integer;
 pub mod pointer;
 pub(crate) mod shape;
+mod validate;
 pub mod value_flow;
 
 use std::{collections::BTreeMap, convert::Infallible, error::Error, fmt};
@@ -53,6 +54,7 @@ pub struct AnalysisDb {
 pub enum AnalysisError {
     Forward(String),
     Backward(String),
+    InvalidDatabase(String),
 }
 
 impl fmt::Display for AnalysisError {
@@ -60,6 +62,9 @@ impl fmt::Display for AnalysisError {
         match self {
             Self::Forward(message) => write!(f, "forward analysis failed: {message}"),
             Self::Backward(message) => write!(f, "backward analysis failed: {message}"),
+            Self::InvalidDatabase(message) => {
+                write!(f, "analysis produced an inconsistent database: {message}")
+            }
         }
     }
 }
@@ -137,7 +142,7 @@ fn finish_analysis<R: CallResolver>(
         .collect::<BTreeMap<_, _>>();
     let data_mutability = data::analyze(module, &index, &addresses, &calls);
 
-    Ok(AnalysisDb {
+    let analyses = AnalysisDb {
         index,
         value_flow,
         pointer_origins,
@@ -147,7 +152,9 @@ fn finish_analysis<R: CallResolver>(
         data_mutability,
         frames,
         calls,
-    })
+    };
+    validate::validate(module, &analyses)?;
+    Ok(analyses)
 }
 
 fn forward_error(error: ForwardError<Infallible>) -> AnalysisError {
@@ -517,13 +524,17 @@ mod tests {
     impl CallResolver for LowByteCall {
         fn resolve(&self, module: &Module, function: walrus::FunctionId) -> CallSummary {
             let ty = module.funcs.get(function).ty();
+            let parameters = module.types.params(ty).to_vec();
             CallSummary {
-                parameters: module.types.params(ty).to_vec(),
+                arguments: parameters
+                    .iter()
+                    .map(|_| ArgumentSummary {
+                        observed_bits: Some(0xff),
+                        pointer: PointerBehavior::NotAPointer,
+                    })
+                    .collect(),
+                parameters,
                 results: module.types.results(ty).to_vec(),
-                arguments: vec![ArgumentSummary {
-                    observed_bits: Some(0xff),
-                    pointer: PointerBehavior::NotAPointer,
-                }],
                 memory: MemoryEffects::None,
             }
         }

@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::{
     lir::{
         BitOperand, BranchCondition, ByteBinaryOp, ByteOperand, ByteStorage, ByteUnaryOp,
-        CodeAddress, CompareOp, Function, InstructionKind, InterruptHandlers, Program,
-        RotateDirection, StorageId, TerminatorKind, ValueOperand, VirtualPlacement,
+        CodeAddress, CompareOp, Function, InstructionKind, Program, RotateDirection, StorageId,
+        TerminatorKind, ValueOperand, VirtualPlacement,
     },
     lir_analysis::{
         ProgramSemantics, UnitSet, has_observable_effect, instruction_definitions,
@@ -21,7 +21,10 @@ struct Facts {
     bits: BTreeMap<StorageId, BitOperand>,
 }
 
-pub fn optimize(program: &mut Program<VirtualPlacement>) {
+pub fn optimize(
+    program: &mut Program<VirtualPlacement>,
+) -> Result<(), super::lir_validate::ValidationError> {
+    super::lir_validate::validate_virtual(program)?;
     for _ in 0..3 {
         let semantics = ProgramSemantics::new(program);
         for_each_function_mut(program, |function| simplify_function(function, &semantics));
@@ -33,6 +36,7 @@ pub fn optimize(program: &mut Program<VirtualPlacement>) {
         });
     }
     remove_unused_storages(program);
+    super::lir_validate::validate_virtual(program)
 }
 
 fn simplify_function(function: &mut Function, semantics: &ProgramSemantics) {
@@ -631,53 +635,13 @@ fn for_each_function_mut(
     program: &mut Program<VirtualPlacement>,
     mut action: impl FnMut(&mut Function),
 ) {
-    action(&mut program.main);
-    for function in interrupt_functions_mut(&mut program.interrupt_handlers) {
-        if let Some(function) = function {
-            action(function);
-        }
-    }
-    for function in &mut program.functions {
+    for function in program.all_functions_mut() {
         action(function);
     }
 }
 
 fn functions(program: &Program<VirtualPlacement>) -> impl Iterator<Item = &Function> {
-    std::iter::once(&program.main)
-        .chain(interrupt_functions(&program.interrupt_handlers))
-        .chain(program.functions.iter())
-}
-
-fn interrupt_functions(handlers: &InterruptHandlers) -> impl Iterator<Item = &Function> {
-    [
-        handlers.external_0.as_ref(),
-        handlers.external_1.as_ref(),
-        handlers.external_2_or_timer_0_low.as_ref(),
-        handlers.external_3_or_base_timer.as_ref(),
-        handlers.timer_0_high.as_ref(),
-        handlers.timer_1.as_ref(),
-        handlers.serial_0.as_ref(),
-        handlers.serial_1.as_ref(),
-        handlers.dreamcast_interface.as_ref(),
-        handlers.port_3.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-}
-
-fn interrupt_functions_mut(handlers: &mut InterruptHandlers) -> [&mut Option<Function>; 10] {
-    [
-        &mut handlers.external_0,
-        &mut handlers.external_1,
-        &mut handlers.external_2_or_timer_0_low,
-        &mut handlers.external_3_or_base_timer,
-        &mut handlers.timer_0_high,
-        &mut handlers.timer_1,
-        &mut handlers.serial_0,
-        &mut handlers.serial_1,
-        &mut handlers.dreamcast_interface,
-        &mut handlers.port_3,
-    ]
+    program.all_functions()
 }
 
 #[cfg(test)]
@@ -763,7 +727,7 @@ mod tests {
             ],
         };
 
-        optimize(&mut program);
+        optimize(&mut program).unwrap();
 
         let instructions = &program.main.blocks[0].instructions;
         assert!(instructions.iter().any(|instruction| matches!(

@@ -34,6 +34,22 @@ pub struct Program<P> {
     pub storages: Vec<Storage<P>>,
 }
 
+impl<P> Program<P> {
+    /// Every function definition in deterministic emission order.
+    pub fn all_functions(&self) -> impl Iterator<Item = &Function> {
+        std::iter::once(&self.main)
+            .chain(self.interrupt_handlers.iter())
+            .chain(self.functions.iter())
+    }
+
+    /// Every mutable function definition in deterministic emission order.
+    pub fn all_functions_mut(&mut self) -> impl Iterator<Item = &mut Function> {
+        std::iter::once(&mut self.main)
+            .chain(self.interrupt_handlers.iter_mut())
+            .chain(self.functions.iter_mut())
+    }
+}
+
 /// The functions installed in the VMU's fixed interrupt-vector slots.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InterruptHandlers {
@@ -47,6 +63,42 @@ pub struct InterruptHandlers {
     pub serial_1: Option<Function>,
     pub dreamcast_interface: Option<Function>,
     pub port_3: Option<Function>,
+}
+
+impl InterruptHandlers {
+    pub fn iter(&self) -> impl Iterator<Item = &Function> {
+        [
+            self.external_0.as_ref(),
+            self.external_1.as_ref(),
+            self.external_2_or_timer_0_low.as_ref(),
+            self.external_3_or_base_timer.as_ref(),
+            self.timer_0_high.as_ref(),
+            self.timer_1.as_ref(),
+            self.serial_0.as_ref(),
+            self.serial_1.as_ref(),
+            self.dreamcast_interface.as_ref(),
+            self.port_3.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Function> {
+        [
+            self.external_0.as_mut(),
+            self.external_1.as_mut(),
+            self.external_2_or_timer_0_low.as_mut(),
+            self.external_3_or_base_timer.as_mut(),
+            self.timer_0_high.as_mut(),
+            self.timer_1.as_mut(),
+            self.serial_0.as_mut(),
+            self.serial_1.as_mut(),
+            self.dreamcast_interface.as_mut(),
+            self.port_3.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -490,15 +542,18 @@ pub enum XRamBank {
     Icons,
 }
 
-/// An addressable byte offset within one XRAM bank.
+/// An addressable hardware byte offset within one XRAM bank.
+///
+/// The VMU exposes the contiguous direct-address window 180h through 1fbh, so
+/// relative offsets 0x00 through 0x7b are valid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct XRamOffset(u8);
 
 impl XRamOffset {
-    pub const MAX: u8 = 0x7b;
+    pub const MAX: u8 = super::target::XRAM_BANK_LAST_OFFSET;
 
     pub fn new(offset: u8) -> Option<Self> {
-        (offset <= Self::MAX).then_some(Self(offset))
+        super::target::xram_offset_is_addressable(offset).then_some(Self(offset))
     }
 
     pub fn get(self) -> u8 {
@@ -513,14 +568,17 @@ pub struct VirtualPlacement {
     pub fixed: Option<PhysicalPlacement>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StorageRegion {
     Accumulator,
     CarryFlag,
     ApplicationRam,
     SpecialRegister,
     IndirectRegister,
-    /// Function-frame storage in compiler-managed work RAM.
+    /// Function-owned storage in compiler-managed work RAM.
+    ///
+    /// Allocation is currently static rather than frame-relative. LIR
+    /// validation rejects call graphs that could reactivate a live function.
     ShadowStack,
     /// Statically allocated compiler-owned work RAM.
     WorkRam,
@@ -541,7 +599,10 @@ pub enum PhysicalPlacement {
         offset: u8,
         bit: BitIndex,
     },
-    /// A byte at an offset from the current function's work-RAM frame.
+    /// Function-owned work-RAM storage.
+    ///
+    /// `frame_offset` is currently an absolute WRAM offset. It is named for
+    /// the intended dynamic-frame representation, which is not implemented.
     ShadowStack {
         frame_offset: WorkRamOffset,
     },
@@ -608,7 +669,7 @@ pub enum AddressSpace {
     /// mutable objects and stack frames reside in work RAM.
     MainMemory,
     MainRam(RamBank),
-    /// Frame-relative addressing in compiler-managed work RAM.
+    /// Addressing into compiler-managed function storage in work RAM.
     ShadowStack,
     WorkRam,
     Flash,
@@ -690,6 +751,9 @@ mod tests {
             Some(0x7b)
         );
         assert_eq!(XRamOffset::new(0x7c), None);
+        assert_eq!(XRamOffset::new(0x0b).map(XRamOffset::get), Some(0x0b));
+        assert_eq!(XRamOffset::new(0x0c).map(XRamOffset::get), Some(0x0c));
+        assert_eq!(XRamOffset::new(0x10).map(XRamOffset::get), Some(0x10));
     }
 
     #[test]

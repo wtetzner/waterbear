@@ -10,9 +10,7 @@ use crate::{
     location::Span,
 };
 
-use super::{asm_lower, config::PackageConfig, lir::AllocatedProgram};
-
-const VMS_HEADER_ADDRESS: usize = 0x0200;
+use super::{asm_lower, config::PackageConfig, lir::AllocatedProgram, target::VMS_HEADER_ADDRESS};
 
 #[derive(Debug)]
 pub enum PackageError {

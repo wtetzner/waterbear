@@ -18,6 +18,7 @@ use super::{
         PhysicalPlacement, RamBank, RotateDirection, ShiftOp, StaticByte, Storage, StorageId,
         StorageKind, StorageOwner, TerminatorKind, ValueOperand, ValueStorage,
     },
+    target::WORK_RAM_BYTES,
 };
 
 const ACC: u16 = 0x100;
@@ -49,6 +50,7 @@ pub enum LowerError {
     UnsupportedInstruction(&'static str),
     MalformedIntrinsic(Intrinsic),
     UnknownFunction(String),
+    InvalidProgram(String),
 }
 
 impl fmt::Display for LowerError {
@@ -90,6 +92,7 @@ impl fmt::Display for LowerError {
             Self::UnknownFunction(function) => {
                 write!(f, "LIR refers to unknown function {function:?}")
             }
+            Self::InvalidProgram(message) => write!(f, "invalid allocated VMU LIR: {message}"),
         }
     }
 }
@@ -97,6 +100,8 @@ impl fmt::Display for LowerError {
 impl Error for LowerError {}
 
 pub fn lower(program: &AllocatedProgram) -> Result<Statements, LowerError> {
+    super::lir_validate::validate_allocated(program)
+        .map_err(|error| LowerError::InvalidProgram(error.to_string()))?;
     Lowerer::new(program).lower()
 }
 
@@ -146,7 +151,7 @@ impl<'a> Lowerer<'a> {
         self.emit_register_aliases();
         self.emit_flash_statics()?;
         self.emit_function(&self.program.main, true)?;
-        for function in interrupt_functions(self.program) {
+        for function in self.program.interrupt_handlers.iter() {
             self.emit_function(function, false)?;
         }
         for function in &self.program.functions {
@@ -237,7 +242,7 @@ impl<'a> Lowerer<'a> {
         self.jmpf(self.block_label(function.entry));
 
         for block in &function.blocks {
-            self.emit_label(&self.block_label(block.id));
+            self.emit_label(self.block_label(block.id));
             self.reset_machine_state();
             if let Some(name) = &block.name {
                 self.output.push_comment(name);
@@ -613,7 +618,7 @@ impl<'a> Lowerer<'a> {
     }
 
     fn checked_work_address(&self, address: usize) -> Result<u16, LowerError> {
-        (address <= 0x1ff)
+        (address < WORK_RAM_BYTES)
             .then_some(address as u16)
             .ok_or(LowerError::InvalidWorkRamAddress(address))
     }
@@ -634,7 +639,7 @@ impl<'a> Lowerer<'a> {
             StorageKind::Bytes { length } => length.get(),
             StorageKind::Bit | StorageKind::Carry => 0,
         };
-        if byte_offset > length {
+        if byte_offset >= length {
             return Err(LowerError::InvalidByteOffset(ByteStorage {
                 storage: storage.id,
                 offset: byte_offset,
@@ -2482,17 +2487,10 @@ fn sfr_address(sfr: Sfr) -> u16 {
     }
 }
 
-fn all_functions(program: &AllocatedProgram) -> Vec<&Function> {
-    let mut functions = vec![&program.main];
-    functions.extend(interrupt_functions(program));
-    functions.extend(program.functions.iter());
-    functions
-}
-
 pub(super) fn function_labels(program: &AllocatedProgram) -> BTreeMap<String, String> {
     let mut used = BTreeMap::<String, usize>::new();
     let mut labels = BTreeMap::new();
-    for function in all_functions(program) {
+    for function in program.all_functions() {
         let base = sanitize_label(&function.name);
         let occurrence = used.entry(base.clone()).or_default();
         let label = if *occurrence == 0 {
@@ -2504,25 +2502,6 @@ pub(super) fn function_labels(program: &AllocatedProgram) -> BTreeMap<String, St
         labels.insert(function.name.clone(), label);
     }
     labels
-}
-
-fn interrupt_functions(program: &AllocatedProgram) -> Vec<&Function> {
-    let handlers = &program.interrupt_handlers;
-    [
-        handlers.external_0.as_ref(),
-        handlers.external_1.as_ref(),
-        handlers.external_2_or_timer_0_low.as_ref(),
-        handlers.external_3_or_base_timer.as_ref(),
-        handlers.timer_0_high.as_ref(),
-        handlers.timer_1.as_ref(),
-        handlers.serial_0.as_ref(),
-        handlers.serial_1.as_ref(),
-        handlers.dreamcast_interface.as_ref(),
-        handlers.port_3.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
 }
 
 fn sanitize_label(name: &str) -> String {

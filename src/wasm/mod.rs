@@ -1,3 +1,16 @@
+//! WebAssembly-to-VMU compiler pipeline.
+//!
+//! The source `walrus::Module` remains immutable while [`analysis`] attaches
+//! conservative facts to stable side-table IDs. [`hir_lower`] then produces a
+//! tree-shaped, WASM-independent VMU HIR. [`lir_lower`] decomposes HIR values
+//! into byte and bit operations, [`lir_opt`] simplifies that virtual LIR, and
+//! [`lir_allocate`] chooses physical VMU storage before [`asm_lower`] selects
+//! instructions and [`package`] installs vectors and the VMS header.
+//!
+//! Every IR boundary is validated. Producer bugs and unsupported program
+//! shapes therefore become compiler errors at the phase that introduced them,
+//! rather than latent assumptions in a later backend.
+
 use std::{error::Error, fmt, fs, io::Write, path::Path};
 
 use walrus::Module;
@@ -13,6 +26,7 @@ pub mod hir_lower;
 pub mod hir_printer;
 pub mod hir_rotate;
 pub mod hir_tail_calls;
+pub mod hir_validate;
 pub mod intrinsics;
 pub mod lir;
 pub mod lir_allocate;
@@ -20,8 +34,10 @@ pub mod lir_analysis;
 pub mod lir_lower;
 pub mod lir_opt;
 pub mod lir_printer;
+pub mod lir_validate;
 pub mod package;
 pub mod printer;
+pub mod target;
 
 #[derive(Debug)]
 pub enum WasmError {
@@ -30,6 +46,7 @@ pub enum WasmError {
     Lower(hir_lower::LowerError),
     LirLower(lir_lower::LowerError),
     LirAllocate(lir_allocate::AllocationError),
+    LirValidation(lir_validate::ValidationError),
     AsmLower(asm_lower::LowerError),
     Assembly(Box<crate::asm::AssemblyError>),
     Config(config::ConfigError),
@@ -44,6 +61,7 @@ impl fmt::Display for WasmError {
             Self::Lower(error) => error.fmt(f),
             Self::LirLower(error) => error.fmt(f),
             Self::LirAllocate(error) => error.fmt(f),
+            Self::LirValidation(error) => error.fmt(f),
             Self::AsmLower(error) => error.fmt(f),
             Self::Assembly(error) => {
                 write!(f, "could not assemble generated VMU program: {error:?}")
@@ -62,6 +80,7 @@ impl Error for WasmError {
             Self::Lower(error) => Some(error),
             Self::LirLower(error) => Some(error),
             Self::LirAllocate(error) => Some(error),
+            Self::LirValidation(error) => Some(error),
             Self::AsmLower(error) => Some(error),
             Self::Assembly(_) => None,
             Self::Config(error) => Some(error),
@@ -90,7 +109,7 @@ pub fn build<O: AsRef<Path>>(
     }
 
     let mut lir = lir_lower::lower(&hir)?;
-    lir_opt::optimize(&mut lir);
+    lir_opt::optimize(&mut lir)?;
 
     if output_type == cli::OutputType::Lir {
         return write_output(out, text_bytes(lir_printer::render(&lir)));
@@ -169,6 +188,12 @@ impl From<lir_lower::LowerError> for WasmError {
 impl From<lir_allocate::AllocationError> for WasmError {
     fn from(value: lir_allocate::AllocationError) -> Self {
         WasmError::LirAllocate(value)
+    }
+}
+
+impl From<lir_validate::ValidationError> for WasmError {
+    fn from(value: lir_validate::ValidationError) -> Self {
+        WasmError::LirValidation(value)
     }
 }
 

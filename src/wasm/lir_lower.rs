@@ -26,6 +26,8 @@ pub enum LowerError {
     UnsupportedExpression(String),
     InvalidControlTarget(Option<String>),
     InvalidStatic(String),
+    InvalidHir(String),
+    InvalidOutput(String),
 }
 
 impl fmt::Display for LowerError {
@@ -55,6 +57,10 @@ impl fmt::Display for LowerError {
                 None => write!(formatter, "no active HIR control target"),
             },
             Self::InvalidStatic(message) => write!(formatter, "invalid HIR static: {message}"),
+            Self::InvalidHir(message) => write!(formatter, "invalid VMU HIR: {message}"),
+            Self::InvalidOutput(message) => {
+                write!(formatter, "HIR lowering produced invalid LIR: {message}")
+            }
         }
     }
 }
@@ -120,7 +126,12 @@ struct ProgramLowerer {
 
 /// Lowers a complete VMU HIR program into virtual LIR.
 pub fn lower(program: &hir::Program) -> Result<VirtualProgram, LowerError> {
-    ProgramLowerer::new(program)?.lower(program)
+    super::hir_validate::validate(program)
+        .map_err(|error| LowerError::InvalidHir(error.to_string()))?;
+    let program = ProgramLowerer::new(program)?.lower(program)?;
+    super::lir_validate::validate_virtual(&program)
+        .map_err(|error| LowerError::InvalidOutput(error.to_string()))?;
+    Ok(program)
 }
 
 impl ProgramLowerer {
@@ -2109,13 +2120,16 @@ impl<'a> FunctionLowerer<'a> {
         self.controls
             .iter()
             .rev()
-            .find(|control| label.is_none() || control.label.as_deref() == label)
-            .and_then(|control| {
-                if continuing {
-                    control.continue_target
-                } else {
-                    Some(control.break_target)
-                }
+            .find_map(|control| {
+                (label.is_none() || control.label.as_deref() == label)
+                    .then_some({
+                        if continuing {
+                            control.continue_target
+                        } else {
+                            Some(control.break_target)
+                        }
+                    })
+                    .flatten()
             })
             .ok_or_else(|| LowerError::InvalidControlTarget(label.map(str::to_owned)))
     }
@@ -2509,6 +2523,38 @@ mod tests {
                 .iter()
                 .any(|storage| matches!(storage.kind, StorageKind::Carry))
         );
+    }
+
+    #[test]
+    fn unlabeled_continue_skips_non_loop_control_targets() {
+        let program = Program {
+            main: Function {
+                name: "main".into(),
+                parameters: Vec::new(),
+                result: Type::Unit,
+                body: Block {
+                    statements: vec![
+                        Statement::Loop {
+                            label: None,
+                            body: Block {
+                                statements: vec![Statement::Block {
+                                    label: None,
+                                    body: Block {
+                                        statements: vec![Statement::Continue { label: None }],
+                                    },
+                                }],
+                            },
+                        },
+                        Statement::Return(None),
+                    ],
+                },
+            },
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+        };
+
+        lower(&program).unwrap();
     }
 
     #[test]

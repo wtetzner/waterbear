@@ -16,6 +16,22 @@ pub struct Program {
     pub statics: Vec<Static>,
 }
 
+impl Program {
+    /// Every function definition in deterministic emission order.
+    pub fn all_functions(&self) -> impl Iterator<Item = &Function> {
+        std::iter::once(&self.main)
+            .chain(self.interrupt_handlers.iter())
+            .chain(self.functions.iter())
+    }
+
+    /// Every mutable function definition in deterministic emission order.
+    pub fn all_functions_mut(&mut self) -> impl Iterator<Item = &mut Function> {
+        std::iter::once(&mut self.main)
+            .chain(self.interrupt_handlers.iter_mut())
+            .chain(self.functions.iter_mut())
+    }
+}
+
 /// The functions installed in the VMU's fixed interrupt-vector slots.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InterruptHandlers {
@@ -31,6 +47,42 @@ pub struct InterruptHandlers {
     pub port_3: Option<Function>,
 }
 
+impl InterruptHandlers {
+    pub fn iter(&self) -> impl Iterator<Item = &Function> {
+        [
+            self.external_0.as_ref(),
+            self.external_1.as_ref(),
+            self.external_2_or_timer_0_low.as_ref(),
+            self.external_3_or_base_timer.as_ref(),
+            self.timer_0_high.as_ref(),
+            self.timer_1.as_ref(),
+            self.serial_0.as_ref(),
+            self.serial_1.as_ref(),
+            self.dreamcast_interface.as_ref(),
+            self.port_3.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Function> {
+        [
+            self.external_0.as_mut(),
+            self.external_1.as_mut(),
+            self.external_2_or_timer_0_low.as_mut(),
+            self.external_3_or_base_timer.as_mut(),
+            self.timer_0_high.as_mut(),
+            self.timer_1.as_mut(),
+            self.serial_0.as_mut(),
+            self.serial_1.as_mut(),
+            self.dreamcast_interface.as_mut(),
+            self.port_3.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
     pub name: String,
@@ -39,6 +91,10 @@ pub struct Function {
     pub body: Block,
 }
 
+/// A mutable function-local place initialized by the caller.
+///
+/// This matches WebAssembly parameters, which are locals and may be assigned
+/// with `local.set`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Parameter {
     pub name: String,

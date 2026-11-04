@@ -58,6 +58,8 @@ pub enum LowerError {
         function: String,
     },
     UnsupportedGlobal(String),
+    UnsupportedModule(String),
+    UnsupportedData(String),
     UnresolvedCall {
         function: String,
         callee: String,
@@ -70,6 +72,7 @@ pub enum LowerError {
         function: String,
         instruction: String,
     },
+    InvalidOutput(String),
 }
 
 impl fmt::Display for LowerError {
@@ -110,6 +113,12 @@ impl fmt::Display for LowerError {
                     "imported global {global:?} cannot be represented in VMU HIR"
                 )
             }
+            Self::UnsupportedModule(message) => {
+                write!(formatter, "cannot represent WebAssembly module: {message}")
+            }
+            Self::UnsupportedData(message) => {
+                write!(formatter, "cannot represent WebAssembly data: {message}")
+            }
             Self::UnresolvedCall { function, callee } => write!(
                 formatter,
                 "function {function:?} calls {callee:?}, which has no definition or registered intrinsic"
@@ -124,6 +133,9 @@ impl fmt::Display for LowerError {
                 formatter,
                 "function {function:?} contains an instruction not yet supported by VMU HIR: {instruction}"
             ),
+            Self::InvalidOutput(message) => {
+                write!(formatter, "WASM lowering produced invalid HIR: {message}")
+            }
         }
     }
 }
@@ -147,11 +159,12 @@ pub fn lower_with_interrupts(
     entry: &str,
     interrupts: &InterruptConfig,
 ) -> Result<hir::Program, LowerError> {
+    validate_module_shape(module)?;
     let names = Names::new(module);
     let entry = find_entry(module, &names, entry)?;
     let interrupt_functions = resolve_interrupts(module, entry, interrupts)?;
     let signatures = Signatures::new(module, analyses);
-    let data = StaticData::new(module, &names);
+    let data = StaticData::new(module, &names)?;
 
     let mut functions = BTreeMap::new();
     for function in module.funcs.iter() {
@@ -184,7 +197,19 @@ pub fn lower_with_interrupts(
     hir_tail_calls::canonicalize(&mut program);
     super::hir_rotate::canonicalize(&mut program);
     install_interrupt_wrappers(&mut program, &names, &interrupt_functions);
+    super::hir_validate::validate(&program)
+        .map_err(|error| LowerError::InvalidOutput(error.to_string()))?;
     Ok(program)
+}
+
+fn validate_module_shape(module: &Module) -> Result<(), LowerError> {
+    let memories = module.memories.iter().count();
+    if memories > 1 {
+        return Err(LowerError::UnsupportedModule(format!(
+            "{memories} linear memories are defined, but VMU HIR has one main-memory address space"
+        )));
+    }
+    Ok(())
 }
 
 fn resolve_interrupts(
@@ -508,33 +533,59 @@ struct StaticData {
 }
 
 impl StaticData {
-    fn new(module: &Module, names: &Names) -> Self {
-        let ranges = module
-            .data
-            .iter()
-            .filter_map(|data| {
-                let DataKind::Active { offset, .. } = data.kind else {
-                    return None;
-                };
-                let start = const_expr_u64(module, offset)?;
-                Some(DataRange {
-                    start,
-                    end: start.saturating_add(data.value.len() as u64),
-                    name: names.data(data.id()).to_owned(),
-                })
-            })
-            .collect();
-        Self { ranges }
+    fn new(module: &Module, names: &Names) -> Result<Self, LowerError> {
+        let mut ranges = Vec::new();
+        for data in module.data.iter() {
+            let DataKind::Active { offset, .. } = data.kind else {
+                continue;
+            };
+            if data.value.is_empty() {
+                continue;
+            }
+            let start = const_expr_u64(module, offset).ok_or_else(|| {
+                LowerError::UnsupportedData(format!(
+                    "active segment {:?} does not have a compile-time address",
+                    names.data(data.id())
+                ))
+            })?;
+            let length = u64::try_from(data.value.len()).map_err(|_| {
+                LowerError::UnsupportedData(format!(
+                    "segment {:?} length does not fit in a WebAssembly address",
+                    names.data(data.id())
+                ))
+            })?;
+            let end = start.checked_add(length).ok_or_else(|| {
+                LowerError::UnsupportedData(format!(
+                    "segment {:?} address range overflows 64 bits",
+                    names.data(data.id())
+                ))
+            })?;
+            ranges.push(DataRange {
+                start,
+                end,
+                name: names.data(data.id()).to_owned(),
+            });
+        }
+        ranges.sort_by_key(|range| (range.start, range.end));
+        for adjacent in ranges.windows(2) {
+            if adjacent[0].end > adjacent[1].start {
+                return Err(LowerError::UnsupportedData(format!(
+                    "active segments {:?} and {:?} overlap; segment merging is not implemented",
+                    adjacent[0].name, adjacent[1].name
+                )));
+            }
+        }
+        Ok(Self { ranges })
     }
 
     fn address(&self, address: u64) -> Option<(String, usize)> {
         self.ranges.iter().find_map(|range| {
-            (address >= range.start && address < range.end).then(|| {
-                (
-                    range.name.clone(),
-                    address.saturating_sub(range.start) as usize,
-                )
-            })
+            if address < range.start || address >= range.end {
+                return None;
+            }
+            usize::try_from(address - range.start)
+                .ok()
+                .map(|offset| (range.name.clone(), offset))
         })
     }
 }
@@ -550,6 +601,7 @@ fn lower_statics(
     let mut statics = module
         .data
         .iter()
+        .filter(|data| matches!(data.kind, DataKind::Active { .. }) && !data.value.is_empty())
         .map(|data| Static {
             name: names.data(data.id()).to_owned(),
             ty: Type::Array {
@@ -3136,6 +3188,47 @@ mod tests {
         assert!(rendered.contains("main fn"));
         assert!(rendered.contains("add("));
         assert!(rendered.contains("return"));
+    }
+
+    #[test]
+    fn rejects_overlapping_active_data_segments() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        module.data.add(
+            DataKind::Active {
+                memory,
+                offset: ConstExpr::Value(Value::I32(4)),
+            },
+            vec![1, 2, 3, 4],
+        );
+        module.data.add(
+            DataKind::Active {
+                memory,
+                offset: ConstExpr::Value(Value::I32(6)),
+            },
+            vec![5, 6, 7, 8],
+        );
+        let builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        let main = builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).unwrap();
+        let error = lower(&module, &analyses, "main").unwrap_err();
+        assert!(matches!(error, LowerError::UnsupportedData(_)));
+    }
+
+    #[test]
+    fn rejects_multiple_linear_memories() {
+        let mut module = Module::default();
+        module.memories.add_local(false, false, 1, None, None);
+        module.memories.add_local(false, false, 1, None, None);
+        let builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        let main = builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).unwrap();
+        let error = lower(&module, &analyses, "main").unwrap_err();
+        assert!(matches!(error, LowerError::UnsupportedModule(_)));
     }
 
     #[test]

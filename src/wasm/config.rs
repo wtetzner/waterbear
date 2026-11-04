@@ -12,22 +12,12 @@ const DEFAULT_VMU_DESCRIPTION: &str = "Waterbear WASM";
 const DEFAULT_DREAMCAST_DESCRIPTION: &str = "Waterbear WebAssembly Program";
 const DEFAULT_APPLICATION_ID: &str = "waterbear-wasm";
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct BuildConfig {
     pub wasm: WasmConfig,
     pub package: PackageConfig,
     pub interrupts: InterruptConfig,
-}
-
-impl Default for BuildConfig {
-    fn default() -> Self {
-        Self {
-            wasm: WasmConfig::default(),
-            package: PackageConfig::default(),
-            interrupts: InterruptConfig::default(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -292,13 +282,13 @@ fn validate_field(
     if value.is_empty() {
         return Err(ConfigError::Invalid(format!("{name} must not be empty")));
     }
-    if let Some(maximum_bytes) = maximum_bytes {
-        if value.len() > maximum_bytes {
-            return Err(ConfigError::Invalid(format!(
-                "{name} is {} bytes, but its VMU field holds at most {maximum_bytes}",
-                value.len()
-            )));
-        }
+    if let Some(maximum_bytes) = maximum_bytes
+        && value.len() > maximum_bytes
+    {
+        return Err(ConfigError::Invalid(format!(
+            "{name} is {} bytes, but its VMU field holds at most {maximum_bytes}",
+            value.len()
+        )));
     }
     Ok(())
 }

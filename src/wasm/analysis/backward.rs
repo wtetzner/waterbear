@@ -122,7 +122,7 @@ where
         }
     }
 
-    for iteration in 0..max_iterations {
+    for _ in 0..max_iterations {
         let before = results.values.clone();
         let function_results_before = results.function_results.clone();
 
@@ -193,12 +193,9 @@ where
         if results.values == before && results.function_results == function_results_before {
             return Ok(results);
         }
-        if iteration + 1 == max_iterations {
-            return Err(BackwardError::DidNotConverge);
-        }
     }
 
-    unreachable!()
+    Err(BackwardError::DidNotConverge)
 }
 
 fn propagate_call_result_demands<D: AbstractDomain>(

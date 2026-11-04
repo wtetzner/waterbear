@@ -4,19 +4,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::hir::{
     BitWidth, Block, Constant, ConversionOp, Expression, ExpressionKind, Function, IntegerBinaryOp,
-    IntegerConstant, InterruptHandlers, Place, Program, Signedness, Statement, Type,
+    IntegerConstant, Place, Program, Signedness, Statement, Type,
 };
 
 type Aliases = BTreeMap<String, Expression>;
 
 pub fn canonicalize(program: &mut Program) {
-    canonicalize_function(&mut program.main);
-    for function in interrupt_functions_mut(&mut program.interrupt_handlers) {
-        if let Some(function) = function {
-            canonicalize_function(function);
-        }
-    }
-    for function in &mut program.functions {
+    for function in program.all_functions_mut() {
         canonicalize_function(function);
     }
 }
@@ -471,21 +465,6 @@ fn type_width(ty: &Type) -> Option<u8> {
         Type::Bits(width) => Some(width.get()),
         _ => None,
     }
-}
-
-fn interrupt_functions_mut(handlers: &mut InterruptHandlers) -> [&mut Option<Function>; 10] {
-    [
-        &mut handlers.external_0,
-        &mut handlers.external_1,
-        &mut handlers.external_2_or_timer_0_low,
-        &mut handlers.external_3_or_base_timer,
-        &mut handlers.timer_0_high,
-        &mut handlers.timer_1,
-        &mut handlers.serial_0,
-        &mut handlers.serial_1,
-        &mut handlers.dreamcast_interface,
-        &mut handlers.port_3,
-    ]
 }
 
 #[cfg(test)]

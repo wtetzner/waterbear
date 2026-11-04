@@ -4,6 +4,10 @@
 //! copy-related values preferred for coalescing. Program-owned and
 //! address-taken objects retain stable locations. Bit values are packed, and
 //! byte values spill to VMU work RAM when application RAM is full.
+//!
+//! Function-owned WRAM is currently assigned statically. The LIR verifier
+//! rejects reentrant call graphs so this temporary representation cannot
+//! silently overwrite a live invocation.
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
@@ -13,14 +17,8 @@ use super::{
         StorageOwner, StorageRegion, VirtualPlacement, VirtualProgram, WorkRamOffset,
     },
     lir_analysis::{InterferenceGraph, interference_graph},
+    target::{APPLICATION_RAM_BYTES, FIRST_ALLOCATABLE_APPLICATION_BYTE, WORK_RAM_BYTES},
 };
-
-const APPLICATION_RAM_BYTES: usize = 0x100;
-const WORK_RAM_BYTES: usize = 0x200;
-
-// 00h-0fh contain the four banks of indirect registers. The assembly backend
-// uses bank zero's R2 and R3. 10h-1fh are backend scratch bytes.
-const FIRST_APPLICATION_BYTE: usize = 0x20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AllocationError {
@@ -29,6 +27,7 @@ pub enum AllocationError {
     NoAllowedPlacement { storage: usize },
     InvalidFixedPlacement { storage: usize },
     FixedPlacementConflict { storage: usize },
+    InvalidProgram(String),
 }
 
 impl fmt::Display for AllocationError {
@@ -58,6 +57,7 @@ impl fmt::Display for AllocationError {
                     "fixed placement for LIR storage %s{storage} overlaps another object"
                 )
             }
+            Self::InvalidProgram(message) => write!(f, "invalid VMU LIR: {message}"),
         }
     }
 }
@@ -65,7 +65,12 @@ impl fmt::Display for AllocationError {
 impl Error for AllocationError {}
 
 pub fn allocate(program: &VirtualProgram) -> Result<AllocatedProgram, AllocationError> {
-    Allocator::new(program).allocate(program)
+    super::lir_validate::validate_virtual(program)
+        .map_err(|error| AllocationError::InvalidProgram(error.to_string()))?;
+    let program = Allocator::new(program).allocate(program)?;
+    super::lir_validate::validate_allocated(&program)
+        .map_err(|error| AllocationError::InvalidProgram(error.to_string()))?;
+    Ok(program)
 }
 
 struct Allocator {
@@ -86,7 +91,7 @@ struct AllocationSlot {
 impl Allocator {
     fn new(program: &VirtualProgram) -> Self {
         let mut application = [0; APPLICATION_RAM_BYTES];
-        application[..FIRST_APPLICATION_BYTE].fill(u8::MAX);
+        application[..FIRST_ALLOCATABLE_APPLICATION_BYTE].fill(u8::MAX);
         let (interference, copies) = interference_graph(program);
         Self {
             application,
@@ -459,8 +464,9 @@ mod tests {
     use super::allocate;
     use crate::wasm::lir::{
         Block, BlockId, ByteOperand, ByteStorage, Function, FunctionAbi, FunctionKind, Instruction,
-        InstructionKind, InterruptHandlers, PhysicalPlacement, Program, Storage, StorageId,
-        StorageKind, StorageOwner, StorageRegion, Terminator, TerminatorKind, VirtualPlacement,
+        InstructionKind, InterruptHandlers, PhysicalPlacement, Program, Static, StaticByte,
+        Storage, StorageId, StorageKind, StorageOwner, StorageRegion, Terminator, TerminatorKind,
+        VirtualPlacement,
     };
 
     #[test]
@@ -559,7 +565,12 @@ mod tests {
             main: function,
             interrupt_handlers: InterruptHandlers::default(),
             functions: Vec::new(),
-            statics: Vec::new(),
+            statics: vec![Static {
+                name: "message".into(),
+                storage: StorageId(0),
+                initializer: vec![StaticByte::Value(0); 200],
+                mutable: false,
+            }],
             storages: vec![Storage {
                 id: StorageId(0),
                 name: Some("message".into()),

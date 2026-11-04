@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::lir::{
     Address, BitOperand, BlockId, BranchCondition, ByteOperand, ByteStorage, CodeAddress, Function,
-    FunctionAbi, InstructionKind, InterruptHandlers, Program, StorageId, TerminatorKind,
-    ValueOperand, ValueStorage, VirtualPlacement,
+    FunctionAbi, InstructionKind, Program, StorageId, TerminatorKind, ValueOperand, ValueStorage,
+    VirtualPlacement,
 };
 
 pub type StorageSet = BTreeSet<StorageId>;
@@ -715,26 +715,7 @@ fn successors(terminator: &TerminatorKind) -> Vec<BlockId> {
 }
 
 fn functions(program: &Program<VirtualPlacement>) -> impl Iterator<Item = &Function> {
-    std::iter::once(&program.main)
-        .chain(interrupt_functions(&program.interrupt_handlers))
-        .chain(program.functions.iter())
-}
-
-fn interrupt_functions(handlers: &InterruptHandlers) -> impl Iterator<Item = &Function> {
-    [
-        handlers.external_0.as_ref(),
-        handlers.external_1.as_ref(),
-        handlers.external_2_or_timer_0_low.as_ref(),
-        handlers.external_3_or_base_timer.as_ref(),
-        handlers.timer_0_high.as_ref(),
-        handlers.timer_1.as_ref(),
-        handlers.serial_0.as_ref(),
-        handlers.serial_1.as_ref(),
-        handlers.dreamcast_interface.as_ref(),
-        handlers.port_3.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
+    program.all_functions()
 }
 
 fn byte_operand(storages: &mut StorageSet, operand: ByteOperand) {
