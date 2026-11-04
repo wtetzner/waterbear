@@ -3,9 +3,10 @@
 use std::{collections::BTreeMap, error::Error, fmt};
 
 use crate::{
-    ast::Statements,
+    ast::{ByteValue, Statement, Statements},
     expression::{Arg, Expr, IndirectionMode},
     instruction::Instr,
+    location::Span,
 };
 
 use super::{
@@ -15,7 +16,7 @@ use super::{
         ByteBinaryOp, ByteOperand, ByteStorage, ByteUnaryOp, CodeAddress, CompareOp, Function,
         FunctionKind, InstructionKind, IntegerBinaryBytesOp, IntegerUnaryBytesOp,
         PhysicalPlacement, RamBank, RotateDirection, ShiftOp, StaticByte, Storage, StorageId,
-        StorageKind, TerminatorKind, ValueOperand, ValueStorage,
+        StorageKind, StorageOwner, TerminatorKind, ValueOperand, ValueStorage,
     },
 };
 
@@ -104,21 +105,29 @@ struct Lowerer<'a> {
     output: Statements,
     function_labels: BTreeMap<String, String>,
     label_counter: usize,
+    accumulator: Option<AccumulatorValue>,
+    selected_work_address: Option<u16>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ByteLocation {
     Direct(u16),
     WorkRam(u16),
-    Flash(u16),
+    Flash { storage: StorageId, offset: usize },
     XRam { bank: u8, offset: u8 },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum BitLocation {
     Direct { address: u16, bit: u8 },
     WorkRam { address: u16, bit: u8 },
     Carry,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AccumulatorValue {
+    Immediate(u8),
+    Location(ByteLocation),
 }
 
 impl<'a> Lowerer<'a> {
@@ -128,11 +137,14 @@ impl<'a> Lowerer<'a> {
             output: Statements::empty(),
             function_labels: function_labels(program),
             label_counter: 0,
+            accumulator: None,
+            selected_work_address: None,
         }
     }
 
     fn lower(mut self) -> Result<Statements, LowerError> {
         self.emit_register_aliases();
+        self.emit_flash_statics()?;
         self.emit_function(&self.program.main, true)?;
         for function in interrupt_functions(self.program) {
             self.emit_function(function, false)?;
@@ -141,6 +153,32 @@ impl<'a> Lowerer<'a> {
             self.emit_function(function, false)?;
         }
         Ok(self.output)
+    }
+
+    fn emit_flash_statics(&mut self) -> Result<(), LowerError> {
+        let statics = self
+            .program
+            .statics
+            .iter()
+            .filter(|static_| self.storage_is_flash(static_.storage))
+            .collect::<Vec<_>>();
+        if statics.is_empty() {
+            return Ok(());
+        }
+
+        self.output.push_comment("read-only data in code flash");
+        for static_ in statics {
+            self.output.push_label(&self.flash_label(static_.storage)?);
+            for bytes in static_.initializer.chunks(16) {
+                let bytes = bytes
+                    .iter()
+                    .map(|byte| self.static_byte_expression(byte).map(ByteValue::Expr))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.output.push(Statement::byte(bytes));
+            }
+        }
+        self.output.push_comment("");
+        Ok(())
     }
 
     fn emit_register_aliases(&mut self) {
@@ -162,11 +200,31 @@ impl<'a> Lowerer<'a> {
             self.output.push_var(name, direct(address));
         }
         self.output.push_comment("");
+        self.emit_storage_aliases();
+    }
+
+    fn emit_storage_aliases(&mut self) {
+        let aliases = self
+            .program
+            .storages
+            .iter()
+            .flat_map(storage_aliases)
+            .collect::<Vec<_>>();
+        if aliases.is_empty() {
+            return;
+        }
+        self.output
+            .push_comment("named compiler storage in application RAM");
+        for (name, address) in aliases {
+            self.output.push_var(&name, direct(address));
+        }
+        self.output.push_comment("");
     }
 
     fn emit_function(&mut self, function: &Function, main: bool) -> Result<(), LowerError> {
+        self.reset_machine_state();
         let label = self.function_label(&function.name)?.to_owned();
-        self.output.push_label(&label);
+        self.emit_label(&label);
         if main {
             self.output
                 .push_comment("select application RAM and indirect-register bank zero");
@@ -179,7 +237,8 @@ impl<'a> Lowerer<'a> {
         self.jmpf(self.block_label(function.entry));
 
         for block in &function.blocks {
-            self.output.push_label(&self.block_label(block.id));
+            self.emit_label(&self.block_label(block.id));
+            self.reset_machine_state();
             if let Some(name) = &block.name {
                 self.output.push_comment(name);
             }
@@ -193,12 +252,18 @@ impl<'a> Lowerer<'a> {
     }
 
     fn emit_static_initializers(&mut self) -> Result<(), LowerError> {
-        if self.program.statics.is_empty() {
+        let statics = self
+            .program
+            .statics
+            .iter()
+            .filter(|static_| !self.storage_is_flash(static_.storage))
+            .collect::<Vec<_>>();
+        if statics.is_empty() {
             return Ok(());
         }
         self.output
             .push_comment("initialize compiler-owned work RAM");
-        for static_ in &self.program.statics {
+        for static_ in statics {
             for (index, byte) in static_.initializer.iter().enumerate() {
                 let destination = ByteStorage {
                     storage: static_.storage,
@@ -211,10 +276,10 @@ impl<'a> Lowerer<'a> {
                         offset,
                         byte,
                     } => {
-                        let address = self.storage_work_address(*storage, *offset)?;
-                        self.load_immediate(match byte {
-                            AddressByte::Low => address as u8,
-                            AddressByte::High => (address >> 8) as u8,
+                        let address = self.storage_address_expression(*storage, *offset)?;
+                        self.load_expression(match byte {
+                            AddressByte::Low => lower_byte(address),
+                            AddressByte::High => upper_byte(address),
                         });
                     }
                     StaticByte::FunctionAddress { function, byte } => {
@@ -223,7 +288,7 @@ impl<'a> Lowerer<'a> {
                             AddressByte::Low => lower_byte(Expr::name(&label)),
                             AddressByte::High => upper_byte(Expr::name(&label)),
                         };
-                        self.instr(Instr::Mov_d9(expression, direct(ACC)));
+                        self.load_expression(expression);
                     }
                 }
                 self.store_accumulator(destination)?;
@@ -390,14 +455,23 @@ impl<'a> Lowerer<'a> {
             InstructionKind::Call { function } => {
                 let label = self.function_label(function)?.to_owned();
                 self.instr(Instr::Callf(Expr::name(&label)));
+                self.reset_machine_state();
                 Ok(())
             }
-            InstructionKind::CallIndirect { target, .. } => self.call_indirect(target),
+            InstructionKind::CallIndirect { target, .. } => {
+                let result = self.call_indirect(target);
+                self.reset_machine_state();
+                result
+            }
             InstructionKind::Intrinsic {
                 operation,
                 inputs,
                 outputs,
-            } => self.intrinsic(*operation, inputs, outputs),
+            } => {
+                let result = self.intrinsic(*operation, inputs, outputs);
+                self.reset_machine_state();
+                result
+            }
         }
     }
 
@@ -432,7 +506,7 @@ impl<'a> Lowerer<'a> {
             }),
             TerminatorKind::Trap | TerminatorKind::Unreachable => {
                 let trap = self.fresh_label("trap");
-                self.output.push_label(&trap);
+                self.emit_label(&trap);
                 self.jmpf(trap);
             }
         }
@@ -441,6 +515,17 @@ impl<'a> Lowerer<'a> {
 
     fn instr(&mut self, instruction: Instr<Expr, IndirectionMode>) {
         self.output.push_instr(instruction);
+        self.accumulator = None;
+    }
+
+    fn emit_label(&mut self, label: impl AsRef<str>) {
+        self.output.push_label(label.as_ref());
+        self.reset_machine_state();
+    }
+
+    fn reset_machine_state(&mut self) {
+        self.accumulator = None;
+        self.selected_work_address = None;
     }
 
     fn jmpf(&mut self, label: impl AsRef<str>) {
@@ -496,9 +581,10 @@ impl<'a> Lowerer<'a> {
             PhysicalPlacement::SpecialRegister(register) => {
                 Ok(ByteLocation::Direct(special_register_address(register)))
             }
-            PhysicalPlacement::Flash { address } => Ok(ByteLocation::Flash(
-                address.wrapping_add(byte.offset as u16),
-            )),
+            PhysicalPlacement::Flash => Ok(ByteLocation::Flash {
+                storage: byte.storage,
+                offset: byte.offset,
+            }),
             PhysicalPlacement::XRam { bank, offset } => Ok(ByteLocation::XRam {
                 bank: xram_bank(bank),
                 offset: offset.get().wrapping_add(byte.offset as u8),
@@ -557,8 +643,87 @@ impl<'a> Lowerer<'a> {
         self.checked_work_address(base + byte_offset)
     }
 
+    fn storage_is_flash(&self, storage: StorageId) -> bool {
+        self.storage(storage)
+            .is_ok_and(|storage| storage.placement == PhysicalPlacement::Flash)
+    }
+
+    fn flash_label(&self, storage: StorageId) -> Result<String, LowerError> {
+        let storage = self.storage(storage)?;
+        let name = storage.name.as_deref().unwrap_or("data");
+        Ok(format!(
+            "__waterbear_static_{}_{}",
+            storage.id.0,
+            sanitize_label(name)
+        ))
+    }
+
+    fn storage_address_expression(
+        &self,
+        storage: StorageId,
+        offset: usize,
+    ) -> Result<Expr, LowerError> {
+        match self.storage(storage)?.placement {
+            PhysicalPlacement::ShadowStack { .. } | PhysicalPlacement::WorkRam { .. } => {
+                Ok(Expr::num(self.storage_work_address(storage, offset)? as i32))
+            }
+            PhysicalPlacement::Flash => {
+                let label = Expr::name(&self.flash_label(storage)?);
+                Ok(if offset == 0 {
+                    label
+                } else {
+                    Expr::Plus(
+                        Span::default(),
+                        Box::new(label),
+                        Box::new(Expr::num(offset as i32)),
+                    )
+                })
+            }
+            placement => Err(LowerError::UnsupportedPlacement(placement)),
+        }
+    }
+
+    fn static_byte_expression(&self, byte: &StaticByte) -> Result<Expr, LowerError> {
+        Ok(match byte {
+            StaticByte::Value(value) => Expr::num(i32::from(*value)),
+            StaticByte::StorageAddress {
+                storage,
+                offset,
+                byte,
+            } => {
+                let address = self.storage_address_expression(*storage, *offset)?;
+                match byte {
+                    AddressByte::Low => lower_byte(address),
+                    AddressByte::High => upper_byte(address),
+                }
+            }
+            StaticByte::FunctionAddress { function, byte } => {
+                let address = Expr::name(self.function_label(function)?);
+                match byte {
+                    AddressByte::Low => lower_byte(address),
+                    AddressByte::High => upper_byte(address),
+                }
+            }
+        })
+    }
+
     fn load_immediate(&mut self, value: u8) {
+        if self.accumulator == Some(AccumulatorValue::Immediate(value)) {
+            return;
+        }
         self.instr(Instr::Mov_d9(Expr::num(value as i32), direct(ACC)));
+        self.accumulator = Some(AccumulatorValue::Immediate(value));
+    }
+
+    fn load_expression(&mut self, expression: Expr) {
+        self.instr(Instr::Mov_d9(expression, direct(ACC)));
+    }
+
+    fn load_code_byte(&mut self) {
+        // LDC reads from TR + ACC, so ordinary pointer loads must explicitly
+        // select offset zero rather than inheriting the previous ACC value.
+        self.load_immediate(0);
+        self.instr(Instr::Ldc);
     }
 
     fn load_operand(&mut self, operand: ByteOperand) -> Result<(), LowerError> {
@@ -570,27 +735,37 @@ impl<'a> Lowerer<'a> {
     }
 
     fn load_storage(&mut self, storage: ByteStorage) -> Result<(), LowerError> {
-        match self.byte_location(storage)? {
+        let location = self.byte_location(storage)?;
+        if self.accumulator == Some(AccumulatorValue::Location(location)) {
+            return Ok(());
+        }
+        match location {
             ByteLocation::Direct(address) => self.instr(Instr::Ld_d9(direct(address))),
             ByteLocation::WorkRam(address) => {
                 self.select_work_address(address);
                 self.instr(Instr::Ld_d9(direct(VTRBF)));
             }
-            ByteLocation::Flash(address) => {
-                self.instr(Instr::Mov_d9(Expr::num(address as u8 as i32), direct(TRL)));
-                self.instr(Instr::Mov_d9(Expr::num((address >> 8) as i32), direct(TRH)));
-                self.instr(Instr::Ldc);
+            ByteLocation::Flash { storage, offset } => {
+                let address = self.storage_address_expression(storage, offset)?;
+                self.instr(Instr::Mov_d9(lower_byte(address.clone()), direct(TRL)));
+                self.instr(Instr::Mov_d9(upper_byte(address), direct(TRH)));
+                self.load_code_byte();
             }
             ByteLocation::XRam { bank, offset } => {
                 self.instr(Instr::Mov_d9(Expr::num(bank as i32), direct(XBNK)));
                 self.instr(Instr::Ld_d9(direct(XRAM_BASE + offset as u16)));
             }
         }
+        self.accumulator = Some(AccumulatorValue::Location(location));
         Ok(())
     }
 
     fn store_accumulator(&mut self, storage: ByteStorage) -> Result<(), LowerError> {
-        match self.byte_location(storage)? {
+        let location = self.byte_location(storage)?;
+        if self.accumulator == Some(AccumulatorValue::Location(location)) {
+            return Ok(());
+        }
+        match location {
             ByteLocation::Direct(address) => self.instr(Instr::St_d9(direct(address))),
             ByteLocation::WorkRam(address) => {
                 self.select_work_address(address);
@@ -600,24 +775,34 @@ impl<'a> Lowerer<'a> {
                 self.instr(Instr::Mov_d9(Expr::num(bank as i32), direct(XBNK)));
                 self.instr(Instr::St_d9(direct(XRAM_BASE + offset as u16)));
             }
-            ByteLocation::Flash(_) => {
+            ByteLocation::Flash { .. } => {
                 return Err(LowerError::UnsupportedInstruction(
                     "writes to flash storage",
                 ));
             }
         }
+        self.accumulator = Some(AccumulatorValue::Location(location));
         Ok(())
     }
 
     fn select_work_address(&mut self, address: u16) {
-        self.instr(Instr::Mov_d9(
-            Expr::num((address & 0xff) as i32),
-            direct(VRMAD1),
-        ));
-        self.instr(Instr::Mov_d9(
-            Expr::num((address >> 8) as i32),
-            direct(VRMAD2),
-        ));
+        if self.selected_work_address == Some(address) {
+            return;
+        }
+        let previous = self.selected_work_address;
+        if previous.is_none_or(|previous| previous as u8 != address as u8) {
+            self.instr(Instr::Mov_d9(
+                Expr::num((address & 0xff) as i32),
+                direct(VRMAD1),
+            ));
+        }
+        if previous.is_none_or(|previous| (previous >> 8) as u8 != (address >> 8) as u8) {
+            self.instr(Instr::Mov_d9(
+                Expr::num((address >> 8) as i32),
+                direct(VRMAD2),
+            ));
+        }
+        self.selected_work_address = Some(address);
     }
 
     fn copy_byte(
@@ -625,6 +810,11 @@ impl<'a> Lowerer<'a> {
         destination: ByteStorage,
         source: ByteOperand,
     ) -> Result<(), LowerError> {
+        if let ByteOperand::Storage(source) = source
+            && self.byte_location(source)? == self.byte_location(destination)?
+        {
+            return Ok(());
+        }
         self.load_operand(source)?;
         self.store_accumulator(destination)
     }
@@ -668,16 +858,21 @@ impl<'a> Lowerer<'a> {
     fn copy_bit(&mut self, destination: StorageId, source: BitOperand) -> Result<(), LowerError> {
         match source {
             BitOperand::Constant(value) => self.set_bit(destination, value),
-            BitOperand::Storage(source) if source == destination => Ok(()),
+            BitOperand::Storage(source)
+                if source == destination
+                    || self.bit_location(source)? == self.bit_location(destination)? =>
+            {
+                Ok(())
+            }
             BitOperand::Storage(_) => {
                 let set = self.fresh_label("copy_bit_set");
                 let done = self.fresh_label("copy_bit_done");
                 self.set_bit(destination, false)?;
                 self.branch_if_bit_operand(source, true, &set)?;
                 self.jmpf(&done);
-                self.output.push_label(&set);
+                self.emit_label(&set);
                 self.set_bit(destination, true)?;
-                self.output.push_label(&done);
+                self.emit_label(&done);
                 Ok(())
             }
         }
@@ -718,9 +913,26 @@ impl<'a> Lowerer<'a> {
         left: ByteOperand,
         right: ByteOperand,
     ) -> Result<(), LowerError> {
+        let (left, right) =
+            if self.accumulator_matches(right)? && !self.accumulator_matches(left)? {
+                (right, left)
+            } else {
+                (left, right)
+            };
         self.load_operand(left)?;
         self.emit_acc_binary(op, right)?;
         self.store_accumulator(destination)
+    }
+
+    fn accumulator_matches(&self, operand: ByteOperand) -> Result<bool, LowerError> {
+        Ok(match operand {
+            ByteOperand::Immediate(value) => {
+                self.accumulator == Some(AccumulatorValue::Immediate(value))
+            }
+            ByteOperand::Storage(storage) => {
+                self.accumulator == Some(AccumulatorValue::Location(self.byte_location(storage)?))
+            }
+        })
     }
 
     fn emit_acc_binary(&mut self, op: ByteBinaryOp, right: ByteOperand) -> Result<(), LowerError> {
@@ -834,9 +1046,9 @@ impl<'a> Lowerer<'a> {
         self.set_bit_location(BitLocation::Carry, false);
         self.branch_if_bit_location(location, true, &set);
         self.jmpf(&done);
-        self.output.push_label(&set);
+        self.emit_label(&set);
         self.set_bit_location(BitLocation::Carry, true);
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -849,9 +1061,9 @@ impl<'a> Lowerer<'a> {
         self.set_bit(storage, false)?;
         self.branch_if_bit_location(BitLocation::Carry, true, &set);
         self.jmpf(&done);
-        self.output.push_label(&set);
+        self.emit_label(&set);
         self.set_bit(storage, true)?;
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -936,6 +1148,7 @@ impl<'a> Lowerer<'a> {
         address: &Address,
     ) -> Result<(), LowerError> {
         match address.space() {
+            AddressSpace::MainMemory => self.load_main_memory(address)?,
             AddressSpace::WorkRam | AddressSpace::ShadowStack => {
                 self.select_dynamic_work_address(address)?;
                 self.instr(Instr::Ld_d9(direct(VTRBF)));
@@ -955,7 +1168,7 @@ impl<'a> Lowerer<'a> {
 
     fn store_indirect(&mut self, address: &Address, value: ByteOperand) -> Result<(), LowerError> {
         match address.space() {
-            AddressSpace::WorkRam | AddressSpace::ShadowStack => {
+            AddressSpace::MainMemory | AddressSpace::WorkRam | AddressSpace::ShadowStack => {
                 self.select_dynamic_work_address(address)?;
                 self.load_operand(value)?;
                 self.instr(Instr::St_d9(direct(VTRBF)));
@@ -972,6 +1185,59 @@ impl<'a> Lowerer<'a> {
             }
             space => return Err(LowerError::UnsupportedAddressSpace(space)),
         }
+        self.selected_work_address = None;
+        Ok(())
+    }
+
+    fn load_main_memory(&mut self, address: &Address) -> Result<(), LowerError> {
+        self.materialize_dynamic_address(address)?;
+        let flash = self.fresh_label("load_flash");
+        let done = self.fresh_label("load_memory_done");
+
+        // Work RAM occupies 0000h-01ffh. Packaged code and read-only data begin
+        // at or above 0200h, so the upper seven bits select the access path.
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
+        self.instr(Instr::And_i8(Expr::num(0xfe)));
+        self.instr(Instr::Bnz(Expr::name(&flash)));
+
+        self.instr(Instr::Ld_d9(direct(SCRATCH0)));
+        self.instr(Instr::St_d9(direct(VRMAD1)));
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
+        self.instr(Instr::And_i8(Expr::num(1)));
+        self.instr(Instr::St_d9(direct(VRMAD2)));
+        self.instr(Instr::Ld_d9(direct(VTRBF)));
+        self.jmpf(&done);
+
+        self.emit_label(&flash);
+        self.instr(Instr::Ld_d9(direct(SCRATCH0)));
+        self.instr(Instr::St_d9(direct(TRL)));
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
+        self.instr(Instr::St_d9(direct(TRH)));
+        self.load_code_byte();
+        self.emit_label(&done);
+        Ok(())
+    }
+
+    fn materialize_dynamic_address(&mut self, address: &Address) -> Result<(), LowerError> {
+        let low = address
+            .bytes()
+            .first()
+            .copied()
+            .unwrap_or(ByteOperand::Immediate(0));
+        let high = address
+            .bytes()
+            .get(1)
+            .copied()
+            .unwrap_or(ByteOperand::Immediate(0));
+        let offset = address.offset();
+        self.materialize_operand(low, SCRATCH0)?;
+        self.materialize_operand(high, SCRATCH1)?;
+        self.instr(Instr::Ld_d9(direct(SCRATCH0)));
+        self.instr(Instr::Add_i8(Expr::num((offset & 0xff) as i32)));
+        self.instr(Instr::St_d9(direct(SCRATCH0)));
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
+        self.instr(Instr::Addc_i8(Expr::num((offset >> 8) as i32)));
+        self.instr(Instr::St_d9(direct(SCRATCH1)));
         Ok(())
     }
 
@@ -987,13 +1253,18 @@ impl<'a> Lowerer<'a> {
             .copied()
             .unwrap_or(ByteOperand::Immediate(0));
         let offset = address.offset();
-        self.load_operand(low)?;
+        // Both address bytes must be captured before writing VRMAD: either
+        // source may itself reside in work RAM and therefore use VRMAD.
+        self.materialize_operand(low, SCRATCH0)?;
+        self.materialize_operand(high, SCRATCH1)?;
+        self.instr(Instr::Ld_d9(direct(SCRATCH0)));
         self.instr(Instr::Add_i8(Expr::num((offset & 0xff) as i32)));
         self.instr(Instr::St_d9(direct(VRMAD1)));
-        self.load_operand(high)?;
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
         self.instr(Instr::Addc_i8(Expr::num((offset >> 8) as i32)));
         self.instr(Instr::And_i8(Expr::num(1)));
         self.instr(Instr::St_d9(direct(VRMAD2)));
+        self.selected_work_address = None;
         Ok(())
     }
 
@@ -1058,12 +1329,11 @@ impl<'a> Lowerer<'a> {
         storage: StorageId,
         offset: usize,
     ) -> Result<(), LowerError> {
-        let address = self.storage_work_address(storage, offset)?;
-        self.copy_byte(destination_low, ByteOperand::Immediate(address as u8))?;
-        self.copy_byte(
-            destination_high,
-            ByteOperand::Immediate((address >> 8) as u8),
-        )
+        let address = self.storage_address_expression(storage, offset)?;
+        self.load_expression(lower_byte(address.clone()));
+        self.store_accumulator(destination_low)?;
+        self.load_expression(upper_byte(address));
+        self.store_accumulator(destination_high)
     }
 
     fn function_address(
@@ -1105,15 +1375,15 @@ impl<'a> Lowerer<'a> {
             self.load_operand(amount[0])?;
             self.instr(Instr::And_i8(Expr::num((width - 1) as i32)));
             self.instr(Instr::St_d9(direct(SCRATCH2)));
-            self.output.push_label(&loop_label);
+            self.emit_label(&loop_label);
             self.instr(Instr::Ld_d9(direct(SCRATCH2)));
             self.instr(Instr::Bnz(Expr::name(&body)));
             self.jmpf(&done);
-            self.output.push_label(&body);
+            self.emit_label(&body);
             self.shift_once(op, destinations, width)?;
             self.instr(Instr::Dec_d9(direct(SCRATCH2)));
             self.jmpf(&loop_label);
-            self.output.push_label(&done);
+            self.emit_label(&done);
         }
 
         self.mask_unused_high_bits(destinations, width)
@@ -1183,9 +1453,9 @@ impl<'a> Lowerer<'a> {
             Expr::name(&set),
         ));
         self.jmpf(&done);
-        self.output.push_label(&set);
+        self.emit_label(&set);
         self.set_bit_location(BitLocation::Carry, true);
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1226,7 +1496,7 @@ impl<'a> Lowerer<'a> {
                     let equal = self.fresh_label("compare_equal_byte");
                     self.branch_if_equal(*left, *right, true, &equal)?;
                     self.jmpf(&mismatch);
-                    self.output.push_label(&equal);
+                    self.emit_label(&equal);
                 }
                 if op == CompareOp::Equal {
                     self.jmpf(&set);
@@ -1247,14 +1517,14 @@ impl<'a> Lowerer<'a> {
                     self.instr(Instr::Be_d9(direct(SCRATCH1), Expr::name(&equal)));
                     self.instr(Instr::Bp(direct(PSW), Expr::num(7), Expr::name(&set)));
                     self.jmpf(&done);
-                    self.output.push_label(&equal);
+                    self.emit_label(&equal);
                 }
                 self.jmpf(if or_equal { &set } else { &done });
             }
         }
-        self.output.push_label(&set);
+        self.emit_label(&set);
         self.set_bit(destination, true)?;
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1282,14 +1552,14 @@ impl<'a> Lowerer<'a> {
             Expr::name(not_less),
         ));
         self.jmpf(&same_sign);
-        self.output.push_label(&left_negative);
+        self.emit_label(&left_negative);
         self.instr(Instr::Bp(
             direct(SCRATCH1),
             Expr::num(bit as i32),
             Expr::name(&same_sign),
         ));
         self.jmpf(less);
-        self.output.push_label(&same_sign);
+        self.emit_label(&same_sign);
         Ok(())
     }
 
@@ -1305,9 +1575,9 @@ impl<'a> Lowerer<'a> {
         self.branch_if_bit_operand(condition, true, &true_label)?;
         self.copy_byte(destination, when_false)?;
         self.jmpf(&done);
-        self.output.push_label(&true_label);
+        self.emit_label(&true_label);
         self.copy_byte(destination, when_true)?;
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1323,9 +1593,9 @@ impl<'a> Lowerer<'a> {
         self.branch_if_bit_operand(condition, true, &true_label)?;
         self.copy_bit(destination, when_false)?;
         self.jmpf(&done);
-        self.output.push_label(&true_label);
+        self.emit_label(&true_label);
         self.copy_bit(destination, when_true)?;
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1339,9 +1609,9 @@ impl<'a> Lowerer<'a> {
         self.copy_byte(destination, ByteOperand::Immediate(0))?;
         self.branch_if_bit_operand(source, true, &set)?;
         self.jmpf(&done);
-        self.output.push_label(&set);
+        self.emit_label(&set);
         self.copy_byte(destination, ByteOperand::Immediate(1))?;
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1356,9 +1626,9 @@ impl<'a> Lowerer<'a> {
         self.load_operand(source)?;
         self.instr(Instr::Bnz(Expr::name(&set)));
         self.jmpf(&done);
-        self.output.push_label(&set);
+        self.emit_label(&set);
         self.set_bit(destination, true)?;
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1386,11 +1656,11 @@ impl<'a> Lowerer<'a> {
             self.copy_byte(*destination, ByteOperand::Immediate(0))?;
         }
         self.jmpf(&done);
-        self.output.push_label(&negative);
+        self.emit_label(&negative);
         for destination in &destinations[source.len()..] {
             self.copy_byte(*destination, ByteOperand::Immediate(0xff))?;
         }
-        self.output.push_label(&done);
+        self.emit_label(&done);
         self.mask_unused_high_bits(destinations, destinations.len() as u8 * 8)
     }
 
@@ -1420,9 +1690,9 @@ impl<'a> Lowerer<'a> {
                             Expr::name(&increment),
                         ));
                         self.jmpf(&next);
-                        self.output.push_label(&increment);
+                        self.emit_label(&increment);
                         self.increment_bytes(destinations)?;
-                        self.output.push_label(&next);
+                        self.emit_label(&next);
                     }
                 }
             }
@@ -1444,7 +1714,7 @@ impl<'a> Lowerer<'a> {
                     ));
                     self.increment_bytes(destinations)?;
                 }
-                self.output.push_label(&done);
+                self.emit_label(&done);
             }
         }
         Ok(())
@@ -1579,14 +1849,14 @@ impl<'a> Lowerer<'a> {
         let done = self.fresh_label("saturate_done");
         self.instr(Instr::Bp(direct(PSW), Expr::num(7), Expr::name(&saturated)));
         self.jmpf(&done);
-        self.output.push_label(&saturated);
+        self.emit_label(&saturated);
         for destination in destinations {
             self.copy_byte(
                 *destination,
                 ByteOperand::Immediate(if subtract { 0 } else { 0xff }),
             )?;
         }
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1713,10 +1983,10 @@ impl<'a> Lowerer<'a> {
                 let expected = ((*case >> (index * 8)) & 0xff) as u8;
                 self.branch_if_equal(*value, ByteOperand::Immediate(expected), true, &equal)?;
                 self.jmpf(&next_case);
-                self.output.push_label(&equal);
+                self.emit_label(&equal);
             }
             self.jmpf(self.block_label(*target));
-            self.output.push_label(&next_case);
+            self.emit_label(&next_case);
         }
         self.jmpf(self.block_label(default));
         Ok(())
@@ -1735,11 +2005,11 @@ impl<'a> Lowerer<'a> {
                 let done = self.fresh_label("indirect_call_done");
                 self.instr(Instr::Callf(Expr::name(&invoke)));
                 self.jmpf(&done);
-                self.output.push_label(&invoke);
+                self.emit_label(&invoke);
                 self.instr(Instr::Push(direct(SCRATCH0)));
                 self.instr(Instr::Push(direct(SCRATCH1)));
                 self.instr(Instr::Ret);
-                self.output.push_label(&done);
+                self.emit_label(&done);
             }
         }
         Ok(())
@@ -1905,6 +2175,10 @@ impl<'a> Lowerer<'a> {
         work_high: ByteOperand,
         length: ByteOperand,
     ) -> Result<(), LowerError> {
+        if from_main {
+            return self.xram_copy_from_memory(bank, offset, work_low, work_high, length);
+        }
+
         self.select_xram(bank, offset)?;
         self.load_operand(work_low)?;
         self.instr(Instr::St_d9(direct(VRMAD1)));
@@ -1917,23 +2191,90 @@ impl<'a> Lowerer<'a> {
         let loop_label = self.fresh_label("xram_copy_loop");
         let body = self.fresh_label("xram_copy_body");
         let done = self.fresh_label("xram_copy_done");
-        self.output.push_label(&loop_label);
+        self.emit_label(&loop_label);
         self.instr(Instr::Ld_d9(direct(SCRATCH2)));
         self.instr(Instr::Bnz(Expr::name(&body)));
         self.jmpf(&done);
-        self.output.push_label(&body);
-        if from_main {
-            self.instr(Instr::Ld_d9(direct(VTRBF)));
-            self.instr(Instr::St_Ri(IndirectionMode::R2));
-        } else {
-            self.instr(Instr::Ld_Ri(IndirectionMode::R2));
-            self.instr(Instr::St_d9(direct(VTRBF)));
-        }
+        self.emit_label(&body);
+        self.instr(Instr::Ld_Ri(IndirectionMode::R2));
+        self.instr(Instr::St_d9(direct(VTRBF)));
         self.instr(Instr::Inc_d9(direct(R2)));
         self.instr(Instr::Dec_d9(direct(SCRATCH2)));
         self.jmpf(&loop_label);
-        self.output.push_label(&done);
+        self.emit_label(&done);
         self.instr(Instr::Clr1(direct(VSEL), Expr::num(4)));
+        Ok(())
+    }
+
+    fn xram_copy_from_memory(
+        &mut self,
+        bank: ByteOperand,
+        offset: ByteOperand,
+        source_low: ByteOperand,
+        source_high: ByteOperand,
+        length: ByteOperand,
+    ) -> Result<(), LowerError> {
+        self.materialize_operand(source_low, SCRATCH0)?;
+        self.materialize_operand(source_high, SCRATCH1)?;
+        self.materialize_operand(length, SCRATCH2)?;
+        self.select_xram(bank, offset)?;
+
+        let flash_setup = self.fresh_label("xram_copy_flash");
+        let work_loop = self.fresh_label("xram_copy_work_loop");
+        let work_body = self.fresh_label("xram_copy_work_body");
+        let work_done = self.fresh_label("xram_copy_work_done");
+        let flash_loop = self.fresh_label("xram_copy_flash_loop");
+        let flash_body = self.fresh_label("xram_copy_flash_body");
+        let flash_incremented = self.fresh_label("xram_copy_flash_incremented");
+        let done = self.fresh_label("xram_copy_done");
+
+        // A lifted pointer below 0200h names work RAM; all higher addresses
+        // name the read-only data emitted with the packaged program.
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
+        self.instr(Instr::And_i8(Expr::num(0xfe)));
+        self.instr(Instr::Bnz(Expr::name(&flash_setup)));
+
+        self.instr(Instr::Ld_d9(direct(SCRATCH0)));
+        self.instr(Instr::St_d9(direct(VRMAD1)));
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
+        self.instr(Instr::And_i8(Expr::num(1)));
+        self.instr(Instr::St_d9(direct(VRMAD2)));
+        self.instr(Instr::Set1(direct(VSEL), Expr::num(4)));
+        self.emit_label(&work_loop);
+        self.instr(Instr::Ld_d9(direct(SCRATCH2)));
+        self.instr(Instr::Bnz(Expr::name(&work_body)));
+        self.jmpf(&work_done);
+        self.emit_label(&work_body);
+        self.instr(Instr::Ld_d9(direct(VTRBF)));
+        self.instr(Instr::St_Ri(IndirectionMode::R2));
+        self.instr(Instr::Inc_d9(direct(R2)));
+        self.instr(Instr::Dec_d9(direct(SCRATCH2)));
+        self.jmpf(&work_loop);
+        self.emit_label(&work_done);
+        self.instr(Instr::Clr1(direct(VSEL), Expr::num(4)));
+        self.jmpf(&done);
+
+        self.emit_label(&flash_setup);
+        self.instr(Instr::Ld_d9(direct(SCRATCH0)));
+        self.instr(Instr::St_d9(direct(TRL)));
+        self.instr(Instr::Ld_d9(direct(SCRATCH1)));
+        self.instr(Instr::St_d9(direct(TRH)));
+        self.emit_label(&flash_loop);
+        self.instr(Instr::Ld_d9(direct(SCRATCH2)));
+        self.instr(Instr::Bnz(Expr::name(&flash_body)));
+        self.jmpf(&done);
+        self.emit_label(&flash_body);
+        self.load_code_byte();
+        self.instr(Instr::St_Ri(IndirectionMode::R2));
+        self.instr(Instr::Inc_d9(direct(TRL)));
+        self.instr(Instr::Ld_d9(direct(TRL)));
+        self.instr(Instr::Bnz(Expr::name(&flash_incremented)));
+        self.instr(Instr::Inc_d9(direct(TRH)));
+        self.emit_label(&flash_incremented);
+        self.instr(Instr::Inc_d9(direct(R2)));
+        self.instr(Instr::Dec_d9(direct(SCRATCH2)));
+        self.jmpf(&flash_loop);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1948,7 +2289,7 @@ impl<'a> Lowerer<'a> {
         let done = self.fresh_label("sfr_bit_read_done");
         let cases = self.sfr_bit_dispatch(bit, &done)?;
         for (index, label) in cases.into_iter().enumerate() {
-            self.output.push_label(&label);
+            self.emit_label(&label);
             self.instr(Instr::Bp(
                 direct(sfr_address(sfr)),
                 Expr::num(index as i32),
@@ -1956,9 +2297,9 @@ impl<'a> Lowerer<'a> {
             ));
             self.jmpf(&done);
         }
-        self.output.push_label(&set);
+        self.emit_label(&set);
         self.copy_byte(output, ByteOperand::Immediate(1))?;
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1972,7 +2313,7 @@ impl<'a> Lowerer<'a> {
         let cases = self.sfr_bit_dispatch(bit, &done)?;
         for (index, label) in cases.into_iter().enumerate() {
             let set = self.fresh_label("sfr_bit_write_set");
-            self.output.push_label(&label);
+            self.emit_label(&label);
             self.load_operand(value)?;
             self.instr(Instr::Bnz(Expr::name(&set)));
             self.instr(Instr::Clr1(
@@ -1980,14 +2321,14 @@ impl<'a> Lowerer<'a> {
                 Expr::num(index as i32),
             ));
             self.jmpf(&done);
-            self.output.push_label(&set);
+            self.emit_label(&set);
             self.instr(Instr::Set1(
                 direct(sfr_address(sfr)),
                 Expr::num(index as i32),
             ));
             self.jmpf(&done);
         }
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -1995,14 +2336,14 @@ impl<'a> Lowerer<'a> {
         let done = self.fresh_label("sfr_bit_toggle_done");
         let cases = self.sfr_bit_dispatch(bit, &done)?;
         for (index, label) in cases.into_iter().enumerate() {
-            self.output.push_label(&label);
+            self.emit_label(&label);
             self.instr(Instr::Not1(
                 direct(sfr_address(sfr)),
                 Expr::num(index as i32),
             ));
             self.jmpf(&done);
         }
-        self.output.push_label(&done);
+        self.emit_label(&done);
         Ok(())
     }
 
@@ -2089,6 +2430,38 @@ fn xram_bank(bank: super::lir::XRamBank) -> u8 {
     }
 }
 
+fn storage_aliases(storage: &Storage<PhysicalPlacement>) -> Vec<(String, u16)> {
+    let Some(source_name) = &storage.name else {
+        return Vec::new();
+    };
+    let owner = match &storage.owner {
+        StorageOwner::Program => "program".to_owned(),
+        StorageOwner::Function(function) => sanitize_label(function),
+    };
+    let base = format!(
+        "{}_{}_s{}",
+        owner,
+        sanitize_label(source_name),
+        storage.id.0
+    );
+    match storage.placement {
+        PhysicalPlacement::ApplicationRam { offset } => {
+            let length = match storage.kind {
+                StorageKind::Byte => 1,
+                StorageKind::Bytes { length } => length.get(),
+                StorageKind::Bit | StorageKind::Carry => 0,
+            };
+            (0..length)
+                .map(|index| (format!("{base}_b{index}"), offset as u16 + index as u16))
+                .collect()
+        }
+        PhysicalPlacement::ApplicationBit { offset, bit } => {
+            vec![(format!("{base}_bit{}", bit.get()), offset as u16)]
+        }
+        _ => Vec::new(),
+    }
+}
+
 fn sfr_address(sfr: Sfr) -> u16 {
     match sfr {
         Sfr::InterruptEnable => 0x108,
@@ -2169,10 +2542,15 @@ fn sanitize_label(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use super::lower;
+    use crate::wasm::intrinsics::Intrinsic;
     use crate::wasm::lir::{
-        Block, BlockId, BranchCondition, ByteOperand, Function, FunctionAbi, FunctionKind,
-        InterruptHandlers, PhysicalPlacement, Program, Terminator, TerminatorKind,
+        Block, BlockId, BranchCondition, ByteOperand, ByteStorage, Function, FunctionAbi,
+        FunctionKind, Instruction, InstructionKind, InterruptHandlers, PhysicalPlacement, Program,
+        Static, StaticByte, Storage, StorageId, StorageKind, StorageOwner, Terminator,
+        TerminatorKind, ValueOperand,
     };
 
     fn returning_function(name: &str, kind: FunctionKind) -> Function {
@@ -2252,5 +2630,107 @@ mod tests {
         let output = lower(&program).unwrap().to_string();
         assert!(output.contains("  bnzo .block1"));
         assert!(output.contains("  jmpf  .block2"));
+    }
+
+    #[test]
+    fn emits_readable_application_ram_aliases() {
+        let program = Program::<PhysicalPlacement> {
+            main: returning_function("main", FunctionKind::Normal),
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+            storages: vec![Storage {
+                id: StorageId(7),
+                name: Some("running total".into()),
+                owner: StorageOwner::Function("main".into()),
+                kind: StorageKind::Byte,
+                placement: PhysicalPlacement::ApplicationRam { offset: 0x20 },
+            }],
+        };
+
+        let output = lower(&program).unwrap().to_string();
+        assert!(output.contains("main_running_total_s7_b0"));
+    }
+
+    #[test]
+    fn emits_flash_statics_without_runtime_initialization() {
+        let mut main = returning_function("main", FunctionKind::Normal);
+        main.blocks[0].instructions = vec![
+            Instruction {
+                kind: InstructionKind::CopyByte {
+                    destination: ByteStorage {
+                        storage: StorageId(1),
+                        offset: 0,
+                    },
+                    source: ByteOperand::Storage(ByteStorage {
+                        storage: StorageId(0),
+                        offset: 0,
+                    }),
+                },
+            },
+            Instruction {
+                kind: InstructionKind::Intrinsic {
+                    operation: Intrinsic::XramCopyFromMain,
+                    inputs: vec![
+                        ValueOperand::Byte(ByteOperand::Immediate(0)),
+                        ValueOperand::Byte(ByteOperand::Immediate(0)),
+                        ValueOperand::Byte(ByteOperand::Immediate(0)),
+                        ValueOperand::Byte(ByteOperand::Immediate(2)),
+                        ValueOperand::Byte(ByteOperand::Immediate(1)),
+                    ],
+                    outputs: Vec::new(),
+                },
+            },
+        ];
+        let program = Program::<PhysicalPlacement> {
+            main,
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: vec![Static {
+                name: "message".into(),
+                storage: StorageId(0),
+                initializer: vec![
+                    StaticByte::Value(0x12),
+                    StaticByte::Value(0x34),
+                    StaticByte::Value(0x56),
+                ],
+                mutable: false,
+            }],
+            storages: vec![
+                Storage {
+                    id: StorageId(0),
+                    name: Some("message".into()),
+                    owner: StorageOwner::Program,
+                    kind: StorageKind::Bytes {
+                        length: NonZeroUsize::new(3).unwrap(),
+                    },
+                    placement: PhysicalPlacement::Flash,
+                },
+                Storage {
+                    id: StorageId(1),
+                    name: Some("loaded byte".into()),
+                    owner: StorageOwner::Function("main".into()),
+                    kind: StorageKind::Byte,
+                    placement: PhysicalPlacement::ApplicationRam { offset: 0x20 },
+                },
+            ],
+        };
+
+        let output = lower(&program).unwrap().to_string();
+
+        assert!(output.contains("__waterbear_static_0_message:"));
+        assert!(output.contains(".byte $12,$34,$56"));
+        assert!(!output.contains("initialize compiler-owned work RAM"));
+
+        let lines = output.lines().collect::<Vec<_>>();
+        let code_loads = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.trim() == "ldc")
+            .collect::<Vec<_>>();
+        assert_eq!(code_loads.len(), 2);
+        for (index, _) in code_loads {
+            assert_eq!(lines[index - 1].trim(), "mov   #$00, $0100");
+        }
     }
 }

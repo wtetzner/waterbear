@@ -699,6 +699,7 @@ fn format_region(region: StorageRegion) -> &'static str {
 
 fn format_address_space(space: AddressSpace) -> &'static str {
     match space {
+        AddressSpace::MainMemory => "main_memory",
         AddressSpace::MainRam(RamBank::System) => "system_ram",
         AddressSpace::MainRam(RamBank::Application) => "application_ram",
         AddressSpace::ShadowStack => "shadow_stack",

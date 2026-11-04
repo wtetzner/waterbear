@@ -1159,13 +1159,53 @@ impl<'a> FunctionLowerer<'a> {
                     hir::IntegerBinaryOp::RotateRight => ShiftOp::RotateRight,
                     _ => unreachable!(),
                 };
-                self.emit(InstructionKind::ShiftBytes {
-                    op,
-                    destinations: destinations.clone(),
-                    value: left,
-                    amount: right,
-                    width: integer_width(ty)?,
-                });
+                let width = integer_width(ty)?;
+                let byte_rotate = matches!(op, ShiftOp::RotateLeft | ShiftOp::RotateRight)
+                    && width == 8
+                    && destinations.len() == 1
+                    && left.len() == 1
+                    && immediate_bytes(&right).is_some();
+                if byte_rotate {
+                    let amount = (immediate_bytes(&right).unwrap() % 8) as usize;
+                    let (direction, count) = match (op, amount <= 4) {
+                        (ShiftOp::RotateLeft, true) | (ShiftOp::RotateRight, false) => {
+                            (RotateDirection::Left, amount.min(8 - amount))
+                        }
+                        (ShiftOp::RotateRight, true) | (ShiftOp::RotateLeft, false) => {
+                            (RotateDirection::Right, amount.min(8 - amount))
+                        }
+                        _ => unreachable!(),
+                    };
+                    if count == 0 {
+                        self.emit(InstructionKind::CopyByte {
+                            destination: destinations[0],
+                            source: left[0],
+                        });
+                    } else {
+                        for index in 0..count {
+                            self.emit(InstructionKind::Rotate {
+                                direction,
+                                through_carry: false,
+                                destination: destinations[0],
+                                input: if index == 0 {
+                                    left[0]
+                                } else {
+                                    ByteOperand::Storage(destinations[0])
+                                },
+                                carry_in: None,
+                                carry_out: None,
+                            });
+                        }
+                    }
+                } else {
+                    self.emit(InstructionKind::ShiftBytes {
+                        op,
+                        destinations: destinations.clone(),
+                        value: left,
+                        amount: right,
+                        width,
+                    });
+                }
             }
             _ => {
                 let op = integer_binary_bytes_op(op);
@@ -1323,7 +1363,7 @@ impl<'a> FunctionLowerer<'a> {
     fn lower_address(&mut self, expression: &hir::Expression) -> Result<Address, LowerError> {
         let value = self.lower_expression(expression)?;
         let bytes = value_bytes(value)?;
-        Address::new(AddressSpace::WorkRam, bytes)
+        Address::new(AddressSpace::MainMemory, bytes)
             .ok_or_else(|| LowerError::UnsupportedExpression("empty address".into()))
     }
 
@@ -1996,10 +2036,9 @@ impl<'a> FunctionLowerer<'a> {
 
     fn require_addressable(&mut self, storage: StorageId) {
         let storage = &mut self.program.storages[storage.0];
-        storage.placement.allowed_regions = match storage.owner {
-            StorageOwner::Program => vec![StorageRegion::WorkRam],
-            StorageOwner::Function(_) => vec![StorageRegion::ShadowStack],
-        };
+        if matches!(storage.owner, StorageOwner::Function(_)) {
+            storage.placement.allowed_regions = vec![StorageRegion::ShadowStack];
+        }
     }
 
     fn value_as_memory_bytes(
@@ -2291,6 +2330,16 @@ fn integer_binary_bytes_op(op: hir::IntegerBinaryOp) -> IntegerBinaryBytesOp {
         H::SaturatingSubtract(Signedness::Signed) => IntegerBinaryBytesOp::SaturatingSubtractSigned,
         _ => unreachable!("simple integer operations are lowered separately"),
     }
+}
+
+fn immediate_bytes(bytes: &[ByteOperand]) -> Option<u128> {
+    bytes
+        .iter()
+        .enumerate()
+        .try_fold(0u128, |value, (index, byte)| match byte {
+            ByteOperand::Immediate(byte) => Some(value | (*byte as u128) << (index * 8)),
+            ByteOperand::Storage(_) => None,
+        })
 }
 
 fn bit_storage(

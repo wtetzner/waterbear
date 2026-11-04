@@ -1,12 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use walrus::{FunctionId, FunctionKind, Module, ValType, ir::Instr};
 
-use super::{
-    forward::ForwardResults,
-    index::{ProgramIndex, ValueId, ValueProducer},
-    value_flow::ValueSet,
-};
+use super::{forward::ForwardResults, index::ProgramIndex, pointer::PointerOrigins};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PointerBehavior {
@@ -108,7 +104,7 @@ impl InferredCallResolver {
     pub fn infer<R: CallResolver>(
         module: &Module,
         index: &ProgramIndex,
-        flow: &ForwardResults<ValueSet>,
+        origins: &ForwardResults<PointerOrigins>,
         imports: &R,
     ) -> Self {
         let mut summaries = module
@@ -130,7 +126,7 @@ impl InferredCallResolver {
                 let mut behaviors = vec![PointerBehavior::NotAPointer; parameters.len()];
 
                 for &instruction in &info.instructions {
-                    let inputs = flow.instruction_inputs[instruction.0]
+                    let inputs = origins.instruction_inputs[instruction.0]
                         .as_deref()
                         .unwrap_or(&[]);
                     let effects = pointer_effects(
@@ -143,7 +139,7 @@ impl InferredCallResolver {
                             continue;
                         }
                         for (parameter, behavior) in parameters.iter().zip(&mut behaviors) {
-                            if depends_on(flow, index, input, *parameter) {
+                            if input.unknown || input.parameters.contains(parameter) {
                                 *behavior = (*behavior).max(effect);
                             }
                         }
@@ -223,67 +219,6 @@ fn pointer_effects(
         Instr::GlobalSet(_) => vec![Escapes],
         _ => vec![NotAPointer; input_count],
     }
-}
-
-fn depends_on(
-    flow: &ForwardResults<ValueSet>,
-    index: &ProgramIndex,
-    values: &ValueSet,
-    parameter: ValueId,
-) -> bool {
-    if values.unknown {
-        return true;
-    }
-    let mut visited = BTreeSet::new();
-    values_depend_on(flow, index, values, parameter, &mut visited)
-}
-
-fn values_depend_on(
-    flow: &ForwardResults<ValueSet>,
-    index: &ProgramIndex,
-    values: &ValueSet,
-    parameter: ValueId,
-    visited: &mut BTreeSet<ValueId>,
-) -> bool {
-    values.unknown
-        || values
-            .values
-            .iter()
-            .copied()
-            .any(|value| value_depends_on(flow, index, value, parameter, visited))
-}
-
-fn value_depends_on(
-    flow: &ForwardResults<ValueSet>,
-    index: &ProgramIndex,
-    value: ValueId,
-    parameter: ValueId,
-    visited: &mut BTreeSet<ValueId>,
-) -> bool {
-    if value == parameter {
-        return true;
-    }
-    if !visited.insert(value) {
-        return false;
-    }
-
-    let recorded = &flow.values[value.0];
-    if recorded.unknown
-        || recorded.values.iter().copied().any(|origin| {
-            origin != value && value_depends_on(flow, index, origin, parameter, visited)
-        })
-    {
-        return true;
-    }
-
-    let ValueProducer::Instruction { instruction, .. } = index.values[value.0].producer else {
-        return false;
-    };
-    flow.instruction_inputs[instruction.0]
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .any(|input| values_depend_on(flow, index, input, parameter, visited))
 }
 
 fn integer_mask(ty: ValType) -> Option<u128> {

@@ -1,16 +1,18 @@
-//! Deterministic physical storage assignment for VMU LIR.
+//! Liveness-based physical storage assignment for VMU LIR.
 //!
-//! This is intentionally a simple first allocator. It gives every live LIR
-//! object a stable location for the whole program, packs bit values, and spills
-//! byte values to the VMU work RAM when application RAM is full. A later
-//! allocator can reuse locations based on liveness without changing assembly
-//! instruction selection.
+//! Function-owned values with disjoint live ranges share physical slots, with
+//! copy-related values preferred for coalescing. Program-owned and
+//! address-taken objects retain stable locations. Bit values are packed, and
+//! byte values spill to VMU work RAM when application RAM is full.
 
-use std::{error::Error, fmt};
+use std::{collections::BTreeSet, error::Error, fmt};
 
-use super::lir::{
-    AllocatedProgram, BitIndex, PhysicalPlacement, Program, Storage, StorageKind, StorageRegion,
-    VirtualPlacement, VirtualProgram, WorkRamOffset,
+use super::{
+    lir::{
+        AllocatedProgram, BitIndex, PhysicalPlacement, Program, Storage, StorageId, StorageKind,
+        StorageOwner, StorageRegion, VirtualPlacement, VirtualProgram, WorkRamOffset,
+    },
+    lir_analysis::{InterferenceGraph, interference_graph},
 };
 
 const APPLICATION_RAM_BYTES: usize = 0x100;
@@ -63,28 +65,49 @@ impl fmt::Display for AllocationError {
 impl Error for AllocationError {}
 
 pub fn allocate(program: &VirtualProgram) -> Result<AllocatedProgram, AllocationError> {
-    Allocator::new().allocate(program)
+    Allocator::new(program).allocate(program)
 }
 
 struct Allocator {
     application: [u8; APPLICATION_RAM_BYTES],
     work: [u8; WORK_RAM_BYTES],
+    interference: InterferenceGraph,
+    copies: BTreeSet<(StorageId, StorageId)>,
+    slots: Vec<AllocationSlot>,
+}
+
+struct AllocationSlot {
+    owner: StorageOwner,
+    kind: StorageKind,
+    placement: PhysicalPlacement,
+    members: Vec<StorageId>,
 }
 
 impl Allocator {
-    fn new() -> Self {
+    fn new(program: &VirtualProgram) -> Self {
         let mut application = [0; APPLICATION_RAM_BYTES];
         application[..FIRST_APPLICATION_BYTE].fill(u8::MAX);
+        let (interference, copies) = interference_graph(program);
         Self {
             application,
             work: [0; WORK_RAM_BYTES],
+            interference,
+            copies,
+            slots: Vec::new(),
         }
     }
 
     fn allocate(mut self, program: &VirtualProgram) -> Result<AllocatedProgram, AllocationError> {
         let mut storages = Vec::with_capacity(program.storages.len());
         for storage in &program.storages {
-            let placement = self.allocate_storage(storage)?;
+            let placement = if let Some(slot) = self.reusable_slot(storage) {
+                self.slots[slot].members.push(storage.id);
+                self.slots[slot].placement
+            } else {
+                let placement = self.allocate_storage(storage)?;
+                self.record_slot(storage, placement);
+                placement
+            };
             storages.push(Storage {
                 id: storage.id,
                 name: storage.name.clone(),
@@ -101,6 +124,54 @@ impl Allocator {
             statics: program.statics.clone(),
             storages,
         })
+    }
+
+    fn reusable_slot(&self, storage: &Storage<VirtualPlacement>) -> Option<usize> {
+        if storage.placement.fixed.is_some()
+            || !matches!(storage.owner, StorageOwner::Function(_))
+            || storage.kind == StorageKind::Carry
+        {
+            return None;
+        }
+
+        let fits = |slot: &AllocationSlot| {
+            slot.owner == storage.owner
+                && slot.kind == storage.kind
+                && placement_allowed(slot.placement, &storage.placement)
+                && slot.members.iter().all(|member| {
+                    !self
+                        .interference
+                        .get(&storage.id)
+                        .is_some_and(|neighbors| neighbors.contains(member))
+                })
+        };
+
+        self.slots
+            .iter()
+            .enumerate()
+            .find(|(_, slot)| {
+                fits(slot)
+                    && slot
+                        .members
+                        .iter()
+                        .any(|member| self.copies.contains(&ordered_pair(storage.id, *member)))
+            })
+            .or_else(|| self.slots.iter().enumerate().find(|(_, slot)| fits(slot)))
+            .map(|(index, _)| index)
+    }
+
+    fn record_slot(&mut self, storage: &Storage<VirtualPlacement>, placement: PhysicalPlacement) {
+        if storage.placement.fixed.is_none()
+            && matches!(storage.owner, StorageOwner::Function(_))
+            && storage.kind != StorageKind::Carry
+        {
+            self.slots.push(AllocationSlot {
+                owner: storage.owner.clone(),
+                kind: storage.kind,
+                placement,
+                members: vec![storage.id],
+            });
+        }
     }
 
     fn allocate_storage(
@@ -185,6 +256,10 @@ impl Allocator {
             }
         }
 
+        if regions.contains(&StorageRegion::Flash) {
+            return Ok(PhysicalPlacement::Flash);
+        }
+
         let shadow = regions.contains(&StorageRegion::ShadowStack);
         if shadow || regions.contains(&StorageRegion::WorkRam) {
             let Some(offset) = allocate_contiguous(&mut self.work, length) else {
@@ -235,11 +310,11 @@ impl Allocator {
             PhysicalPlacement::WorkRamBit { offset, bit } => {
                 reserve_bit(&mut self.work, offset.get() as usize, bit.get())
             }
+            PhysicalPlacement::Flash => true,
             PhysicalPlacement::Accumulator
             | PhysicalPlacement::CarryFlag
             | PhysicalPlacement::SpecialRegister(_)
             | PhysicalPlacement::IndirectRegister { .. }
-            | PhysicalPlacement::Flash { .. }
             | PhysicalPlacement::XRam { .. } => length == 1,
         };
 
@@ -249,6 +324,45 @@ impl Allocator {
                 storage: storage.id.0,
             })
     }
+}
+
+fn ordered_pair(left: StorageId, right: StorageId) -> (StorageId, StorageId) {
+    if left <= right {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
+fn placement_allowed(placement: PhysicalPlacement, requested: &VirtualPlacement) -> bool {
+    let region = match placement {
+        PhysicalPlacement::Accumulator => StorageRegion::Accumulator,
+        PhysicalPlacement::CarryFlag => StorageRegion::CarryFlag,
+        PhysicalPlacement::ApplicationRam { .. } | PhysicalPlacement::ApplicationBit { .. } => {
+            StorageRegion::ApplicationRam
+        }
+        PhysicalPlacement::ShadowStack { .. } | PhysicalPlacement::ShadowStackBit { .. } => {
+            StorageRegion::ShadowStack
+        }
+        PhysicalPlacement::WorkRam { .. } | PhysicalPlacement::WorkRamBit { .. } => {
+            StorageRegion::WorkRam
+        }
+        PhysicalPlacement::SpecialRegister(_) => StorageRegion::SpecialRegister,
+        PhysicalPlacement::IndirectRegister { .. } => StorageRegion::IndirectRegister,
+        PhysicalPlacement::Flash => StorageRegion::Flash,
+        PhysicalPlacement::XRam { .. } => StorageRegion::XRam,
+    };
+    requested.allowed_regions.contains(&region)
+        && (!requested.must_be_direct
+            || matches!(
+                placement,
+                PhysicalPlacement::Accumulator
+                    | PhysicalPlacement::CarryFlag
+                    | PhysicalPlacement::ApplicationRam { .. }
+                    | PhysicalPlacement::ApplicationBit { .. }
+                    | PhysicalPlacement::SpecialRegister(_)
+                    | PhysicalPlacement::IndirectRegister { .. }
+            ))
 }
 
 fn storage_length(kind: StorageKind) -> usize {
@@ -275,7 +389,7 @@ fn fixed_kind_matches(kind: StorageKind, placement: PhysicalPlacement) -> bool {
                 | PhysicalPlacement::SpecialRegister(_)
                 | PhysicalPlacement::IndirectRegister { .. }
                 | PhysicalPlacement::WorkRam { .. }
-                | PhysicalPlacement::Flash { .. }
+                | PhysicalPlacement::Flash
                 | PhysicalPlacement::XRam { .. }
         ),
         StorageKind::Bytes { length } => {
@@ -285,7 +399,7 @@ fn fixed_kind_matches(kind: StorageKind, placement: PhysicalPlacement) -> bool {
                     PhysicalPlacement::ApplicationRam { .. }
                         | PhysicalPlacement::ShadowStack { .. }
                         | PhysicalPlacement::WorkRam { .. }
-                        | PhysicalPlacement::Flash { .. }
+                        | PhysicalPlacement::Flash
                         | PhysicalPlacement::XRam { .. }
                 )
         }
@@ -344,9 +458,9 @@ mod tests {
 
     use super::allocate;
     use crate::wasm::lir::{
-        Block, BlockId, Function, FunctionAbi, FunctionKind, InterruptHandlers, PhysicalPlacement,
-        Program, Storage, StorageId, StorageKind, StorageOwner, StorageRegion, Terminator,
-        TerminatorKind, VirtualPlacement,
+        Block, BlockId, ByteOperand, ByteStorage, Function, FunctionAbi, FunctionKind, Instruction,
+        InstructionKind, InterruptHandlers, PhysicalPlacement, Program, Storage, StorageId,
+        StorageKind, StorageOwner, StorageRegion, Terminator, TerminatorKind, VirtualPlacement,
     };
 
     #[test]
@@ -423,5 +537,109 @@ mod tests {
             allocated.storages[2].placement,
             PhysicalPlacement::WorkRam { .. }
         ));
+    }
+
+    #[test]
+    fn places_read_only_program_objects_in_flash() {
+        let function = Function {
+            name: "main".into(),
+            kind: FunctionKind::Normal,
+            abi: FunctionAbi::default(),
+            blocks: vec![Block {
+                id: BlockId(0),
+                name: None,
+                instructions: Vec::new(),
+                terminator: Terminator {
+                    kind: TerminatorKind::Return,
+                },
+            }],
+            entry: BlockId(0),
+        };
+        let program = Program {
+            main: function,
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+            storages: vec![Storage {
+                id: StorageId(0),
+                name: Some("message".into()),
+                owner: StorageOwner::Program,
+                kind: StorageKind::Bytes {
+                    length: NonZeroUsize::new(200).unwrap(),
+                },
+                placement: VirtualPlacement {
+                    allowed_regions: vec![StorageRegion::Flash, StorageRegion::WorkRam],
+                    must_be_direct: false,
+                    fixed: None,
+                },
+            }],
+        };
+
+        let allocated = allocate(&program).unwrap();
+
+        assert_eq!(allocated.storages[0].placement, PhysicalPlacement::Flash);
+    }
+
+    #[test]
+    fn reuses_a_function_slot_for_noninterfering_values() {
+        let function = Function {
+            name: "main".into(),
+            kind: FunctionKind::Normal,
+            abi: FunctionAbi::default(),
+            blocks: vec![Block {
+                id: BlockId(0),
+                name: None,
+                instructions: vec![
+                    Instruction {
+                        kind: InstructionKind::CopyByte {
+                            destination: ByteStorage {
+                                storage: StorageId(0),
+                                offset: 0,
+                            },
+                            source: ByteOperand::Immediate(1),
+                        },
+                    },
+                    Instruction {
+                        kind: InstructionKind::CopyByte {
+                            destination: ByteStorage {
+                                storage: StorageId(1),
+                                offset: 0,
+                            },
+                            source: ByteOperand::Immediate(2),
+                        },
+                    },
+                ],
+                terminator: Terminator {
+                    kind: TerminatorKind::Return,
+                },
+            }],
+            entry: BlockId(0),
+        };
+        let placement = VirtualPlacement {
+            allowed_regions: vec![StorageRegion::ApplicationRam],
+            must_be_direct: false,
+            fixed: None,
+        };
+        let program = Program {
+            main: function,
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+            storages: (0..2)
+                .map(|id| Storage {
+                    id: StorageId(id),
+                    name: Some(format!("temporary{id}")),
+                    owner: StorageOwner::Function("main".into()),
+                    kind: StorageKind::Byte,
+                    placement: placement.clone(),
+                })
+                .collect(),
+        };
+
+        let allocated = allocate(&program).unwrap();
+        assert_eq!(
+            allocated.storages[0].placement,
+            allocated.storages[1].placement
+        );
     }
 }

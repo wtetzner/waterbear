@@ -9,11 +9,13 @@
 pub mod address;
 pub mod backward;
 pub mod calls;
+pub mod data;
 pub mod domain;
 pub mod forward;
 pub mod frame;
 pub mod index;
 pub mod integer;
+pub mod pointer;
 pub(crate) mod shape;
 pub mod value_flow;
 
@@ -25,10 +27,12 @@ use self::{
     address::{AddressFact, AffineAddressAnalysis},
     backward::{BackwardError, BackwardResults, BitDemand, DemandedBitsAnalysis, run_backward},
     calls::{CallResolver, CallSummary, ConservativeCallResolver, InferredCallResolver},
+    data::DataMutability,
     forward::{ForwardError, ForwardResults, run_forward},
     frame::{FrameResults, recover_frames},
     index::ProgramIndex,
     integer::{IntegerFact, IntegerValueAnalysis},
+    pointer::{PointerOriginAnalysis, PointerOrigins},
     value_flow::{ValueFlowAnalysis, ValueSet},
 };
 
@@ -38,7 +42,9 @@ pub struct AnalysisDb {
     pub value_flow: ForwardResults<ValueSet>,
     pub integers: ForwardResults<IntegerFact>,
     pub demanded_bits: BackwardResults<BitDemand>,
+    pub pointer_origins: ForwardResults<PointerOrigins>,
     pub addresses: ForwardResults<AddressFact>,
+    pub data_mutability: DataMutability,
     pub frames: FrameResults,
     pub calls: BTreeMap<FunctionId, CallSummary>,
 }
@@ -78,8 +84,15 @@ pub fn analyze_with_imports<R: CallResolver>(
         &mut ValueFlowAnalysis,
     )
     .map_err(forward_error)?;
-    let calls = InferredCallResolver::infer(module, &index, &value_flow, imports);
-    finish_analysis(module, index, value_flow, &calls)
+    let pointer_origins = run_forward(
+        module,
+        &index,
+        &ConservativeCallResolver,
+        &mut PointerOriginAnalysis,
+    )
+    .map_err(forward_error)?;
+    let calls = InferredCallResolver::infer(module, &index, &pointer_origins, imports);
+    finish_analysis(module, index, value_flow, pointer_origins, &calls)
 }
 
 pub fn analyze_with_calls<R: CallResolver>(
@@ -89,13 +102,16 @@ pub fn analyze_with_calls<R: CallResolver>(
     let index = ProgramIndex::build(module);
     let value_flow =
         run_forward(module, &index, calls, &mut ValueFlowAnalysis).map_err(forward_error)?;
-    finish_analysis(module, index, value_flow, calls)
+    let pointer_origins =
+        run_forward(module, &index, calls, &mut PointerOriginAnalysis).map_err(forward_error)?;
+    finish_analysis(module, index, value_flow, pointer_origins, calls)
 }
 
 fn finish_analysis<R: CallResolver>(
     module: &Module,
     index: ProgramIndex,
     value_flow: ForwardResults<ValueSet>,
+    pointer_origins: ForwardResults<PointerOrigins>,
     calls: &R,
 ) -> Result<AnalysisDb, AnalysisError> {
     let integers =
@@ -118,14 +134,17 @@ fn finish_analysis<R: CallResolver>(
         .funcs
         .iter()
         .map(|function| (function.id(), calls.resolve(module, function.id())))
-        .collect();
+        .collect::<BTreeMap<_, _>>();
+    let data_mutability = data::analyze(module, &index, &addresses, &calls);
 
     Ok(AnalysisDb {
         index,
         value_flow,
+        pointer_origins,
         integers,
         demanded_bits,
         addresses,
+        data_mutability,
         frames,
         calls,
     })
@@ -145,7 +164,7 @@ mod tests {
         ConstExpr, FunctionBuilder, Module, ValType,
         ir::{
             BinaryOp, Binop, BrIf, Call, Drop, GlobalGet, GlobalSet, IfElse, Instr, Load, LoadKind,
-            LocalGet, LocalTee, Loop, MemArg, Select, Store, StoreKind,
+            LocalGet, LocalTee, Loop, MemArg, Return, Select, Store, StoreKind,
         },
     };
 
@@ -279,6 +298,54 @@ mod tests {
     }
 
     #[test]
+    fn propagates_call_site_demand_to_local_function_results() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+
+        let mut helper = FunctionBuilder::new(&mut module.types, &[], &[ValType::I32]);
+        helper.func_body().i32_const(0x1234_5678);
+        let helper = helper.finish(Vec::new(), &mut module.funcs);
+
+        let mut main = FunctionBuilder::new(&mut module.types, &[], &[]);
+        main.func_body()
+            .i32_const(0)
+            .instr(Call { func: helper })
+            .instr(Store {
+                memory,
+                kind: StoreKind::I32_8 { atomic: false },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            });
+        let main = main.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).unwrap();
+
+        assert_eq!(
+            analyses.demanded_bits.function_results[&helper][0].demanded,
+            u8::MAX as u128
+        );
+    }
+
+    #[test]
+    fn preserves_exported_function_result_widths() {
+        let mut module = Module::default();
+        let mut function = FunctionBuilder::new(&mut module.types, &[], &[ValType::I32]);
+        function.func_body().i32_const(1);
+        let function = function.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("value", function);
+
+        let analyses = analyze(&module).unwrap();
+
+        assert_eq!(
+            analyses.demanded_bits.function_results[&function][0].demanded,
+            u32::MAX as u128
+        );
+    }
+
+    #[test]
     fn infers_local_pointer_behavior_from_memory_uses() {
         let mut module = Module::default();
         let memory = module.memories.add_local(false, false, 1, None, None);
@@ -334,6 +401,55 @@ mod tests {
     }
 
     #[test]
+    fn distinguishes_loaded_data_from_the_pointer_used_to_read_it() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+
+        let read_pointer = module.locals.add(ValType::I32);
+        let mut checksum =
+            FunctionBuilder::new(&mut module.types, &[ValType::I32], &[ValType::I32]);
+        checksum
+            .func_body()
+            .instr(LocalGet {
+                local: read_pointer,
+            })
+            .instr(Load {
+                memory,
+                kind: LoadKind::I32_8 {
+                    kind: walrus::ir::ExtendedLoad::ZeroExtend,
+                },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            })
+            .instr(Return {});
+        let checksum = checksum.finish(vec![read_pointer], &mut module.funcs);
+
+        let returned_pointer = module.locals.add(ValType::I32);
+        let mut passthrough =
+            FunctionBuilder::new(&mut module.types, &[ValType::I32], &[ValType::I32]);
+        passthrough
+            .func_body()
+            .instr(LocalGet {
+                local: returned_pointer,
+            })
+            .instr(Return {});
+        let passthrough = passthrough.finish(vec![returned_pointer], &mut module.funcs);
+
+        let analyses = analyze(&module).unwrap();
+
+        assert_eq!(
+            analyses.calls[&checksum].arguments[0].pointer,
+            PointerBehavior::ReadOnly
+        );
+        assert_eq!(
+            analyses.calls[&passthrough].arguments[0].pointer,
+            PointerBehavior::Escapes
+        );
+    }
+
+    #[test]
     fn infers_demands_through_an_untyped_select() {
         let mut module = Module::default();
         let left = module.locals.add(ValType::I32);
@@ -351,6 +467,7 @@ mod tests {
             .instr(LocalGet { local: condition })
             .instr(Select { ty: None });
         let function = builder.finish(vec![left, right, condition], &mut module.funcs);
+        module.exports.add("choose", function);
 
         let analyses = analyze(&module).unwrap();
 

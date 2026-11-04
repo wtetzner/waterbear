@@ -20,6 +20,7 @@ use walrus::{
 use super::{
     analysis::{
         AnalysisDb,
+        backward::BitDemand,
         calls::PointerBehavior,
         frame::{FrameObject, FrameObjectId, FrameOffset},
         index::{InstructionId, InstructionKey, ValueId},
@@ -178,9 +179,10 @@ pub fn lower_with_interrupts(
         main,
         interrupt_handlers: hir::InterruptHandlers::default(),
         functions,
-        statics: lower_statics(module, &names, &data, omitted_stack_pointer)?,
+        statics: lower_statics(module, analyses, &names, &data, omitted_stack_pointer)?,
     };
     hir_tail_calls::canonicalize(&mut program);
+    super::hir_rotate::canonicalize(&mut program);
     install_interrupt_wrappers(&mut program, &names, &interrupt_functions);
     Ok(program)
 }
@@ -348,7 +350,14 @@ impl Signatures {
                     }
                     None => parameters.iter().copied().map(wasm_type).collect(),
                 };
-                let results = results.iter().copied().map(wasm_type).collect();
+                let results = results
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(result, ty)| {
+                        analyzed_function_result_type(analyses, function.id(), result, ty)
+                    })
+                    .collect();
                 (
                     function.id(),
                     FunctionSignature {
@@ -532,6 +541,7 @@ impl StaticData {
 
 fn lower_statics(
     module: &Module,
+    analyses: &AnalysisDb,
     names: &Names,
     _data: &StaticData,
     omitted_global: Option<GlobalId>,
@@ -546,7 +556,7 @@ fn lower_statics(
                 element: Box::new(byte.clone()),
                 length: data.value.len(),
             },
-            mutable: true,
+            mutable: analyses.data_mutability.is_mutable(data.id()),
             initializer: StaticInitializer::Bytes(data.value.clone()),
         })
         .collect::<Vec<_>>();
@@ -713,7 +723,7 @@ impl<'a> FunctionLowerer<'a> {
                 parameter_types
                     .get(&local)
                     .cloned()
-                    .unwrap_or_else(|| wasm_type(module.locals.get(local).ty())),
+                    .unwrap_or_else(|| analyzed_local_type(module, analyses, function, local)),
             );
         }
 
@@ -745,6 +755,20 @@ impl<'a> FunctionLowerer<'a> {
     }
 
     fn lower(mut self) -> Result<hir::Function, LowerError> {
+        if !self.frame_lifted && self.uses_wasm_stack_pointer() {
+            let frame = &self.analyses.frames.functions[&self.function];
+            let reason = if frame.address_escapes {
+                "a frame address escapes"
+            } else if !frame.dynamic_accesses.is_empty() {
+                "it contains dynamic accesses that have not been assigned to an abstract object"
+            } else {
+                "its stack-pointer operations could not be represented as abstract objects"
+            };
+            return self.invalid(format!(
+                "WebAssembly shadow-stack frame could not be abstracted into HIR because {reason}"
+            ));
+        }
+
         let signature = self.signatures.get(self.function).clone();
         let parameters = self
             .body
@@ -876,18 +900,21 @@ impl<'a> FunctionLowerer<'a> {
                     stack.push(self.shadow_address_expression(output));
                     return Ok(Flow::continuing());
                 }
-                let analyzed =
-                    analyzed_type(self.analyses, output, self.value_is_boolean(instruction_id));
-                let ty = match self.local_types.get(&operation.local) {
-                    Some(Type::Pointer) => Type::Pointer,
-                    _ => analyzed,
+                let storage_ty = self.local_types[&operation.local].clone();
+                let analyzed = if storage_ty == Type::Pointer {
+                    Type::Pointer
+                } else {
+                    analyzed_type(self.analyses, output, self.value_is_boolean(instruction_id))
                 };
-                let expression = Expression {
-                    ty,
-                    kind: ExpressionKind::Read(Place::Variable(
-                        self.local_name(operation.local).to_owned(),
-                    )),
-                };
+                let expression = coerce(
+                    Expression {
+                        ty: storage_ty,
+                        kind: ExpressionKind::Read(Place::Variable(
+                            self.local_name(operation.local).to_owned(),
+                        )),
+                    },
+                    &analyzed,
+                );
                 stack.push(self.bind_expression(statements, "value", expression));
                 Ok(Flow::continuing())
             }
@@ -910,14 +937,15 @@ impl<'a> FunctionLowerer<'a> {
                     stack.push(self.shadow_address_expression(output));
                     return Ok(Flow::continuing());
                 }
-                let ty = analyzed_type(self.analyses, output, false);
-                let value = self.bind_expression(statements, "value", coerce(value, &ty));
                 let local_ty = self.local_types[&operation.local].clone();
+                let output_ty = analyzed_type(self.analyses, output, false);
+                let bound_ty = common_storage_type(local_ty.clone(), output_ty.clone(), &value.ty);
+                let value = self.bind_expression(statements, "value", coerce(value, &bound_ty));
                 statements.push(Statement::Assign {
                     destination: Place::Variable(self.local_name(operation.local).to_owned()),
                     value: coerce(value.clone(), &local_ty),
                 });
-                stack.push(value);
+                stack.push(coerce(value, &output_ty));
                 Ok(Flow::continuing())
             }
             GlobalGet(operation) => {
@@ -927,12 +955,16 @@ impl<'a> FunctionLowerer<'a> {
                     stack.push(self.shadow_address_expression(output));
                     return Ok(Flow::continuing());
                 }
-                let expression = Expression {
-                    ty: analyzed_type(self.analyses, output, false),
-                    kind: ExpressionKind::Read(Place::Static(
-                        self.names.global(operation.global).to_owned(),
-                    )),
-                };
+                let storage_ty = wasm_type(self.module.globals.get(operation.global).ty);
+                let expression = coerce(
+                    Expression {
+                        ty: storage_ty,
+                        kind: ExpressionKind::Read(Place::Static(
+                            self.names.global(operation.global).to_owned(),
+                        )),
+                    },
+                    &analyzed_type(self.analyses, output, false),
+                );
                 stack.push(self.bind_expression(statements, "value", expression));
                 Ok(Flow::continuing())
             }
@@ -1002,6 +1034,8 @@ impl<'a> FunctionLowerer<'a> {
                     };
                     self.bind_expression(statements, "load", expression)
                 } else {
+                    let address =
+                        self.require_abstract_pointer(address, instruction_id, "load address")?;
                     let name = self.declare_temporary(statements, "load", storage_ty.clone());
                     statements.push(Statement::Load {
                         destination: Some(Place::Variable(name.clone())),
@@ -1025,6 +1059,8 @@ impl<'a> FunctionLowerer<'a> {
                 if let Some(destination) = self.frame_place(instruction_id) {
                     statements.push(Statement::Assign { destination, value });
                 } else {
+                    let address =
+                        self.require_abstract_pointer(address, instruction_id, "store address")?;
                     statements.push(Statement::Store {
                         address: add_memory_offset(address, operation.arg.offset),
                         value,
@@ -1362,7 +1398,8 @@ impl<'a> FunctionLowerer<'a> {
                 .iter()
                 .map(|parameter| abi_type(parameter.ty))
                 .collect::<Vec<_>>();
-            let arguments = coerce_values(arguments, &parameter_types);
+            let arguments =
+                self.coerce_call_arguments(arguments, &parameter_types, &definition.symbol)?;
             let result_types = definition
                 .result
                 .map(abi_type)
@@ -1378,7 +1415,11 @@ impl<'a> FunctionLowerer<'a> {
             return Ok(());
         }
 
-        let arguments = coerce_values(arguments, &signature.parameters);
+        let arguments = self.coerce_call_arguments(
+            arguments,
+            &signature.parameters,
+            self.names.function(function),
+        )?;
         let destination = self.declare_call_result(statements, "call", &signature.results);
         statements.push(Statement::Call {
             destination: destination.as_ref().map(|(place, _)| place.clone()),
@@ -1418,7 +1459,8 @@ impl<'a> FunctionLowerer<'a> {
                 .iter()
                 .map(|parameter| abi_type(parameter.ty))
                 .collect::<Vec<_>>();
-            let arguments = coerce_values(arguments, &parameter_types);
+            let arguments =
+                self.coerce_call_arguments(arguments, &parameter_types, &definition.symbol)?;
             let result_types = definition
                 .result
                 .map(abi_type)
@@ -1444,7 +1486,11 @@ impl<'a> FunctionLowerer<'a> {
 
         statements.push(Statement::TailCall {
             function: self.names.function(function).to_owned(),
-            arguments: coerce_values(arguments, &signature.parameters),
+            arguments: self.coerce_call_arguments(
+                arguments,
+                &signature.parameters,
+                self.names.function(function),
+            )?,
         });
         Ok(())
     }
@@ -1765,12 +1811,14 @@ impl<'a> FunctionLowerer<'a> {
                 return Ok(pointer_offset(left, offset));
             }
             let full_ty = bits_type(integer_width);
+            let operation_ty =
+                narrowed_integer_operation_type(operation, &target, &left, &right, &full_ty);
             let expression = Expression {
-                ty: full_ty.clone(),
+                ty: operation_ty.clone(),
                 kind: ExpressionKind::IntegerBinary {
                     op: operation,
-                    left: Box::new(coerce_integer_operand(left, &full_ty, operation)),
-                    right: Box::new(coerce(right, &full_ty)),
+                    left: Box::new(coerce_integer_operand(left, &operation_ty, operation)),
+                    right: Box::new(coerce(right, &operation_ty)),
                 },
             };
             return Ok(coerce(expression, &target));
@@ -2127,6 +2175,74 @@ impl<'a> FunctionLowerer<'a> {
             .and_then(|inputs| inputs.get(index))
             .and_then(|input| input.stack_range(self.function))
             .is_some()
+    }
+
+    fn uses_wasm_stack_pointer(&self) -> bool {
+        let Some(stack_pointer) = self.analyses.frames.stack_pointer else {
+            return false;
+        };
+        self.analyses.index.functions[&self.function]
+            .instructions
+            .iter()
+            .any(|&instruction| {
+                matches!(
+                    self.analyses.index.instruction(self.module, instruction),
+                    Instr::GlobalGet(operation) if operation.global == stack_pointer
+                ) || matches!(
+                    self.analyses.index.instruction(self.module, instruction),
+                    Instr::GlobalSet(operation) if operation.global == stack_pointer
+                )
+            })
+    }
+
+    fn require_abstract_pointer(
+        &self,
+        expression: Expression,
+        instruction: InstructionId,
+        use_name: &str,
+    ) -> Result<Expression, LowerError> {
+        if expression.ty == Type::Pointer {
+            return Ok(expression);
+        }
+        self.invalid(format!(
+            "{use_name} at {instruction:?} is an unresolved WebAssembly linear-memory address ({:?}); addresses must resolve to an HIR object and offset",
+            expression.ty,
+        ))
+    }
+
+    fn coerce_call_arguments(
+        &self,
+        arguments: Vec<Expression>,
+        parameters: &[Type],
+        callee: &str,
+    ) -> Result<Vec<Expression>, LowerError> {
+        arguments
+            .into_iter()
+            .zip(parameters)
+            .enumerate()
+            .map(|(index, (argument, parameter))| {
+                if argument.ty == Type::Pointer && *parameter != Type::Pointer {
+                    return self.invalid(format!(
+                        "argument {index} to {callee:?} converts an abstract pointer into {:?}",
+                        parameter,
+                    ));
+                }
+                if argument.ty != Type::Pointer && *parameter == Type::Pointer {
+                    return self.invalid(format!(
+                        "argument {index} to {callee:?} is an unresolved WebAssembly linear-memory address ({:?}); addresses must resolve to an HIR object and offset",
+                        argument.ty,
+                    ));
+                }
+                let argument = coerce(argument, parameter);
+                if argument.ty != *parameter {
+                    return self.invalid(format!(
+                        "argument {index} to {callee:?} has type {:?}, expected {:?}",
+                        argument.ty, parameter,
+                    ));
+                }
+                Ok(argument)
+            })
+            .collect()
     }
 
     fn declare_results(
@@ -2543,27 +2659,90 @@ fn analyzed_type(analyses: &AnalysisDb, value: ValueId, boolean: bool) -> Type {
     let Some(ty) = analyses.index.values[value.0].ty else {
         return Type::Unit;
     };
+    let proven_width = analyses.integers.values[value.0]
+        .bits()
+        .map(|bits| bits.minimum_unsigned_width());
+    analyzed_integer_type(
+        ty,
+        Some(&analyses.demanded_bits.values[value.0]),
+        proven_width,
+        boolean,
+    )
+}
+
+fn analyzed_function_result_type(
+    analyses: &AnalysisDb,
+    function: FunctionId,
+    result: usize,
+    ty: ValType,
+) -> Type {
+    let demand = analyses
+        .demanded_bits
+        .function_results
+        .get(&function)
+        .and_then(|results| results.get(result));
+    analyzed_integer_type(ty, demand, None, false)
+}
+
+fn analyzed_integer_type(
+    ty: ValType,
+    demand: Option<&BitDemand>,
+    proven_width: Option<u8>,
+    boolean: bool,
+) -> Type {
     let original_width = match ty {
         ValType::I32 => 32,
         ValType::I64 => 64,
         ValType::V128 => 128,
         _ => return wasm_type(ty),
     };
-    let demand = &analyses.demanded_bits.values[value.0];
-    let demanded_width = if demand.demanded == 0 {
+    let demanded_width = if demand.is_none_or(|demand| demand.demanded == 0) {
         original_width
     } else {
+        let demand = demand.unwrap();
         (u128::BITS - demand.demanded.leading_zeros()) as u8
     };
-    let proven_width = analyses.integers.values[value.0]
-        .bits()
-        .map(|bits| bits.minimum_unsigned_width())
-        .unwrap_or(original_width);
+    let proven_width = proven_width.unwrap_or(original_width);
     let width = original_width.min(demanded_width).min(proven_width).max(1);
     if boolean && width == 1 {
         Type::Bool
     } else {
         bits_type(width)
+    }
+}
+
+fn analyzed_local_type(
+    module: &Module,
+    analyses: &AnalysisDb,
+    function: FunctionId,
+    local: LocalId,
+) -> Type {
+    let original = wasm_type(module.locals.get(local).ty());
+    let mut inferred = None;
+    for &instruction in &analyses.index.functions[&function].instructions {
+        let Instr::LocalGet(operation) = analyses.index.instruction(module, instruction) else {
+            continue;
+        };
+        if operation.local != local {
+            continue;
+        }
+        let Some(&output) = analyses.index.instructions[instruction.0].outputs.first() else {
+            continue;
+        };
+        let ty = analyzed_type(analyses, output, false);
+        inferred = Some(match inferred {
+            None => ty,
+            Some(previous) => common_storage_type(previous, ty, &original),
+        });
+    }
+    inferred.unwrap_or(original)
+}
+
+fn common_storage_type(left: Type, right: Type, fallback: &Type) -> Type {
+    match (left, right) {
+        (Type::Bits(left), Type::Bits(right)) => Type::Bits(left.max(right)),
+        (left, right) if left == right => left,
+        _ => fallback.clone(),
     }
 }
 
@@ -2662,9 +2841,6 @@ fn coerce(value: Expression, target: &Type) -> Expression {
         (Type::Bits(_), Type::Bool) => Some(ConversionOp::IntegerToBoolean),
         (Type::Bits(source), Type::Bits(target)) if source > target => Some(ConversionOp::Truncate),
         (Type::Bits(_), Type::Bits(_)) => Some(ConversionOp::ZeroExtend),
-        (Type::Bits(_), Type::Pointer) | (Type::Pointer, Type::Bits(_)) => {
-            Some(ConversionOp::Reinterpret)
-        }
         _ => None,
     };
     match operation {
@@ -2778,6 +2954,72 @@ fn coerce_integer_operand(
     }
 }
 
+fn narrowed_integer_operation_type(
+    operation: IntegerBinaryOp,
+    target: &Type,
+    left: &Expression,
+    right: &Expression,
+    full: &Type,
+) -> Type {
+    let (Type::Bits(target_width), Type::Bits(full_width)) = (target, full) else {
+        return full.clone();
+    };
+    if target_width >= full_width {
+        return full.clone();
+    }
+
+    let closed_over_low_bits = matches!(
+        operation,
+        IntegerBinaryOp::Add
+            | IntegerBinaryOp::Subtract
+            | IntegerBinaryOp::Multiply
+            | IntegerBinaryOp::And
+            | IntegerBinaryOp::Or
+            | IntegerBinaryOp::Xor
+    );
+    if closed_over_low_bits {
+        return target.clone();
+    }
+
+    let shift = integer_constant_value(right).and_then(|value| u8::try_from(value).ok());
+    match operation {
+        IntegerBinaryOp::ShiftLeft if shift.is_some_and(|shift| shift < target_width.get()) => {
+            target.clone()
+        }
+        IntegerBinaryOp::ShiftRight(Signedness::Unsigned)
+            if shift.is_some_and(|shift| shift < target_width.get())
+                && expression_unsigned_width(left)
+                    .is_some_and(|width| width <= target_width.get()) =>
+        {
+            target.clone()
+        }
+        _ => full.clone(),
+    }
+}
+
+fn expression_unsigned_width(expression: &Expression) -> Option<u8> {
+    match expression.ty {
+        Type::Bool => Some(1),
+        Type::Bits(width) => Some(width.get()),
+        _ => None,
+    }
+}
+
+fn integer_constant_value(expression: &Expression) -> Option<u128> {
+    match &expression.kind {
+        ExpressionKind::Constant(Constant::Bool(value)) => Some(u128::from(*value)),
+        ExpressionKind::Constant(Constant::Integer(value)) => Some(value.bits()),
+        ExpressionKind::Convert {
+            op: ConversionOp::Truncate | ConversionOp::ZeroExtend | ConversionOp::BooleanToInteger,
+            operand,
+        } => integer_constant_value(operand).map(|value| match expression.ty {
+            Type::Bits(width) if width.get() < 128 => value & ((1_u128 << width.get()) - 1),
+            _ => value,
+        }),
+        _ => None,
+    }
+}
+
 fn load_storage_type(kind: LoadKind) -> Type {
     use LoadKind::*;
     match kind {
@@ -2850,7 +3092,7 @@ fn memory_access(volatile: bool) -> MemoryAccess {
 #[cfg(test)]
 mod tests {
     use walrus::{
-        ConstExpr, FunctionBuilder, Module, ValType,
+        ConstExpr, DataKind, FunctionBuilder, Module, ValType,
         ir::{
             BinaryOp, Binop, BrIf, Call, Drop, ExtendedLoad, GlobalGet, GlobalSet, IfElse, Load,
             LoadKind, LocalGet, LocalTee, Loop, MemArg, ReturnCall, Store, StoreKind, Value,
@@ -2894,6 +3136,89 @@ mod tests {
         assert!(rendered.contains("main fn"));
         assert!(rendered.contains("add("));
         assert!(rendered.contains("return"));
+    }
+
+    #[test]
+    fn narrows_internal_results_locals_and_low_bit_operations() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        module.data.add(
+            DataKind::Active {
+                memory,
+                offset: ConstExpr::Value(Value::I32(0)),
+            },
+            vec![0],
+        );
+        let accumulator = module.locals.add(ValType::I32);
+        module.locals.get_mut(accumulator).name = Some("accumulator".into());
+
+        let mut rotate = FunctionBuilder::new(&mut module.types, &[], &[ValType::I32]);
+        rotate
+            .func_body()
+            .i32_const(0xb4)
+            .instr(LocalTee { local: accumulator })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Shl,
+            })
+            .instr(LocalGet { local: accumulator })
+            .i32_const(128)
+            .instr(Binop {
+                op: BinaryOp::I32And,
+            })
+            .i32_const(7)
+            .instr(Binop {
+                op: BinaryOp::I32ShrU,
+            })
+            .instr(Binop {
+                op: BinaryOp::I32Or,
+            });
+        let rotate = rotate.finish(Vec::new(), &mut module.funcs);
+        module.funcs.get_mut(rotate).name = Some("rotate".into());
+
+        let mut main = FunctionBuilder::new(&mut module.types, &[], &[]);
+        main.func_body()
+            .i32_const(0)
+            .instr(Call { func: rotate })
+            .instr(Store {
+                memory,
+                kind: StoreKind::I32_8 { atomic: false },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            });
+        let main = main.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).unwrap();
+        let program = lower(&module, &analyses, "main").unwrap();
+        let rendered = hir_printer::render(&program);
+        assert!(program.statics[0].mutable);
+        let rotate = program
+            .functions
+            .iter()
+            .find(|function| function.name == "rotate")
+            .unwrap();
+        let bits_8 = hir::Type::Bits(hir::BitWidth::new(8).unwrap());
+
+        assert!(rendered.contains("fn rotate() -> bits<8>"));
+        assert!(rendered.contains("let mut accumulator: bits<8>"));
+        assert_eq!(rotate.result, bits_8);
+        let Some(hir::Statement::Return(Some(result))) = rotate.body.statements.last() else {
+            panic!("rotate should end by returning its computed value");
+        };
+        let hir::ExpressionKind::IntegerBinary {
+            op: hir::IntegerBinaryOp::Or,
+            left,
+            right,
+        } = &result.kind
+        else {
+            panic!("rotate should return the combined shifts");
+        };
+        assert_eq!(left.ty, bits_8);
+        assert_eq!(right.ty, bits_8);
+        lir_lower::lower(&program).unwrap();
     }
 
     #[test]
@@ -3158,7 +3483,7 @@ mod tests {
         let error = lower(&module, &analyses, "main").unwrap_err();
 
         assert!(matches!(
-            error,
+            &error,
             LowerError::InvalidFunction { function, message }
                 if function == "main"
                     && message.contains("waterbear_vmu_sfr_p7_read")
@@ -3327,9 +3652,109 @@ mod tests {
     }
 
     #[test]
-    fn preserves_shadow_stack_storage_when_an_address_really_escapes() {
+    fn passes_recovered_frame_addresses_to_read_only_local_functions() {
         let mut module = Module::default();
         let memory = module.memories.add_local(false, false, 1, None, None);
+        let stack_pointer = module.globals.add_local(
+            ValType::I32,
+            true,
+            false,
+            ConstExpr::Value(Value::I32(1024)),
+        );
+        module.globals.get_mut(stack_pointer).name = Some("__stack_pointer".into());
+
+        let input = module.locals.add(ValType::I32);
+        module.locals.get_mut(input).name = Some("input".into());
+        let mut checksum_builder =
+            FunctionBuilder::new(&mut module.types, &[ValType::I32], &[ValType::I32]);
+        checksum_builder
+            .func_body()
+            .instr(LocalGet { local: input })
+            .instr(Load {
+                memory,
+                kind: LoadKind::I32_8 {
+                    kind: ExtendedLoad::ZeroExtend,
+                },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            });
+        let checksum = checksum_builder.finish(vec![input], &mut module.funcs);
+        module.funcs.get_mut(checksum).name = Some("checksum".into());
+
+        let frame_pointer = module.locals.add(ValType::I32);
+        let mut main_builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        main_builder
+            .func_body()
+            .instr(GlobalGet {
+                global: stack_pointer,
+            })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Sub,
+            })
+            .instr(LocalTee {
+                local: frame_pointer,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            })
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .i32_const(7)
+            .instr(Store {
+                memory,
+                kind: StoreKind::I32_8 { atomic: false },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            })
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .instr(Call { func: checksum })
+            .instr(Drop {})
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Add,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            });
+        let main = main_builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).expect("analysis succeeds");
+        let program = lower(&module, &analyses, "main").expect("lowering succeeds");
+        let rendered = hir_printer::render(&program);
+
+        assert!(rendered.contains("stack0: opaque_bytes<1>"));
+        assert!(rendered.contains("call checksum((address_of(stack0) : pointer))"));
+        assert!(
+            rendered.contains("fn checksum(input: pointer)"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("__stack_pointer"));
+        lir_lower::lower(&program).expect("LIR lowering succeeds");
+    }
+
+    #[test]
+    fn rejects_a_shadow_stack_address_that_really_escapes() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        module.data.add(
+            DataKind::Active {
+                memory,
+                offset: ConstExpr::Value(Value::I32(0)),
+            },
+            vec![0; 4],
+        );
         let stack_pointer = module.globals.add_local(
             ValType::I32,
             true,
@@ -3404,12 +3829,18 @@ mod tests {
         module.exports.add("main", main);
 
         let analyses = analyze(&module).expect("analysis succeeds");
-        let program = lower(&module, &analyses, "main").expect("lowering succeeds");
-        let rendered = hir_printer::render(&program);
+        let error = lower(&module, &analyses, "main").expect_err("lowering must reject the leak");
 
-        assert!(rendered.contains("@__stack_pointer"));
-        assert!(rendered.contains("call escape"));
-        assert!(!rendered.contains("stack0:"));
+        assert!(
+            matches!(
+                &error,
+                LowerError::InvalidFunction { function, message }
+                    if function == "main"
+                        && message.contains("shadow-stack frame")
+                        && message.contains("frame address escapes")
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]

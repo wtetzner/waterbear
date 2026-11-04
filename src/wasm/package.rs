@@ -73,9 +73,17 @@ pub fn package(
     code: &Statements,
 ) -> Result<Statements, PackageError> {
     let labels = asm_lower::function_labels(program);
+    let startup_label = unique_internal_label(&labels, "__waterbear_start");
+    let finished_label = unique_internal_label(&labels, "__waterbear_finished");
     let mut output = Statements::empty();
-    emit_vectors(&mut output, program, &labels)?;
+    emit_vectors(&mut output, program, &labels, &startup_label)?;
     emit_vms_header(&mut output, config)?;
+    emit_startup(
+        &mut output,
+        &startup_label,
+        &finished_label,
+        label_for(&labels, &program.main.name)?,
+    );
     output.append(code.as_slice());
     Ok(output)
 }
@@ -84,13 +92,11 @@ fn emit_vectors(
     output: &mut Statements,
     program: &AllocatedProgram,
     labels: &std::collections::BTreeMap<String, String>,
+    startup_label: &str,
 ) -> Result<(), PackageError> {
     output.push_comment("reset and interrupt vectors");
     output.push_org(0);
-    output.push_instr(Instr::Jmpf(Expr::name(label_for(
-        labels,
-        &program.main.name,
-    )?)));
+    output.push_instr(Instr::Jmpf(Expr::name(startup_label)));
 
     let handlers = &program.interrupt_handlers;
     for (address, name, handler) in [
@@ -127,6 +133,33 @@ fn emit_vectors(
     }
     output.push_comment("");
     Ok(())
+}
+
+fn emit_startup(output: &mut Statements, startup: &str, finished: &str, main: &str) {
+    output.push_comment("program startup");
+    output.push_label(startup);
+    output.push_instr(Instr::Callf(Expr::name(main)));
+    output.push_label(finished);
+    output.push_instr(Instr::Br(Expr::name(finished)));
+    output.push_comment("");
+}
+
+fn unique_internal_label(
+    labels: &std::collections::BTreeMap<String, String>,
+    base: &str,
+) -> String {
+    if !labels.values().any(|label| label == base) {
+        return base.to_owned();
+    }
+
+    for suffix in 1.. {
+        let candidate = format!("{base}_{suffix}");
+        if !labels.values().any(|label| label == &candidate) {
+            return candidate;
+        }
+    }
+
+    unreachable!()
 }
 
 fn label_for<'a>(
@@ -249,7 +282,9 @@ mod tests {
             .unwrap()
             .to_string();
 
-        assert!(output.contains(".org 0\n  jmpf  main"));
+        assert!(output.contains(".org 0\n  jmpf  __waterbear_start"));
+        assert!(output.contains("__waterbear_start:\n  callf main"));
+        assert!(output.contains("__waterbear_finished:\n  br    __waterbear_finished"));
         assert!(output.contains(".org $0200"));
         assert!(output.contains(".text 16 \"Waterbear WASM\""));
         assert!(output.contains("built-in blank icon"));

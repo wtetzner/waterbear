@@ -562,9 +562,8 @@ pub enum PhysicalPlacement {
     WorkRam {
         offset: WorkRamOffset,
     },
-    Flash {
-        address: u16,
-    },
+    /// Read-only bytes emitted alongside the program in code flash.
+    Flash,
     XRam {
         bank: XRamBank,
         offset: XRamOffset,
@@ -605,6 +604,9 @@ pub enum IndirectRegisterBank {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddressSpace {
+    /// Lifted WebAssembly memory. Immutable objects may reside in flash while
+    /// mutable objects and stack frames reside in work RAM.
+    MainMemory,
     MainRam(RamBank),
     /// Frame-relative addressing in compiler-managed work RAM.
     ShadowStack,

@@ -11,11 +11,14 @@ pub mod config;
 pub mod hir;
 pub mod hir_lower;
 pub mod hir_printer;
+pub mod hir_rotate;
 pub mod hir_tail_calls;
 pub mod intrinsics;
 pub mod lir;
 pub mod lir_allocate;
+pub mod lir_analysis;
 pub mod lir_lower;
+pub mod lir_opt;
 pub mod lir_printer;
 pub mod package;
 pub mod printer;
@@ -86,7 +89,8 @@ pub fn build<O: AsRef<Path>>(
         return write_output(out, text_bytes(hir_printer::render(&hir)));
     }
 
-    let lir = lir_lower::lower(&hir)?;
+    let mut lir = lir_lower::lower(&hir)?;
+    lir_opt::optimize(&mut lir);
 
     if output_type == cli::OutputType::Lir {
         return write_output(out, text_bytes(lir_printer::render(&lir)));

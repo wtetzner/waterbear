@@ -1,15 +1,19 @@
-use std::{collections::BTreeSet, convert::Infallible, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
+    fmt,
+};
 
 use walrus::{
-    Module, ValType,
-    ir::{BinaryOp, Instr, UnaryOp},
+    ConstExpr, ElementItems, ExportItem, FunctionId, GlobalKind, Module, ValType,
+    ir::{BinaryOp, Instr, UnaryOp, Value},
 };
 
 use super::{
     calls::{CallResolver, PointerBehavior},
     domain::AbstractDomain,
     forward::ForwardResults,
-    index::{InstructionId, ProgramIndex},
+    index::{InstructionId, ProgramIndex, ValueProducer},
     value_flow::ValueSet,
 };
 
@@ -34,6 +38,7 @@ pub struct BackwardContext<'a> {
     pub module: &'a Module,
     pub index: &'a ProgramIndex,
     pub instruction: InstructionId,
+    pub input_origins: &'a [ValueSet],
 }
 
 /// Defines how demands on instruction results propagate to their operands.
@@ -66,6 +71,7 @@ pub trait BackwardAnalysis {
 #[derive(Clone, Debug)]
 pub struct BackwardResults<D> {
     pub values: Vec<D>,
+    pub function_results: BTreeMap<FunctionId, Vec<D>>,
 }
 
 pub fn run_backward<A, R>(
@@ -81,25 +87,51 @@ where
 {
     let max_iterations = index.values.len().saturating_mul(129).max(128);
 
+    let function_results = flow
+        .function_returns
+        .keys()
+        .map(|&function| {
+            let demands = module
+                .types
+                .results(module.funcs.get(function).ty())
+                .iter()
+                .copied()
+                .map(|ty| A::Demand::bottom(Some(ty)))
+                .collect();
+            (function, demands)
+        })
+        .collect();
     let mut results = BackwardResults {
         values: index
             .values
             .iter()
             .map(|value| A::Demand::bottom(value.ty))
             .collect(),
+        function_results,
     };
 
-    // Function results are observable at the ABI boundary. Internal call
-    // summaries can relax this later without changing the engine.
-    for (&function, origins) in &flow.function_returns {
+    // Exported and indirectly addressable functions retain their complete
+    // WebAssembly ABI. Results of purely local functions are demanded by
+    // their callers below, allowing internal return values to become narrower.
+    for function in observable_functions(module, index) {
         let result_types = module.types.results(module.funcs.get(function).ty());
-        for (origin, ty) in origins.iter().zip(result_types) {
-            distribute(&mut results.values, origin, &A::Demand::top(*ty));
+        if let Some(demands) = results.function_results.get_mut(&function) {
+            for (demand, ty) in demands.iter_mut().zip(result_types) {
+                demand.join_assign(&A::Demand::top(*ty));
+            }
         }
     }
 
     for iteration in 0..max_iterations {
         let before = results.values.clone();
+        let function_results_before = results.function_results.clone();
+
+        for (&function, demands) in &results.function_results {
+            let origins = &flow.function_returns[&function];
+            for (origin, demand) in origins.iter().zip(demands) {
+                distribute(&mut results.values, origin, demand);
+            }
+        }
 
         for info in index.instructions.iter().rev() {
             let instruction = index.instruction(module, info.id);
@@ -108,6 +140,13 @@ where
                 .iter()
                 .map(|value| results.values[value.0].clone())
                 .collect();
+
+            propagate_call_result_demands(
+                instruction,
+                info.key.function,
+                &output_demands,
+                &mut results.function_results,
+            );
 
             if is_implicit_copy(instruction) {
                 for (&output, demand) in info.outputs.iter().zip(&output_demands) {
@@ -124,6 +163,7 @@ where
                 module,
                 index,
                 instruction: info.id,
+                input_origins,
             };
             let mut demands = analysis
                 .input_demands(&cx, instruction, &input_types, &output_demands)
@@ -150,7 +190,7 @@ where
             }
         }
 
-        if results.values == before {
+        if results.values == before && results.function_results == function_results_before {
             return Ok(results);
         }
         if iteration + 1 == max_iterations {
@@ -159,6 +199,87 @@ where
     }
 
     unreachable!()
+}
+
+fn propagate_call_result_demands<D: AbstractDomain>(
+    instruction: &Instr,
+    caller: FunctionId,
+    output_demands: &[D],
+    function_results: &mut BTreeMap<FunctionId, Vec<D>>,
+) {
+    match instruction {
+        Instr::Call(call) => {
+            if let Some(results) = function_results.get_mut(&call.func) {
+                for (result, demand) in results.iter_mut().zip(output_demands) {
+                    result.join_assign(demand);
+                }
+            }
+        }
+        Instr::ReturnCall(call) => {
+            let caller_demands = function_results.get(&caller).cloned();
+            if let (Some(caller_demands), Some(results)) =
+                (caller_demands, function_results.get_mut(&call.func))
+            {
+                for (result, demand) in results.iter_mut().zip(&caller_demands) {
+                    result.join_assign(demand);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn observable_functions(module: &Module, index: &ProgramIndex) -> BTreeSet<FunctionId> {
+    let mut functions = BTreeSet::new();
+
+    functions.extend(
+        module
+            .exports
+            .iter()
+            .filter_map(|export| match export.item {
+                ExportItem::Function(function) => Some(function),
+                _ => None,
+            }),
+    );
+    functions.extend(module.start);
+
+    for element in module.elements.iter() {
+        match &element.items {
+            ElementItems::Functions(items) => functions.extend(items.iter().copied()),
+            ElementItems::Expressions(_, items) => {
+                functions.extend(items.iter().filter_map(const_expr_function));
+            }
+        }
+    }
+    for global in module.globals.iter() {
+        if let GlobalKind::Local(initializer) = global.kind
+            && let Some(function) = const_expr_function(&initializer)
+        {
+            functions.insert(function);
+        }
+    }
+    for info in &index.instructions {
+        match index.instruction(module, info.id) {
+            Instr::RefFunc(operation) => {
+                functions.insert(operation.func);
+            }
+            // The target set of an indirect tail call is not represented in
+            // value flow yet, so its caller must retain the declared ABI too.
+            Instr::ReturnCallIndirect(_) => {
+                functions.insert(info.key.function);
+            }
+            _ => {}
+        }
+    }
+
+    functions
+}
+
+fn const_expr_function(expression: &ConstExpr) -> Option<FunctionId> {
+    match expression {
+        ConstExpr::RefFunc(function) => Some(*function),
+        _ => None,
+    }
 }
 
 fn distribute<D: AbstractDomain>(demands: &mut [D], origins: &ValueSet, demand: &D) {
@@ -347,7 +468,7 @@ impl BackwardAnalysis for DemandedBitsAnalysis {
                 .map(|demand| vec![demand])
                 .unwrap_or_else(top),
 
-            Instr::Binop(op) => binary_demands(op.op, input_types, output),
+            Instr::Binop(op) => binary_demands(_cx, op.op, input_types, output),
             Instr::Unop(op) => unary_demands(op.op, input_types, output),
             Instr::Select(_) => {
                 let value_demand = output.cloned().unwrap_or_else(|| BitDemand::bottom(None));
@@ -375,8 +496,9 @@ impl BackwardAnalysis for DemandedBitsAnalysis {
                 }
                 demands
             }
-            Instr::Return(_) => top(),
-            Instr::Br(_) | Instr::Unreachable(_) => bottom(),
+            // Function-result demands are distributed through the joined
+            // return origins by the engine, including explicit returns.
+            Instr::Return(_) | Instr::Br(_) | Instr::Unreachable(_) => bottom(),
             Instr::Call(_) | Instr::ReturnCall(_) => bottom(),
             Instr::CallIndirect(_) | Instr::ReturnCallIndirect(_) => top(),
             Instr::Block(_) | Instr::Loop(_) => bottom(),
@@ -399,6 +521,7 @@ impl BackwardAnalysis for DemandedBitsAnalysis {
 }
 
 fn binary_demands(
+    cx: &BackwardContext<'_>,
     op: BinaryOp,
     input_types: &[Option<ValType>],
     output: Option<&BitDemand>,
@@ -430,17 +553,129 @@ fn binary_demands(
         None => BitDemand::bottom(None),
     };
 
+    let demanded_with = |index: usize, bits: u128| match input_types[index] {
+        Some(ty) => BitDemand::bits(ty, bits),
+        None => BitDemand::bottom(None),
+    };
+    let exact = |index: usize| exact_integer_input(cx, index);
+    let possible_one = |index: usize| {
+        exact(index).unwrap_or_else(|| input_types[index].map(type_mask).unwrap_or_default())
+    };
+    let known_one = |index: usize| exact(index).unwrap_or_default();
+
     match op {
-        I32And | I32Or | I32Xor | I64And | I64Or | I64Xor | V128And | V128Or | V128Xor
-        | V128AndNot => vec![same_bits(0), same_bits(1)],
+        I32And | I64And | V128And => vec![
+            demanded_with(0, output.demanded & possible_one(1)),
+            demanded_with(1, output.demanded & possible_one(0)),
+        ],
+        I32Or | I64Or | V128Or => vec![
+            demanded_with(0, output.demanded & !known_one(1)),
+            demanded_with(1, output.demanded & !known_one(0)),
+        ],
+        I32Xor | I64Xor | V128Xor => vec![same_bits(0), same_bits(1)],
+        V128AndNot => vec![same_bits(0), same_bits(1)],
         I32Add | I32Sub | I32Mul | I64Add | I64Sub | I64Mul => {
             vec![prefix(0), prefix(1)]
         }
+        I32Shl | I64Shl => match exact(1) {
+            Some(amount) => {
+                let width = input_types[0].map(type_width).unwrap_or(128);
+                let amount = (amount % u128::from(width)) as u32;
+                vec![demanded_with(0, output.demanded >> amount), full(1)]
+            }
+            None => vec![prefix(0), full(1)],
+        },
+        I32ShrU | I64ShrU => match exact(1) {
+            Some(amount) => {
+                let width = input_types[0].map(type_width).unwrap_or(128);
+                let amount = (amount % u128::from(width)) as u32;
+                vec![
+                    demanded_with(0, (output.demanded << amount) & low_mask(width)),
+                    full(1),
+                ]
+            }
+            None => vec![full(0), full(1)],
+        },
+        I32ShrS | I64ShrS => match exact(1) {
+            Some(amount) => {
+                let width = input_types[0].map(type_width).unwrap_or(128);
+                let amount = (amount % u128::from(width)) as u32;
+                let shifted_in = if amount == 0 {
+                    0
+                } else {
+                    low_mask(amount) << (width - amount)
+                };
+                let sign = u128::from(output.demanded & shifted_in != 0) << (width - 1);
+                vec![
+                    demanded_with(0, ((output.demanded << amount) & low_mask(width)) | sign),
+                    full(1),
+                ]
+            }
+            None => vec![full(0), full(1)],
+        },
+        I32Rotl | I64Rotl | I32Rotr | I64Rotr => match exact(1) {
+            Some(amount) => {
+                let width = input_types[0].map(type_width).unwrap_or(128);
+                let amount = (amount % u128::from(width)) as u32;
+                let demanded = match op {
+                    I32Rotl | I64Rotl => rotate_right(output.demanded, amount, width),
+                    _ => rotate_left(output.demanded, amount, width),
+                };
+                vec![demanded_with(0, demanded), full(1)]
+            }
+            None => vec![full(0), full(1)],
+        },
         I32Eq | I32Ne | I32LtS | I32LtU | I32GtS | I32GtU | I32LeS | I32LeU | I32GeS | I32GeU
         | I64Eq | I64Ne | I64LtS | I64LtU | I64GtS | I64GtU | I64LeS | I64LeU | I64GeS | I64GeU => {
             vec![full(0), full(1)]
         }
         _ => vec![full(0), full(1)],
+    }
+}
+
+fn exact_integer_input(cx: &BackwardContext<'_>, input: usize) -> Option<u128> {
+    let origins = cx.input_origins.get(input)?;
+    if origins.unknown || origins.values.is_empty() {
+        return None;
+    }
+
+    let mut exact = None;
+    for value in &origins.values {
+        let ValueProducer::Instruction { instruction, .. } = &cx.index.values[value.0].producer
+        else {
+            return None;
+        };
+        let Instr::Const(constant) = cx.index.instruction(cx.module, *instruction) else {
+            return None;
+        };
+        let value = match constant.value {
+            Value::I32(value) => value as u32 as u128,
+            Value::I64(value) => value as u64 as u128,
+            Value::V128(value) => value,
+            Value::F32(_) | Value::F64(_) => return None,
+        };
+        match exact {
+            Some(previous) if previous != value => return None,
+            Some(_) => {}
+            None => exact = Some(value),
+        }
+    }
+    exact
+}
+
+fn rotate_left(value: u128, amount: u32, width: u32) -> u128 {
+    if amount == 0 {
+        value & low_mask(width)
+    } else {
+        ((value << amount) | (value >> (width - amount))) & low_mask(width)
+    }
+}
+
+fn rotate_right(value: u128, amount: u32, width: u32) -> u128 {
+    if amount == 0 {
+        value & low_mask(width)
+    } else {
+        ((value >> amount) | (value << (width - amount))) & low_mask(width)
     }
 }
 
