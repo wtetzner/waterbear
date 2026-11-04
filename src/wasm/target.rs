@@ -10,9 +10,15 @@ pub const FIRST_ALLOCATABLE_APPLICATION_BYTE: usize = 0x20;
 pub const VMS_HEADER_ADDRESS: usize = 0x0200;
 
 pub const XRAM_BANK_LAST_OFFSET: u8 = 0x7b;
+pub const XRAM_ICON_BANK_LAST_OFFSET: u8 = 0x05;
 
-/// Each XRAM bank occupies the contiguous direct-address window 180h through
-/// 1fbh, addressed here relative to 180h.
+/// Bitmap XRAM banks occupy 180h through 1fbh, but the last four addresses in
+/// each sixteen-address row are not implemented.
 pub const fn xram_offset_is_addressable(offset: u8) -> bool {
-    offset <= XRAM_BANK_LAST_OFFSET
+    offset <= XRAM_BANK_LAST_OFFSET && offset & 0x0f < 0x0c
+}
+
+/// The icon bank implements only 180h through 185h.
+pub const fn icon_xram_offset_is_addressable(offset: u8) -> bool {
+    offset <= XRAM_ICON_BANK_LAST_OFFSET
 }

@@ -1116,7 +1116,8 @@ fn validate_xram_access(
     length: Option<&Expression>,
     context: &str,
 ) -> Result<(), ValidationError> {
-    if let Some(bank) = bank.and_then(constant_integer)
+    let bank = bank.and_then(constant_integer);
+    if let Some(bank) = bank
         && bank > 2
     {
         return Err(ValidationError::new(
@@ -1129,7 +1130,7 @@ fn validate_xram_access(
         .and_then(constant_integer)
         .and_then(|value| u8::try_from(value).ok());
     if let Some(offset) = offset
-        && !super::target::xram_offset_is_addressable(offset)
+        && !xram_offset_is_addressable(bank, offset)
     {
         return Err(ValidationError::new(
             context,
@@ -1138,17 +1139,30 @@ fn validate_xram_access(
     }
 
     if let (Some(offset), Some(length)) = (offset, length.and_then(constant_integer)) {
-        let end = u128::from(offset).checked_add(length);
-        if !end.is_some_and(|end| end <= u128::from(super::target::XRAM_BANK_LAST_OFFSET) + 1) {
+        let valid = (0..length).all(|index| {
+            u8::try_from(index)
+                .ok()
+                .and_then(|index| offset.checked_add(index))
+                .is_some_and(|offset| xram_offset_is_addressable(bank, offset))
+        });
+        if !valid {
             return Err(ValidationError::new(
                 context,
                 format!(
-                    "constant XRAM copy from {offset:#04x} with length {length} exceeds the bank"
+                    "constant XRAM copy from {offset:#04x} with length {length} crosses an unimplemented address"
                 ),
             ));
         }
     }
     Ok(())
+}
+
+fn xram_offset_is_addressable(bank: Option<u128>, offset: u8) -> bool {
+    if bank == Some(2) {
+        super::target::icon_xram_offset_is_addressable(offset)
+    } else {
+        super::target::xram_offset_is_addressable(offset)
+    }
 }
 
 fn constant_integer(expression: &Expression) -> Option<u128> {
@@ -1269,17 +1283,32 @@ mod tests {
     }
 
     #[test]
-    fn rejects_constant_access_past_the_xram_bank() {
+    fn rejects_constant_access_to_an_unimplemented_xram_address() {
         let program = program(vec![
             Statement::Intrinsic {
                 destination: None,
                 operation: Intrinsic::XramWrite,
-                arguments: vec![byte(0), byte(0x7c), byte(0)],
+                arguments: vec![byte(0), byte(0x0c), byte(0)],
             },
             Statement::Return(None),
         ]);
 
         let error = validate(&program).unwrap_err();
-        assert!(error.to_string().contains("XRAM offset 0x7c is not mapped"));
+        assert!(error.to_string().contains("XRAM offset 0x0c is not mapped"));
+    }
+
+    #[test]
+    fn rejects_constant_access_past_the_icon_xram_bank() {
+        let program = program(vec![
+            Statement::Intrinsic {
+                destination: None,
+                operation: Intrinsic::XramWrite,
+                arguments: vec![byte(2), byte(6), byte(0)],
+            },
+            Statement::Return(None),
+        ]);
+
+        let error = validate(&program).unwrap_err();
+        assert!(error.to_string().contains("XRAM offset 0x06 is not mapped"));
     }
 }

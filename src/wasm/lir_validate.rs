@@ -11,11 +11,11 @@ use std::{
 };
 
 use super::{
-    intrinsics::AbiType,
+    intrinsics::{AbiType, Intrinsic},
     lir::*,
     target::{
         APPLICATION_RAM_BYTES, FIRST_ALLOCATABLE_APPLICATION_BYTE, WORK_RAM_BYTES,
-        xram_offset_is_addressable,
+        icon_xram_offset_is_addressable, xram_offset_is_addressable,
     },
 };
 
@@ -706,6 +706,7 @@ impl<'a, P> Validator<'a, P> {
                 ),
             ));
         }
+        validate_intrinsic_constants(operation, inputs, context)?;
         match (definition.result, outputs) {
             (None, []) => Ok(()),
             (Some(AbiType::U8), [ValueStorage::Byte(output)]) => {
@@ -990,6 +991,106 @@ impl<'a, P> Validator<'a, P> {
     }
 }
 
+fn validate_intrinsic_constants(
+    operation: Intrinsic,
+    inputs: &[ValueOperand],
+    context: &str,
+) -> Result<(), ValidationError> {
+    match operation {
+        Intrinsic::SfrBitRead(_) | Intrinsic::SfrBitWrite(_) | Intrinsic::SfrBitToggle(_) => {
+            validate_bit_index(immediate_byte(inputs, 0), context)
+        }
+        Intrinsic::XramRead | Intrinsic::XramWrite => validate_xram_access(
+            immediate_byte(inputs, 0),
+            immediate_byte(inputs, 1),
+            None,
+            context,
+        ),
+        Intrinsic::XramCopyFromMain => validate_xram_access(
+            immediate_byte(inputs, 0),
+            immediate_byte(inputs, 1),
+            immediate_byte(inputs, 4),
+            context,
+        ),
+        Intrinsic::XramCopyToMain => validate_xram_access(
+            immediate_byte(inputs, 2),
+            immediate_byte(inputs, 3),
+            immediate_byte(inputs, 4),
+            context,
+        ),
+        Intrinsic::SfrRead(_) | Intrinsic::SfrWrite(_) => Ok(()),
+    }
+}
+
+fn immediate_byte(inputs: &[ValueOperand], index: usize) -> Option<u8> {
+    match inputs.get(index) {
+        Some(ValueOperand::Byte(ByteOperand::Immediate(value))) => Some(*value),
+        _ => None,
+    }
+}
+
+fn validate_bit_index(bit: Option<u8>, context: &str) -> Result<(), ValidationError> {
+    if let Some(bit) = bit
+        && bit >= 8
+    {
+        return Err(ValidationError::new(
+            context,
+            format!("constant SFR bit index {bit} is outside 0 through 7"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_xram_access(
+    bank: Option<u8>,
+    offset: Option<u8>,
+    length: Option<u8>,
+    context: &str,
+) -> Result<(), ValidationError> {
+    if let Some(bank) = bank
+        && bank > 2
+    {
+        return Err(ValidationError::new(
+            context,
+            format!("constant XRAM bank {bank} is outside 0 through 2"),
+        ));
+    }
+
+    if let Some(offset) = offset
+        && !xram_offset_is_addressable_in_bank(bank, offset)
+    {
+        return Err(ValidationError::new(
+            context,
+            format!("constant XRAM offset {offset:#04x} is not mapped"),
+        ));
+    }
+
+    if let (Some(offset), Some(length)) = (offset, length) {
+        let valid = (0..length).all(|index| {
+            offset
+                .checked_add(index)
+                .is_some_and(|offset| xram_offset_is_addressable_in_bank(bank, offset))
+        });
+        if !valid {
+            return Err(ValidationError::new(
+                context,
+                format!(
+                    "constant XRAM copy from {offset:#04x} with length {length} crosses an unimplemented address"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn xram_offset_is_addressable_in_bank(bank: Option<u8>, offset: u8) -> bool {
+    if bank == Some(2) {
+        icon_xram_offset_is_addressable(offset)
+    } else {
+        xram_offset_is_addressable(offset)
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CallEdge<'a> {
     target: &'a str,
@@ -1234,11 +1335,16 @@ fn validate_physical_bounds(
             offset: frame_offset,
             ..
         } => usize::from(frame_offset.get()) < WORK_RAM_BYTES,
-        PhysicalPlacement::XRam { offset, .. } => (0..length).all(|index| {
+        PhysicalPlacement::XRam { bank, offset } => (0..length).all(|index| {
             u8::try_from(index)
                 .ok()
                 .and_then(|index| offset.get().checked_add(index))
-                .is_some_and(xram_offset_is_addressable)
+                .is_some_and(|offset| match bank {
+                    XRamBank::DisplayTop | XRamBank::DisplayBottom => {
+                        xram_offset_is_addressable(offset)
+                    }
+                    XRamBank::Icons => icon_xram_offset_is_addressable(offset),
+                })
         }),
         PhysicalPlacement::Accumulator
         | PhysicalPlacement::CarryFlag
@@ -1337,11 +1443,12 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::{validate_allocated, validate_virtual};
+    use crate::wasm::intrinsics::Intrinsic;
     use crate::wasm::lir::{
         Block, BlockId, ByteOperand, ByteStorage, Function, FunctionAbi, FunctionKind, Instruction,
         InstructionKind, InterruptHandlers, PhysicalPlacement, Program, Static, StaticByte,
         Storage, StorageId, StorageKind, StorageOwner, StorageRegion, Terminator, TerminatorKind,
-        VirtualPlacement, WorkRamOffset,
+        ValueOperand, VirtualPlacement, WorkRamOffset, XRamBank, XRamOffset,
     };
 
     fn storage(id: usize) -> Storage<VirtualPlacement> {
@@ -1464,6 +1571,54 @@ mod tests {
             function: "main".into(),
         };
         validate_virtual(&program).unwrap();
+    }
+
+    #[test]
+    fn rejects_constant_xram_copy_crossing_unimplemented_addresses() {
+        let copy = Instruction {
+            kind: InstructionKind::Intrinsic {
+                operation: Intrinsic::XramCopyFromMain,
+                inputs: vec![
+                    ValueOperand::Byte(ByteOperand::Immediate(1)),
+                    ValueOperand::Byte(ByteOperand::Immediate(0x18)),
+                    ValueOperand::Byte(ByteOperand::Immediate(0)),
+                    ValueOperand::Byte(ByteOperand::Immediate(0)),
+                    ValueOperand::Byte(ByteOperand::Immediate(8)),
+                ],
+                outputs: Vec::new(),
+            },
+        };
+
+        let error = validate_virtual(&program(vec![copy], Vec::new())).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("crosses an unimplemented address")
+        );
+    }
+
+    #[test]
+    fn rejects_icon_xram_placement_beyond_the_icon_bank() {
+        let virtual_program = program(Vec::new(), Vec::new());
+        let program = Program {
+            main: virtual_program.main,
+            interrupt_handlers: virtual_program.interrupt_handlers,
+            functions: virtual_program.functions,
+            statics: virtual_program.statics,
+            storages: vec![Storage {
+                id: StorageId(0),
+                name: None,
+                owner: StorageOwner::Program,
+                kind: StorageKind::Byte,
+                placement: PhysicalPlacement::XRam {
+                    bank: XRamBank::Icons,
+                    offset: XRamOffset::new(0x06).unwrap(),
+                },
+            }],
+        };
+
+        let error = validate_allocated(&program).unwrap_err();
+        assert!(error.to_string().contains("exceeds its VMU storage region"));
     }
 
     #[test]

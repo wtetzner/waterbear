@@ -260,7 +260,7 @@ pub fn definitions() -> Vec<IntrinsicDefinition> {
         IntrinsicDefinition {
             operation: Intrinsic::XramRead,
             symbol: "waterbear_vmu_xram_read".into(),
-            description: "Read one byte from XRAM bank 0 through 2 at an offset from 0x00 through 0x7b.".into(),
+            description: "Read one byte from XRAM. Banks 0 and 1 implement offsets 0x00 through 0x7b except those ending in 0xc through 0xf; bank 2 implements 0x00 through 0x05.".into(),
             parameters: vec![
                 parameter("bank", AbiType::U8),
                 parameter("offset", AbiType::U8),
@@ -272,7 +272,7 @@ pub fn definitions() -> Vec<IntrinsicDefinition> {
         IntrinsicDefinition {
             operation: Intrinsic::XramWrite,
             symbol: "waterbear_vmu_xram_write".into(),
-            description: "Write one byte to XRAM bank 0 through 2 at an offset from 0x00 through 0x7b.".into(),
+            description: "Write one byte to XRAM. Banks 0 and 1 implement offsets 0x00 through 0x7b except those ending in 0xc through 0xf; bank 2 implements 0x00 through 0x05.".into(),
             parameters: vec![
                 parameter("bank", AbiType::U8),
                 parameter("offset", AbiType::U8),
@@ -285,7 +285,7 @@ pub fn definitions() -> Vec<IntrinsicDefinition> {
         IntrinsicDefinition {
             operation: Intrinsic::XramCopyFromMain,
             symbol: "waterbear_vmu_xram_copy_from_main".into(),
-            description: "Copy bytes from WebAssembly memory into one XRAM bank; the range must stay within offsets 0x00 through 0x7b.".into(),
+            description: "Copy bytes from WebAssembly memory into one contiguous implemented XRAM range; the range must not cross an unimplemented address.".into(),
             parameters: vec![
                 parameter("bank", AbiType::U8),
                 parameter("offset", AbiType::U8),
@@ -299,7 +299,7 @@ pub fn definitions() -> Vec<IntrinsicDefinition> {
         IntrinsicDefinition {
             operation: Intrinsic::XramCopyToMain,
             symbol: "waterbear_vmu_xram_copy_to_main".into(),
-            description: "Copy bytes from one XRAM bank into WebAssembly memory; the range must stay within offsets 0x00 through 0x7b.".into(),
+            description: "Copy bytes from one contiguous implemented XRAM range into WebAssembly memory; the range must not cross an unimplemented address.".into(),
             parameters: vec![
                 parameter("destination", AbiType::MutU8Pointer),
                 parameter("bank", AbiType::U8),

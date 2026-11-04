@@ -3714,7 +3714,7 @@ mod tests {
                 local: frame_pointer,
             })
             .i32_const(1)
-            .i32_const(24)
+            .i32_const(16)
             .i32_const(8)
             .instr(Call { func: copy_to_main })
             .instr(LocalGet {

@@ -544,8 +544,9 @@ pub enum XRamBank {
 
 /// An addressable hardware byte offset within one XRAM bank.
 ///
-/// The VMU exposes the contiguous direct-address window 180h through 1fbh, so
-/// relative offsets 0x00 through 0x7b are valid.
+/// Bitmap banks expose twelve bytes in each sixteen-address row. Bank 2 is
+/// smaller still; validation applies its additional limit when the bank is
+/// known.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct XRamOffset(u8);
 
@@ -752,7 +753,7 @@ mod tests {
         );
         assert_eq!(XRamOffset::new(0x7c), None);
         assert_eq!(XRamOffset::new(0x0b).map(XRamOffset::get), Some(0x0b));
-        assert_eq!(XRamOffset::new(0x0c).map(XRamOffset::get), Some(0x0c));
+        assert_eq!(XRamOffset::new(0x0c), None);
         assert_eq!(XRamOffset::new(0x10).map(XRamOffset::get), Some(0x10));
     }
 
