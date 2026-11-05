@@ -1,0 +1,15 @@
+[package]
+name = "pocket_breaker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "pocket_breaker"
+path = "main.rs"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"

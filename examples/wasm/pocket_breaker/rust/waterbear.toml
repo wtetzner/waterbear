@@ -1,0 +1,4 @@
+[package]
+vmu_description = "PocketBreaker"
+dreamcast_description = "PocketBreaker Rust example"
+application_id = "pocket-break-rs"
