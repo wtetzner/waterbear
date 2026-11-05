@@ -12,6 +12,9 @@ fn writes_c_header_to_standard_output_by_default() {
             "uint8_t waterbear_vmu_sfr_p3_read(void);",
         ))
         .stdout(predicate::str::contains(
+            "void waterbear_vmu_sfr_p3_write(uint8_t value);",
+        ))
+        .stdout(predicate::str::contains(
             "void waterbear_vmu_xram_write(uint8_t bank, uint8_t offset, uint8_t value);",
         ));
 }
@@ -22,9 +25,10 @@ fn selects_cpp_declarations() {
         .args(["wasm", "header", "--language", "c++"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("#include <stdint.h>"))
         .stdout(predicate::str::contains("extern \"C\" {"))
         .stdout(predicate::str::contains(
-            "std::uint8_t waterbear_vmu_xram_read(std::uint8_t bank, std::uint8_t offset);",
+            "uint8_t waterbear_vmu_xram_read(uint8_t bank, uint8_t offset);",
         ));
 }
 

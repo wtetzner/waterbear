@@ -36,7 +36,7 @@ pub struct ProgramSemantics {
 }
 
 impl ProgramSemantics {
-    pub fn new(program: &Program<VirtualPlacement>) -> Self {
+    pub fn new<P>(program: &Program<P>) -> Self {
         let functions = functions(program)
             .map(|function| (function.name.clone(), function.abi.clone()))
             .collect();
@@ -120,6 +120,15 @@ pub fn interference_graph(
                     source
                 });
                 for definition in &definitions {
+                    // Assembly lowering may write an output before it has read
+                    // every input. Only a true copy promises that its source
+                    // and destination may share storage.
+                    for input in uses.iter().copied().filter(|input| {
+                        input.storage() != definition.storage()
+                            && Some(input.storage()) != copy_source
+                    }) {
+                        add_interference(&mut graph, definition.storage(), input.storage());
+                    }
                     for other in live.iter().copied().filter(|other| {
                         other.storage() != definition.storage()
                             && Some(other.storage()) != copy_source
@@ -714,7 +723,7 @@ fn successors(terminator: &TerminatorKind) -> Vec<BlockId> {
     }
 }
 
-fn functions(program: &Program<VirtualPlacement>) -> impl Iterator<Item = &Function> {
+fn functions<P>(program: &Program<P>) -> impl Iterator<Item = &Function> {
     program.all_functions()
 }
 

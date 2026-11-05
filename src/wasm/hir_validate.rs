@@ -253,6 +253,23 @@ impl FunctionValidator<'_> {
                 self.validate_expression_as(address, &Type::Pointer, context)?;
                 self.validate_expression_as(value, ty, context)
             }
+            Statement::MemoryFill {
+                destination,
+                value,
+                length,
+            } => {
+                self.validate_expression_as(destination, &Type::Pointer, context)?;
+                let byte = Type::Bits(BitWidth::new(8).expect("valid byte width"));
+                self.validate_expression_as(value, &byte, context)?;
+                self.validate_expression(length, context)?;
+                if !matches!(length.ty, Type::Bits(_)) {
+                    return Err(ValidationError::new(
+                        context,
+                        format!("memory fill length has non-integer type {:?}", length.ty),
+                    ));
+                }
+                Ok(())
+            }
             Statement::Call {
                 destination,
                 function,
@@ -528,7 +545,8 @@ impl FunctionValidator<'_> {
                     require_type(&left.ty, &right.ty, context)
                 } else {
                     require_integer(&left.ty, context)?;
-                    require_integer(&right.ty, context)
+                    require_integer(&right.ty, context)?;
+                    require_type(&left.ty, &right.ty, context)
                 }
             }
             ExpressionKind::Convert { op, operand } => {
@@ -1207,8 +1225,8 @@ fn is_terminal(statement: &Statement) -> bool {
 mod tests {
     use super::validate;
     use crate::wasm::hir::{
-        BitWidth, Block, Constant, Expression, ExpressionKind, Function, IntegerConstant,
-        InterruptHandlers, Parameter, Place, Program, Statement, Type,
+        BitWidth, Block, CompareOp, Constant, Expression, ExpressionKind, Function,
+        IntegerConstant, InterruptHandlers, Parameter, Place, Program, Statement, Type,
     };
     use crate::wasm::intrinsics::Intrinsic;
 
@@ -1255,6 +1273,33 @@ mod tests {
         ]))
         .unwrap_err();
         assert!(error.to_string().contains("not last"));
+    }
+
+    #[test]
+    fn rejects_integer_comparisons_with_different_widths() {
+        let one_bit = BitWidth::new(1).unwrap();
+        let comparison = Expression {
+            ty: Type::Bool,
+            kind: ExpressionKind::Compare {
+                op: CompareOp::Equal,
+                left: Box::new(byte(1)),
+                right: Box::new(Expression {
+                    ty: Type::Bits(one_bit),
+                    kind: ExpressionKind::Constant(Constant::Integer(
+                        IntegerConstant::new(one_bit, 1).unwrap(),
+                    )),
+                }),
+            },
+        };
+        let error = validate(&program(vec![Statement::Declare {
+            name: "different_widths".into(),
+            ty: Type::Bool,
+            mutable: false,
+            initializer: Some(comparison),
+        }]))
+        .unwrap_err();
+
+        assert!(error.to_string().contains("expected type"));
     }
 
     #[test]

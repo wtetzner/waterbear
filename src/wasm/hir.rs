@@ -143,6 +143,13 @@ pub enum Statement {
         ty: Type,
         access: MemoryAccess,
     },
+    /// Fills `length` bytes beginning at `destination` with the low byte of
+    /// `value`. The expressions are evaluated from left to right.
+    MemoryFill {
+        destination: Expression,
+        value: Expression,
+        length: Expression,
+    },
     /// Evaluates arguments from left to right, performs the call, then
     /// evaluates and assigns the destination.
     Call {

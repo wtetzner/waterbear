@@ -59,6 +59,16 @@ fn canonicalize_block(block: &mut Block, aliases: &mut Aliases) {
                 canonicalize_expression(value, aliases);
                 aliases.clear();
             }
+            Statement::MemoryFill {
+                destination,
+                value,
+                length,
+            } => {
+                canonicalize_expression(destination, aliases);
+                canonicalize_expression(value, aliases);
+                canonicalize_expression(length, aliases);
+                aliases.clear();
+            }
             Statement::Call {
                 destination,
                 arguments,

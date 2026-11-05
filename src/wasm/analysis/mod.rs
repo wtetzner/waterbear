@@ -89,15 +89,44 @@ pub fn analyze_with_imports<R: CallResolver>(
         &mut ValueFlowAnalysis,
     )
     .map_err(forward_error)?;
-    let pointer_origins = run_forward(
+    let mut pointer_origins = run_forward(
         module,
         &index,
         &ConservativeCallResolver,
         &mut PointerOriginAnalysis,
     )
     .map_err(forward_error)?;
-    let calls = InferredCallResolver::infer(module, &index, &pointer_origins, imports);
-    finish_analysis(module, index, value_flow, pointer_origins, &calls)
+    let mut calls = InferredCallResolver::infer(module, &index, &pointer_origins, imports);
+    let iteration_limit = index.values.len().max(1);
+    for iteration in 0..iteration_limit {
+        let next_origins = run_forward(module, &index, &calls, &mut PointerOriginAnalysis)
+            .map_err(forward_error)?;
+        let next_calls = InferredCallResolver::infer(module, &index, &next_origins, imports);
+        let converged = next_calls.summaries() == calls.summaries();
+        pointer_origins = next_origins;
+        calls = next_calls;
+        if converged {
+            break;
+        }
+        if iteration + 1 == iteration_limit {
+            return Err(AnalysisError::Forward(
+                "pointer provenance inference did not converge".into(),
+            ));
+        }
+    }
+    let integers =
+        run_forward(module, &index, &calls, &mut IntegerValueAnalysis).map_err(forward_error)?;
+    let demanded_bits =
+        infer_local_argument_observations(module, &index, &value_flow, &integers, &mut calls)?;
+    finish_analysis(
+        module,
+        index,
+        value_flow,
+        pointer_origins,
+        &calls,
+        Some(integers),
+        Some(demanded_bits),
+    )
 }
 
 pub fn analyze_with_calls<R: CallResolver>(
@@ -109,7 +138,51 @@ pub fn analyze_with_calls<R: CallResolver>(
         run_forward(module, &index, calls, &mut ValueFlowAnalysis).map_err(forward_error)?;
     let pointer_origins =
         run_forward(module, &index, calls, &mut PointerOriginAnalysis).map_err(forward_error)?;
-    finish_analysis(module, index, value_flow, pointer_origins, calls)
+    finish_analysis(
+        module,
+        index,
+        value_flow,
+        pointer_origins,
+        calls,
+        None,
+        None,
+    )
+}
+
+fn infer_local_argument_observations(
+    module: &Module,
+    index: &ProgramIndex,
+    value_flow: &ForwardResults<ValueSet>,
+    integers: &ForwardResults<IntegerFact>,
+    calls: &mut InferredCallResolver,
+) -> Result<BackwardResults<BitDemand>, AnalysisError> {
+    let iteration_limit = index.values.len().saturating_mul(129).max(128);
+    for _ in 0..iteration_limit {
+        let demanded_bits = run_backward(
+            module,
+            index,
+            calls,
+            value_flow,
+            &mut DemandedBitsAnalysis::new(integers),
+        )
+        .map_err(backward_error)?;
+        let mut changed = false;
+        for (&function, info) in &index.functions {
+            changed |= calls.join_observed_bits(
+                function,
+                info.parameters
+                    .iter()
+                    .map(|parameter| demanded_bits.values[parameter.0].demanded),
+            );
+        }
+        if !changed {
+            return Ok(demanded_bits);
+        }
+    }
+
+    Err(AnalysisError::Backward(
+        "local argument observation inference did not converge".into(),
+    ))
 }
 
 fn finish_analysis<R: CallResolver>(
@@ -118,22 +191,31 @@ fn finish_analysis<R: CallResolver>(
     value_flow: ForwardResults<ValueSet>,
     pointer_origins: ForwardResults<PointerOrigins>,
     calls: &R,
+    integers: Option<ForwardResults<IntegerFact>>,
+    demanded_bits: Option<BackwardResults<BitDemand>>,
 ) -> Result<AnalysisDb, AnalysisError> {
-    let integers =
-        run_forward(module, &index, calls, &mut IntegerValueAnalysis).map_err(forward_error)?;
+    let integers = match integers {
+        Some(integers) => integers,
+        None => {
+            run_forward(module, &index, calls, &mut IntegerValueAnalysis).map_err(forward_error)?
+        }
+    };
 
     let mut address_analysis = AffineAddressAnalysis::new(module);
     let addresses =
         run_forward(module, &index, calls, &mut address_analysis).map_err(forward_error)?;
 
-    let demanded_bits = run_backward(
-        module,
-        &index,
-        calls,
-        &value_flow,
-        &mut DemandedBitsAnalysis,
-    )
-    .map_err(backward_error)?;
+    let demanded_bits = match demanded_bits {
+        Some(demanded_bits) => demanded_bits,
+        None => run_backward(
+            module,
+            &index,
+            calls,
+            &value_flow,
+            &mut DemandedBitsAnalysis::new(&integers),
+        )
+        .map_err(backward_error)?,
+    };
     let frames = recover_frames(module, &index, calls, &addresses);
     let calls = module
         .funcs
@@ -177,7 +259,10 @@ mod tests {
 
     use super::{
         analyze, analyze_with_calls,
-        calls::{ArgumentSummary, CallResolver, CallSummary, MemoryEffects, PointerBehavior},
+        calls::{
+            ArgumentSummary, CallResolver, CallSummary, MemoryEffects, PointerBehavior,
+            ResultPointerSummary,
+        },
         domain::AbstractDomain,
         frame::{FrameAccessKind, FrameOffset},
         integer::IntegerFact,
@@ -232,6 +317,71 @@ mod tests {
             u8::MAX as u128
         );
         assert!(!analyses.integers.values[stored_value.0].is_bottom());
+    }
+
+    #[test]
+    fn keeps_adjacent_shadow_stack_bytes_in_one_object() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        let stack_pointer = module.globals.add_local(
+            ValType::I32,
+            true,
+            false,
+            ConstExpr::Value(walrus::ir::Value::I32(1024)),
+        );
+        module.globals.get_mut(stack_pointer).name = Some("__stack_pointer".into());
+        let frame_pointer = module.locals.add(ValType::I32);
+
+        let mut builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        builder
+            .func_body()
+            .instr(GlobalGet {
+                global: stack_pointer,
+            })
+            .i32_const(3)
+            .instr(Binop {
+                op: BinaryOp::I32Sub,
+            })
+            .instr(LocalTee {
+                local: frame_pointer,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            });
+        for offset in 0_u32..3 {
+            builder
+                .func_body()
+                .instr(LocalGet {
+                    local: frame_pointer,
+                })
+                .i32_const(offset as i32)
+                .instr(Store {
+                    memory,
+                    kind: StoreKind::I32_8 { atomic: false },
+                    arg: MemArg { align: 1, offset },
+                });
+        }
+        builder
+            .func_body()
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .i32_const(3)
+            .instr(Binop {
+                op: BinaryOp::I32Add,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            });
+        let function = builder.finish(Vec::new(), &mut module.funcs);
+
+        let analyses = analyze(&module).expect("analysis succeeds");
+        let frame = &analyses.frames.functions[&function];
+
+        assert_eq!(frame.objects.len(), 1);
+        assert_eq!(frame.objects[0].start, -3);
+        assert_eq!(frame.objects[0].size, 3);
+        assert_eq!(frame.objects[0].accesses.len(), 3);
     }
 
     #[test]
@@ -535,6 +685,12 @@ mod tests {
                     .collect(),
                 parameters,
                 results: module.types.results(ty).to_vec(),
+                result_pointers: module
+                    .types
+                    .results(ty)
+                    .iter()
+                    .map(|_| ResultPointerSummary::default())
+                    .collect(),
                 memory: MemoryEffects::None,
             }
         }

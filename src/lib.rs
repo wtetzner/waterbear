@@ -333,6 +333,7 @@ pub fn run_command(args: &[String]) {
                 out,
                 output_type,
             } => {
+                eprintln!("WARNING: WASM support is experimental. It is likely still quite buggy.");
                 if let Err(error) = wasm::build(
                     input,
                     entry.as_deref(),
@@ -342,6 +343,8 @@ pub fn run_command(args: &[String]) {
                 ) {
                     stderr.write_error().space().writeln(error);
                     exit(1);
+                } else if let Some(output) = &out {
+                    eprintln!("Built {:?}", output);
                 }
             }
             wasm::cli::WasmCommand::Header { language, output } => {

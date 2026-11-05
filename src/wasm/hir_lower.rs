@@ -380,7 +380,19 @@ impl Signatures {
                     .copied()
                     .enumerate()
                     .map(|(result, ty)| {
-                        analyzed_function_result_type(analyses, function.id(), result, ty)
+                        let pointer = analyses.calls[&function.id()]
+                            .result_pointers
+                            .get(result)
+                            .is_some_and(|summary| {
+                                summary.static_data
+                                    || summary.shadow_stack
+                                    || !summary.parameters.is_empty()
+                            });
+                        if pointer {
+                            Type::Pointer
+                        } else {
+                            analyzed_function_result_type(analyses, function.id(), result, ty)
+                        }
                     })
                     .collect();
                 (
@@ -733,6 +745,8 @@ struct FunctionLowerer<'a> {
     function_name: String,
     local_names: BTreeMap<LocalId, String>,
     local_types: BTreeMap<LocalId, Type>,
+    alternate_local_names: BTreeMap<(LocalId, bool), String>,
+    alternate_local_types: BTreeMap<(LocalId, bool), Type>,
     frames: BTreeMap<FrameObjectId, FrameLayout>,
     frame_lifted: bool,
     shadow_locals: BTreeSet<LocalId>,
@@ -779,6 +793,32 @@ impl<'a> FunctionLowerer<'a> {
             );
         }
 
+        let mut alternate_local_names = BTreeMap::new();
+        let mut alternate_local_types = BTreeMap::new();
+        for &local in analyses.index.functions[&function].locals.keys() {
+            let primary_is_pointer = local_types[&local] == Type::Pointer;
+            let alternate_is_pointer = !primary_is_pointer;
+            let alternate_ty = if alternate_is_pointer {
+                local_has_pointer_use(module, analyses, function, local).then_some(Type::Pointer)
+            } else {
+                inferred_nonpointer_local_type(module, analyses, function, local)
+            };
+            let Some(alternate_ty) = alternate_ty else {
+                continue;
+            };
+            let base = local_names[&local].clone();
+            let suffix = if alternate_is_pointer {
+                "pointer"
+            } else {
+                "value"
+            };
+            alternate_local_names.insert(
+                (local, alternate_is_pointer),
+                unique_name(&format!("{base}_{suffix}"), &mut used_names),
+            );
+            alternate_local_types.insert((local, alternate_is_pointer), alternate_ty);
+        }
+
         let frame_lifted = frame_can_be_fully_lifted(module, analyses, function);
         let frames = frame_layouts(module, analyses, function, &mut used_names);
         let shadow_locals = if frame_lifted {
@@ -797,6 +837,8 @@ impl<'a> FunctionLowerer<'a> {
             function_name: names.function(function).to_owned(),
             local_names,
             local_types,
+            alternate_local_names,
+            alternate_local_types,
             frames,
             frame_lifted,
             shadow_locals,
@@ -836,10 +878,24 @@ impl<'a> FunctionLowerer<'a> {
 
         let mut statements = Vec::new();
         for (&local, name) in &self.local_names {
-            if self.body.args.contains(&local) || self.shadow_locals.contains(&local) {
+            let ty = self.local_types[&local].clone();
+            if self.body.args.contains(&local)
+                || (ty == Type::Pointer && self.shadow_locals.contains(&local))
+            {
                 continue;
             }
-            let ty = self.local_types[&local].clone();
+            statements.push(Statement::Declare {
+                name: name.clone(),
+                ty: ty.clone(),
+                mutable: true,
+                initializer: zero_expression(&ty),
+            });
+        }
+        for (&(local, pointer), name) in &self.alternate_local_names {
+            if pointer && self.shadow_locals.contains(&local) {
+                continue;
+            }
+            let ty = self.alternate_local_types[&(local, pointer)].clone();
             statements.push(Statement::Declare {
                 name: name.clone(),
                 ty: ty.clone(),
@@ -948,12 +1004,16 @@ impl<'a> FunctionLowerer<'a> {
             }
             LocalGet(operation) => {
                 let output = self.output_value(instruction_id, 0)?;
-                if self.frame_lifted && self.value_is_shadow_address(output) {
+                let pointer = self.value_is_abstract_pointer(output);
+                if self.frame_lifted
+                    && self.shadow_locals.contains(&operation.local)
+                    && self.value_is_shadow_address(output)
+                {
                     stack.push(self.shadow_address_expression(output));
                     return Ok(Flow::continuing());
                 }
-                let storage_ty = self.local_types[&operation.local].clone();
-                let analyzed = if storage_ty == Type::Pointer {
+                let (name, storage_ty) = self.local_binding(operation.local, pointer)?;
+                let analyzed = if pointer {
                     Type::Pointer
                 } else {
                     analyzed_type(self.analyses, output, self.value_is_boolean(instruction_id))
@@ -961,9 +1021,7 @@ impl<'a> FunctionLowerer<'a> {
                 let expression = coerce(
                     Expression {
                         ty: storage_ty,
-                        kind: ExpressionKind::Read(Place::Variable(
-                            self.local_name(operation.local).to_owned(),
-                        )),
+                        kind: ExpressionKind::Read(Place::Variable(name)),
                     },
                     &analyzed,
                 );
@@ -972,12 +1030,17 @@ impl<'a> FunctionLowerer<'a> {
             }
             LocalSet(operation) => {
                 let value = self.pop(stack, instruction_id)?;
-                if self.frame_lifted && self.input_is_shadow_address(instruction_id, 0) {
+                let pointer =
+                    value.ty == Type::Pointer || self.input_is_abstract_pointer(instruction_id, 0);
+                if self.frame_lifted
+                    && self.shadow_locals.contains(&operation.local)
+                    && self.input_is_shadow_address(instruction_id, 0)
+                {
                     return Ok(Flow::continuing());
                 }
-                let ty = self.local_types[&operation.local].clone();
+                let (name, ty) = self.local_binding(operation.local, pointer)?;
                 statements.push(Statement::Assign {
-                    destination: Place::Variable(self.local_name(operation.local).to_owned()),
+                    destination: Place::Variable(name),
                     value: coerce(value, &ty),
                 });
                 Ok(Flow::continuing())
@@ -985,16 +1048,24 @@ impl<'a> FunctionLowerer<'a> {
             LocalTee(operation) => {
                 let value = self.pop(stack, instruction_id)?;
                 let output = self.output_value(instruction_id, 0)?;
-                if self.frame_lifted && self.value_is_shadow_address(output) {
+                let pointer = self.value_is_abstract_pointer(output);
+                if self.frame_lifted
+                    && self.shadow_locals.contains(&operation.local)
+                    && self.value_is_shadow_address(output)
+                {
                     stack.push(self.shadow_address_expression(output));
                     return Ok(Flow::continuing());
                 }
-                let local_ty = self.local_types[&operation.local].clone();
-                let output_ty = analyzed_type(self.analyses, output, false);
+                let (name, local_ty) = self.local_binding(operation.local, pointer)?;
+                let output_ty = if pointer {
+                    Type::Pointer
+                } else {
+                    analyzed_type(self.analyses, output, false)
+                };
                 let bound_ty = common_storage_type(local_ty.clone(), output_ty.clone(), &value.ty);
                 let value = self.bind_expression(statements, "value", coerce(value, &bound_ty));
                 statements.push(Statement::Assign {
-                    destination: Place::Variable(self.local_name(operation.local).to_owned()),
+                    destination: Place::Variable(name),
                     value: coerce(value.clone(), &local_ty),
                 });
                 stack.push(coerce(value, &output_ty));
@@ -1120,6 +1191,20 @@ impl<'a> FunctionLowerer<'a> {
                         access: memory_access(operation.kind.atomic()),
                     });
                 }
+                Ok(Flow::continuing())
+            }
+            MemoryFill(_) => {
+                let [destination, value, length] = self.pop_array(stack, instruction_id)?;
+                let destination = self.require_abstract_pointer(
+                    destination,
+                    instruction_id,
+                    "memory fill destination",
+                )?;
+                statements.push(Statement::MemoryFill {
+                    destination,
+                    value: coerce(value, &bits_type(8)),
+                    length,
+                });
                 Ok(Flow::continuing())
             }
             Call(operation) => {
@@ -1330,6 +1415,11 @@ impl<'a> FunctionLowerer<'a> {
         if flow.fallthrough {
             let values = self.sequence_results(&mut nested_stack, base, result_types.len())?;
             assign_results(&mut body, &results, values);
+            // Reaching the end of a WebAssembly loop exits it. HIR loops repeat
+            // on fallthrough, so make the WebAssembly behavior explicit.
+            body.push(Statement::Break {
+                label: Some(label.clone()),
+            });
         }
         flow.branches.remove(&sequence);
         statements.push(Statement::Loop {
@@ -1440,7 +1530,7 @@ impl<'a> FunctionLowerer<'a> {
         let signature = self.signatures.get(function).clone();
         let intrinsic = self.resolve_intrinsic(function)?;
         let arguments = self.pop_values(stack, signature.parameters.len(), instruction)?;
-        let arguments = self.recover_frame_arguments(instruction, arguments);
+        let arguments = self.recover_frame_arguments(instruction, arguments, &signature.parameters);
 
         if let Some(operation) = intrinsic {
             let definition = operation.definition().expect("registered intrinsic");
@@ -1501,7 +1591,7 @@ impl<'a> FunctionLowerer<'a> {
 
         let intrinsic = self.resolve_intrinsic(function)?;
         let arguments = self.pop_values(stack, signature.parameters.len(), instruction)?;
-        let arguments = self.recover_frame_arguments(instruction, arguments);
+        let arguments = self.recover_frame_arguments(instruction, arguments, &signature.parameters);
 
         if let Some(operation) = intrinsic {
             let definition = operation.definition().expect("registered intrinsic");
@@ -1815,6 +1905,25 @@ impl<'a> FunctionLowerer<'a> {
             _ => None,
         };
         if let Some(operation) = compare {
+            let (left, right) = if matches!(
+                operation,
+                CompareOp::FloatEqual
+                    | CompareOp::FloatNotEqual
+                    | CompareOp::FloatLessThan
+                    | CompareOp::FloatLessThanOrEqual
+                    | CompareOp::FloatGreaterThan
+                    | CompareOp::FloatGreaterThanOrEqual
+            ) {
+                (left, right)
+            } else {
+                let width = expression_bit_width(&left)
+                    .into_iter()
+                    .chain(expression_bit_width(&right))
+                    .max()
+                    .unwrap_or(integer_width);
+                let operand_ty = bits_type(width);
+                (coerce(left, &operand_ty), coerce(right, &operand_ty))
+            };
             return Ok(Expression {
                 ty: Type::Bool,
                 kind: ExpressionKind::Compare {
@@ -2142,6 +2251,7 @@ impl<'a> FunctionLowerer<'a> {
         &self,
         instruction: InstructionId,
         arguments: Vec<Expression>,
+        parameter_types: &[Type],
     ) -> Vec<Expression> {
         if !self.frame_lifted {
             return arguments;
@@ -2158,25 +2268,32 @@ impl<'a> FunctionLowerer<'a> {
             .into_iter()
             .enumerate()
             .map(|(index, argument)| {
-                if !pointer_arguments.is_some_and(|arguments| {
-                    arguments.get(index).is_some_and(|argument| {
-                        matches!(
-                            argument.pointer,
-                            PointerBehavior::ReadOnly | PointerBehavior::ReadWrite
-                        )
-                    })
-                }) {
+                let Some(summary) = pointer_arguments.and_then(|arguments| arguments.get(index))
+                else {
                     return argument;
-                }
-                inputs
+                };
+                let Some((minimum, maximum)) = inputs
                     .get(index)
                     .and_then(|input| input.stack_range(self.function))
-                    .and_then(|(minimum, maximum)| {
-                        (minimum == maximum)
-                            .then(|| self.frame_address_expression(minimum))
-                            .flatten()
-                    })
-                    .unwrap_or(argument)
+                else {
+                    return argument;
+                };
+                if minimum != maximum {
+                    return argument;
+                }
+
+                match summary.pointer {
+                    PointerBehavior::ReadOnly | PointerBehavior::ReadWrite => {
+                        self.frame_address_expression(minimum).unwrap_or(argument)
+                    }
+                    PointerBehavior::NotAPointer if summary.observed_bits == Some(0) => {
+                        parameter_types
+                            .get(index)
+                            .and_then(zero_expression)
+                            .unwrap_or(argument)
+                    }
+                    PointerBehavior::NotAPointer | PointerBehavior::Escapes => argument,
+                }
             })
             .collect()
     }
@@ -2221,12 +2338,32 @@ impl<'a> FunctionLowerer<'a> {
             .is_some()
     }
 
+    fn value_is_abstract_pointer(&self, value: ValueId) -> bool {
+        if self.value_is_shadow_address(value) {
+            return true;
+        }
+        let origins = &self.analyses.pointer_origins.values[value.0];
+        pointer_origins_are_addresses(self.analyses, self.function, origins)
+    }
+
     fn input_is_shadow_address(&self, instruction: InstructionId, index: usize) -> bool {
         self.analyses.addresses.instruction_inputs[instruction.0]
             .as_deref()
             .and_then(|inputs| inputs.get(index))
             .and_then(|input| input.stack_range(self.function))
             .is_some()
+    }
+
+    fn input_is_abstract_pointer(&self, instruction: InstructionId, index: usize) -> bool {
+        if self.input_is_shadow_address(instruction, index) {
+            return true;
+        }
+        self.analyses.pointer_origins.instruction_inputs[instruction.0]
+            .as_deref()
+            .and_then(|inputs| inputs.get(index))
+            .is_some_and(|origins| {
+                pointer_origins_are_addresses(self.analyses, self.function, origins)
+            })
     }
 
     fn uses_wasm_stack_pointer(&self) -> bool {
@@ -2364,6 +2501,22 @@ impl<'a> FunctionLowerer<'a> {
 
     fn local_name(&self, local: LocalId) -> &str {
         &self.local_names[&local]
+    }
+
+    fn local_binding(&self, local: LocalId, pointer: bool) -> Result<(String, Type), LowerError> {
+        let primary_ty = &self.local_types[&local];
+        if (*primary_ty == Type::Pointer) == pointer {
+            return Ok((self.local_names[&local].clone(), primary_ty.clone()));
+        }
+        let key = (local, pointer);
+        let Some(name) = self.alternate_local_names.get(&key) else {
+            return self.invalid(format!(
+                "local {:?} has no {} binding",
+                self.local_name(local),
+                if pointer { "pointer" } else { "integer" }
+            ));
+        };
+        Ok((name.clone(), self.alternate_local_types[&key].clone()))
     }
 
     fn pop(
@@ -2528,6 +2681,9 @@ fn frame_can_be_fully_lifted(module: &Module, analyses: &AnalysisDb, function: F
                     .accesses
                     .get(&instruction_id)
                     .is_some_and(|access| access.object.is_some()),
+                Instr::MemoryFill(_) if input_index == 0 && minimum == maximum => {
+                    frame_object_at_offset(frame, minimum).is_some()
+                }
                 Instr::LocalSet(_) | Instr::LocalTee(_) | Instr::Drop(_) => true,
                 Instr::GlobalSet(set) => Some(set.global) == analyses.frames.stack_pointer,
                 Instr::Binop(operation)
@@ -2545,11 +2701,12 @@ fn frame_can_be_fully_lifted(module: &Module, analyses: &AnalysisDb, function: F
                 Instr::Call(call) if minimum == maximum => analyses.calls[&call.func]
                     .arguments
                     .get(input_index)
-                    .is_some_and(|argument| {
-                        matches!(
-                            argument.pointer,
-                            PointerBehavior::ReadOnly | PointerBehavior::ReadWrite
-                        ) && frame_object_at_offset(frame, minimum).is_some()
+                    .is_some_and(|argument| match argument.pointer {
+                        PointerBehavior::ReadOnly | PointerBehavior::ReadWrite => {
+                            frame_object_at_offset(frame, minimum).is_some()
+                        }
+                        PointerBehavior::NotAPointer => argument.observed_bits == Some(0),
+                        PointerBehavior::Escapes => false,
                     }),
                 _ => false,
             };
@@ -2708,7 +2865,9 @@ fn result_type(results: &[Type]) -> Type {
 }
 
 fn analyzed_type(analyses: &AnalysisDb, value: ValueId, boolean: bool) -> Type {
-    let Some(ty) = analyses.index.values[value.0].ty else {
+    let Some(ty) =
+        super::analysis::value_flow::value_type(&analyses.index, &analyses.value_flow, value)
+    else {
         return Type::Unit;
     };
     let proven_width = analyses.integers.values[value.0]
@@ -2770,6 +2929,16 @@ fn analyzed_local_type(
     local: LocalId,
 ) -> Type {
     let original = wasm_type(module.locals.get(local).ty());
+    inferred_nonpointer_local_type(module, analyses, function, local).unwrap_or(original)
+}
+
+fn inferred_nonpointer_local_type(
+    module: &Module,
+    analyses: &AnalysisDb,
+    function: FunctionId,
+    local: LocalId,
+) -> Option<Type> {
+    let original = wasm_type(module.locals.get(local).ty());
     let mut inferred = None;
     for &instruction in &analyses.index.functions[&function].instructions {
         let Instr::LocalGet(operation) = analyses.index.instruction(module, instruction) else {
@@ -2781,13 +2950,88 @@ fn analyzed_local_type(
         let Some(&output) = analyses.index.instructions[instruction.0].outputs.first() else {
             continue;
         };
+        if analyzed_value_is_pointer(analyses, function, output) {
+            continue;
+        }
         let ty = analyzed_type(analyses, output, false);
         inferred = Some(match inferred {
             None => ty,
             Some(previous) => common_storage_type(previous, ty, &original),
         });
     }
-    inferred.unwrap_or(original)
+    inferred
+}
+
+fn local_has_pointer_use(
+    module: &Module,
+    analyses: &AnalysisDb,
+    function: FunctionId,
+    local: LocalId,
+) -> bool {
+    analyses.index.functions[&function]
+        .instructions
+        .iter()
+        .copied()
+        .any(
+            |instruction| match analyses.index.instruction(module, instruction) {
+                Instr::LocalGet(operation) if operation.local == local => analyses
+                    .index
+                    .instructions[instruction.0]
+                    .outputs
+                    .first()
+                    .is_some_and(|output| analyzed_value_is_pointer(analyses, function, *output)),
+                Instr::LocalSet(operation) if operation.local == local => {
+                    analyses.pointer_origins.instruction_inputs[instruction.0]
+                        .as_deref()
+                        .and_then(|inputs| inputs.first())
+                        .is_some_and(|origins| {
+                            pointer_origins_are_addresses(analyses, function, origins)
+                        })
+                }
+                Instr::LocalTee(operation) if operation.local == local => {
+                    analyses.pointer_origins.instruction_inputs[instruction.0]
+                        .as_deref()
+                        .and_then(|inputs| inputs.first())
+                        .is_some_and(|origins| {
+                            pointer_origins_are_addresses(analyses, function, origins)
+                        })
+                }
+                _ => false,
+            },
+        )
+}
+
+fn analyzed_value_is_pointer(analyses: &AnalysisDb, function: FunctionId, value: ValueId) -> bool {
+    if analyses.addresses.values[value.0]
+        .stack_range(function)
+        .is_some()
+    {
+        return true;
+    }
+    pointer_origins_are_addresses(
+        analyses,
+        function,
+        &analyses.pointer_origins.values[value.0],
+    )
+}
+
+fn pointer_origins_are_addresses(
+    analyses: &AnalysisDb,
+    function: FunctionId,
+    origins: &super::analysis::pointer::PointerOrigins,
+) -> bool {
+    if origins.static_data || origins.shadow_stack {
+        return true;
+    }
+    let info = &analyses.index.functions[&function];
+    let summary = &analyses.calls[&function];
+    origins.parameters.iter().any(|origin| {
+        info.parameters
+            .iter()
+            .position(|parameter| parameter == origin)
+            .and_then(|index| summary.arguments.get(index))
+            .is_some_and(|argument| argument.pointer != PointerBehavior::NotAPointer)
+    })
 }
 
 fn common_storage_type(left: Type, right: Type, fallback: &Type) -> Type {
@@ -3033,19 +3277,28 @@ fn narrowed_integer_operation_type(
         return target.clone();
     }
 
-    let shift = integer_constant_value(right).and_then(|value| u8::try_from(value).ok());
+    let shift_is_in_range = integer_constant_value(right)
+        .and_then(|value| u8::try_from(value).ok())
+        .is_some_and(|shift| shift < target_width.get())
+        || expression_unsigned_width(right)
+            .is_some_and(|width| maximum_unsigned_value(width) < u128::from(target_width.get()));
     match operation {
-        IntegerBinaryOp::ShiftLeft if shift.is_some_and(|shift| shift < target_width.get()) => {
-            target.clone()
-        }
+        IntegerBinaryOp::ShiftLeft if shift_is_in_range => target.clone(),
         IntegerBinaryOp::ShiftRight(Signedness::Unsigned)
-            if shift.is_some_and(|shift| shift < target_width.get())
+            if shift_is_in_range
                 && expression_unsigned_width(left)
                     .is_some_and(|width| width <= target_width.get()) =>
         {
             target.clone()
         }
         _ => full.clone(),
+    }
+}
+
+fn maximum_unsigned_value(width: u8) -> u128 {
+    match width {
+        128 => u128::MAX,
+        width => (1_u128 << width) - 1,
     }
 }
 
@@ -3147,7 +3400,8 @@ mod tests {
         ConstExpr, DataKind, FunctionBuilder, Module, ValType,
         ir::{
             BinaryOp, Binop, BrIf, Call, Drop, ExtendedLoad, GlobalGet, GlobalSet, IfElse, Load,
-            LoadKind, LocalGet, LocalTee, Loop, MemArg, ReturnCall, Store, StoreKind, Value,
+            LoadKind, LocalGet, LocalSet, LocalTee, Loop, MemArg, MemoryFill, ReturnCall, Select,
+            Store, StoreKind, Value,
         },
     };
 
@@ -3188,6 +3442,56 @@ mod tests {
         assert!(rendered.contains("main fn"));
         assert!(rendered.contains("add("));
         assert!(rendered.contains("return"));
+    }
+
+    #[test]
+    fn recovers_the_result_type_of_an_untyped_select() {
+        let mut module = Module::default();
+        let condition = module.locals.add(ValType::I32);
+        let mut builder = FunctionBuilder::new(&mut module.types, &[ValType::I32], &[ValType::I32]);
+        builder
+            .func_body()
+            .i32_const(7)
+            .i32_const(9)
+            .instr(LocalGet { local: condition })
+            .instr(Select { ty: None });
+        let main = builder.finish(vec![condition], &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).unwrap();
+        let program = lower(&module, &analyses, "main").unwrap();
+        let rendered = hir_printer::render(&program);
+
+        assert!(rendered.contains("select("));
+        assert!(!rendered.contains(": unit"));
+        assert_eq!(
+            program.main.result,
+            hir::Type::Bits(hir::BitWidth::new(32).unwrap())
+        );
+    }
+
+    #[test]
+    fn gives_narrow_integer_comparisons_equal_width_operands() {
+        let mut module = Module::default();
+        let mut builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        builder
+            .func_body()
+            .i32_const(15)
+            .i32_const(0)
+            .instr(Binop {
+                op: BinaryOp::I32Ne,
+            })
+            .instr(Drop {});
+        let main = builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).unwrap();
+        let program = lower(&module, &analyses, "main").unwrap();
+        let rendered = hir_printer::render(&program);
+
+        assert!(rendered.contains("compare.not_equal((15 : bits<4>)"));
+        assert!(rendered.contains("(convert.zero_extend((0 : bits<1>)) : bits<4>)"));
+        lir_lower::lower(&program).unwrap();
     }
 
     #[test]
@@ -3664,6 +3968,220 @@ mod tests {
     }
 
     #[test]
+    fn fills_a_recovered_local_frame_object() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        let stack_pointer = module.globals.add_local(
+            ValType::I32,
+            true,
+            false,
+            ConstExpr::Value(Value::I32(1024)),
+        );
+        module.globals.get_mut(stack_pointer).name = Some("__stack_pointer".into());
+        let frame_pointer = module.locals.add(ValType::I32);
+        let mut builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        builder
+            .func_body()
+            .instr(GlobalGet {
+                global: stack_pointer,
+            })
+            .i32_const(32)
+            .instr(Binop {
+                op: BinaryOp::I32Sub,
+            })
+            .instr(LocalTee {
+                local: frame_pointer,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            })
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .i32_const(0)
+            .i32_const(32)
+            .instr(MemoryFill { memory })
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .i32_const(32)
+            .instr(Binop {
+                op: BinaryOp::I32Add,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            });
+        let main = builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).expect("analysis succeeds");
+        let program = lower(&module, &analyses, "main").expect("HIR lowering succeeds");
+        let rendered = hir_printer::render(&program);
+
+        assert!(rendered.contains("stack0: opaque_bytes<32>"), "{rendered}");
+        assert!(
+            rendered.contains("memory.fill((address_of(stack0) : pointer)"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("__stack_pointer"), "{rendered}");
+
+        let lir = lir_lower::lower(&program).expect("LIR lowering succeeds");
+        assert!(lir.main.blocks.iter().any(|block| {
+            block.instructions.iter().any(|instruction| {
+                matches!(
+                    instruction.kind,
+                    crate::wasm::lir::InstructionKind::StoreIndirect { .. }
+                )
+            })
+        }));
+    }
+
+    #[test]
+    fn preserves_pointer_results_from_local_helpers() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        let stack_pointer = module.globals.add_local(
+            ValType::I32,
+            true,
+            false,
+            ConstExpr::Value(Value::I32(1024)),
+        );
+        module.globals.get_mut(stack_pointer).name = Some("__stack_pointer".into());
+
+        let input = module.locals.add(ValType::I32);
+        module.locals.get_mut(input).name = Some("input".into());
+        let mut initialize =
+            FunctionBuilder::new(&mut module.types, &[ValType::I32], &[ValType::I32]);
+        initialize
+            .func_body()
+            .instr(LocalGet { local: input })
+            .i32_const(0)
+            .instr(Store {
+                memory,
+                kind: StoreKind::I32_8 { atomic: false },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            })
+            .instr(LocalGet { local: input });
+        let initialize = initialize.finish(vec![input], &mut module.funcs);
+        module.funcs.get_mut(initialize).name = Some("initialize".into());
+
+        let frame_pointer = module.locals.add(ValType::I32);
+        let mut main = FunctionBuilder::new(&mut module.types, &[], &[]);
+        main.func_body()
+            .instr(GlobalGet {
+                global: stack_pointer,
+            })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Sub,
+            })
+            .instr(LocalTee {
+                local: frame_pointer,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            })
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .instr(Call { func: initialize })
+            .instr(Drop {})
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Add,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            });
+        let main = main.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).expect("analysis succeeds");
+        let program = lower(&module, &analyses, "main").expect("lowering succeeds");
+        let rendered = hir_printer::render(&program);
+
+        assert!(
+            rendered.contains("fn initialize(input: pointer) -> pointer"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("call initialize((address_of(stack0) : pointer))"),
+            "{rendered}"
+        );
+        lir_lower::lower(&program).expect("LIR lowering succeeds");
+    }
+
+    #[test]
+    fn separates_pointer_and_integer_uses_of_a_reused_wasm_local() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        let stack_pointer = module.globals.add_local(
+            ValType::I32,
+            true,
+            false,
+            ConstExpr::Value(Value::I32(1024)),
+        );
+        module.globals.get_mut(stack_pointer).name = Some("__stack_pointer".into());
+        let reused = module.locals.add(ValType::I32);
+        module.locals.get_mut(reused).name = Some("reused".into());
+
+        let mut builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        builder
+            .func_body()
+            .instr(GlobalGet {
+                global: stack_pointer,
+            })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Sub,
+            })
+            .instr(LocalTee { local: reused })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            })
+            .instr(LocalGet { local: reused })
+            .i32_const(1)
+            .instr(Store {
+                memory,
+                kind: StoreKind::I32_8 { atomic: false },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            })
+            .instr(LocalGet { local: reused })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Add,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            })
+            .i32_const(0)
+            .instr(LocalSet { local: reused })
+            .instr(LocalGet { local: reused })
+            .instr(Drop {});
+        let main = builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).expect("analysis succeeds");
+        let program = lower(&module, &analyses, "main").expect("lowering succeeds");
+        let rendered = hir_printer::render(&program);
+
+        assert!(rendered.contains("reused: bits<1>"), "{rendered}");
+        assert!(!rendered.contains("reused_pointer"), "{rendered}");
+        assert!(rendered.contains("stack0: bits<8>"), "{rendered}");
+        assert!(!rendered.contains("__stack_pointer"), "{rendered}");
+        lir_lower::lower(&program).expect("LIR lowering succeeds");
+    }
+
+    #[test]
     fn passes_recovered_frame_addresses_to_intrinsics() {
         let mut module = Module::default();
         let memory = module.memories.add_local(false, false, 1, None, None);
@@ -3838,6 +4356,73 @@ mod tests {
     }
 
     #[test]
+    fn erases_a_shadow_stack_address_passed_to_an_unobserved_parameter() {
+        let mut module = Module::default();
+        let stack_pointer = module.globals.add_local(
+            ValType::I32,
+            true,
+            false,
+            ConstExpr::Value(Value::I32(1024)),
+        );
+        module.globals.get_mut(stack_pointer).name = Some("__stack_pointer".into());
+
+        let ignored = module.locals.add(ValType::I32);
+        module.locals.get_mut(ignored).name = Some("ignored".into());
+        let callee = FunctionBuilder::new(&mut module.types, &[ValType::I32], &[])
+            .finish(vec![ignored], &mut module.funcs);
+        module.funcs.get_mut(callee).name = Some("callee".into());
+
+        let frame_pointer = module.locals.add(ValType::I32);
+        let mut main_builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        main_builder
+            .func_body()
+            .instr(GlobalGet {
+                global: stack_pointer,
+            })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Sub,
+            })
+            .instr(LocalTee {
+                local: frame_pointer,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            })
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .instr(Call { func: callee })
+            .instr(LocalGet {
+                local: frame_pointer,
+            })
+            .i32_const(1)
+            .instr(Binop {
+                op: BinaryOp::I32Add,
+            })
+            .instr(GlobalSet {
+                global: stack_pointer,
+            });
+        let main = main_builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).expect("analysis succeeds");
+        let program = lower(&module, &analyses, "main").expect("lowering succeeds");
+        let rendered = hir_printer::render(&program);
+
+        assert!(
+            rendered.contains("fn callee(ignored: bits<32>)"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("call callee((0 : bits<32>))"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("__stack_pointer"), "{rendered}");
+        lir_lower::lower(&program).expect("LIR lowering succeeds");
+    }
+
+    #[test]
     fn rejects_a_shadow_stack_address_that_really_escapes() {
         let mut module = Module::default();
         let memory = module.memories.add_local(false, false, 1, None, None);
@@ -3993,5 +4578,68 @@ mod tests {
         assert!(rendered.contains("if_result"));
         assert!(rendered.contains("loop loop0"));
         assert!(rendered.contains("continue loop0;"));
+        assert!(rendered.contains("break loop0;"));
+    }
+
+    #[test]
+    fn narrows_a_bounded_variable_shift_to_the_stored_width() {
+        let mut module = Module::default();
+        let memory = module.memories.add_local(false, false, 1, None, None);
+        module.data.add(
+            DataKind::Active {
+                memory,
+                offset: ConstExpr::Value(Value::I32(0)),
+            },
+            vec![0],
+        );
+
+        let shift = module.locals.add(ValType::I32);
+        module.locals.get_mut(shift).name = Some("shift".into());
+        let mut mask_builder =
+            FunctionBuilder::new(&mut module.types, &[ValType::I32], &[ValType::I32]);
+        mask_builder
+            .func_body()
+            .i32_const(0x80)
+            .instr(LocalGet { local: shift })
+            .i32_const(7)
+            .instr(Binop {
+                op: BinaryOp::I32And,
+            })
+            .instr(Binop {
+                op: BinaryOp::I32ShrU,
+            });
+        let mask = mask_builder.finish(vec![shift], &mut module.funcs);
+        module.funcs.get_mut(mask).name = Some("pixel_mask".into());
+
+        let mut main_builder = FunctionBuilder::new(&mut module.types, &[], &[]);
+        main_builder
+            .func_body()
+            .i32_const(0)
+            .i32_const(3)
+            .instr(Call { func: mask })
+            .instr(Store {
+                memory,
+                kind: StoreKind::I32_8 { atomic: false },
+                arg: MemArg {
+                    align: 1,
+                    offset: 0,
+                },
+            });
+        let main = main_builder.finish(Vec::new(), &mut module.funcs);
+        module.exports.add("main", main);
+
+        let analyses = analyze(&module).expect("analysis succeeds");
+        let program = lower(&module, &analyses, "main").expect("lowering succeeds");
+        let rendered = hir_printer::render(&program);
+
+        assert!(
+            rendered.contains("fn pixel_mask(shift: bits<3>) -> bits<8>"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("shift_right.unsigned((128 : bits<8>)"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("shift_right.unsigned((128 : bits<32>)"));
     }
 }

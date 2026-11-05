@@ -6,7 +6,7 @@ use walrus::{
 };
 
 use super::{
-    calls::{CallResolver, CallSummary},
+    calls::{CallResolver, CallSummary, ResultPointerSummary},
     domain::AbstractDomain,
     index::{InstructionId, InstructionKey, ProgramIndex, ValueId, ValueProducer},
     shape::{instruction_shape, sequence_signature, value_type, zero_value},
@@ -603,6 +603,16 @@ where
                         parameters: self.module.types.params(op.ty).to_vec(),
                         results: self.module.types.results(op.ty).to_vec(),
                         arguments: Vec::new(),
+                        result_pointers: self
+                            .module
+                            .types
+                            .results(op.ty)
+                            .iter()
+                            .map(|_| ResultPointerSummary {
+                                unknown: true,
+                                ..ResultPointerSummary::default()
+                            })
+                            .collect(),
                         memory: super::calls::MemoryEffects::Unknown,
                     }),
                     _ => None,

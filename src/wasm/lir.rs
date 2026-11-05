@@ -310,7 +310,7 @@ pub enum RotateDirection {
     Right,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ShiftOp {
     Left,
     RightUnsigned,

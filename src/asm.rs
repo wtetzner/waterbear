@@ -360,9 +360,7 @@ fn generate_bytes(
                             match item {
                                 ByteValue::Expr(expr) => {
                                     let value = expr.eval(&env)?;
-                                    if value < (std::i8::MIN as i32)
-                                        || value > (std::u8::MAX as i32)
-                                    {
+                                    if value < (i8::MIN as i32) || value > (u8::MAX as i32) {
                                         return Err(AssemblyError::ByteOutOfRange {
                                             span: expr.span(),
                                             value: value,
@@ -428,7 +426,7 @@ fn generate_bytes(
                         let env = names.as_env("Name", &current_global);
                         for expr in words.iter() {
                             let value = expr.eval(&env)?;
-                            if value < (std::i16::MIN as i32) || value > (std::u16::MAX as i32) {
+                            if value < (i16::MIN as i32) || value > (u16::MAX as i32) {
                                 return Err(AssemblyError::WordOutOfRange {
                                     span: expr.span(),
                                     value: value,

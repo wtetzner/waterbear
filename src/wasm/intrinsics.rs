@@ -7,6 +7,7 @@ use walrus::{FunctionId, FunctionKind, Module};
 
 use super::analysis::calls::{
     ArgumentSummary, CallResolver, CallSummary, MemoryEffects, PointerBehavior,
+    ResultPointerSummary,
 };
 
 pub mod header;
@@ -184,7 +185,7 @@ pub const SFR_DEFINITIONS: &[SfrDefinition] = &[
         register: Sfr::Port3,
         symbol: "p3",
         description: "port 3 button input latch",
-        access: SfrAccess::READ_ONLY,
+        access: SfrAccess::READ_WRITE,
     },
     SfrDefinition {
         register: Sfr::Port7,
@@ -365,6 +366,11 @@ impl CallResolver for IntrinsicCallResolver {
             parameters,
             results,
             arguments,
+            result_pointers: definition
+                .result
+                .iter()
+                .map(|_| ResultPointerSummary::default())
+                .collect(),
             memory: intrinsic_memory_effects(&definition.effects),
         }
     }
@@ -492,6 +498,10 @@ mod tests {
         assert_eq!(
             resolve("waterbear_vmu_xram_write"),
             Some(Intrinsic::XramWrite)
+        );
+        assert_eq!(
+            resolve("waterbear_vmu_sfr_p3_write"),
+            Some(Intrinsic::SfrWrite(Sfr::Port3))
         );
         assert_eq!(resolve("waterbear_vmu_missing"), None);
     }

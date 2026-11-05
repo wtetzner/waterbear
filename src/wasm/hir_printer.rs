@@ -161,6 +161,19 @@ impl Printer {
                     format_memory_access(*access),
                 ),
             ),
+            Statement::MemoryFill {
+                destination,
+                value,
+                length,
+            } => self.line(
+                indent,
+                format_args!(
+                    "memory.fill({}, {}, {});",
+                    format_expression(destination),
+                    format_expression(value),
+                    format_expression(length),
+                ),
+            ),
             Statement::Call {
                 destination,
                 function,

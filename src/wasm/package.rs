@@ -12,6 +12,8 @@ use crate::{
 
 use super::{asm_lower, config::PackageConfig, lir::AllocatedProgram, target::VMS_HEADER_ADDRESS};
 
+const INTERRUPT_ENABLE: u16 = 0x0108;
+
 #[derive(Debug)]
 pub enum PackageError {
     MissingFunctionLabel(String),
@@ -136,6 +138,11 @@ fn emit_vectors(
 fn emit_startup(output: &mut Statements, startup: &str, finished: &str, main: &str) {
     output.push_comment("program startup");
     output.push_label(startup);
+    output.push_comment("do not inherit the BIOS interrupt configuration");
+    output.push_instr(Instr::Mov_d9(
+        Expr::num(0),
+        Expr::num(i32::from(INTERRUPT_ENABLE)),
+    ));
     output.push_instr(Instr::Callf(Expr::name(main)));
     output.push_label(finished);
     output.push_instr(Instr::Br(Expr::name(finished)));
@@ -281,7 +288,9 @@ mod tests {
             .to_string();
 
         assert!(output.contains(".org 0\n  jmpf  __waterbear_start"));
-        assert!(output.contains("__waterbear_start:\n  callf main"));
+        assert!(output.contains(
+            "__waterbear_start:\n  ;; do not inherit the BIOS interrupt configuration\n  mov   #$00, $0108\n  callf main"
+        ));
         assert!(output.contains("__waterbear_finished:\n  br    __waterbear_finished"));
         assert!(output.contains(".org $0200"));
         assert!(output.contains(".text 16 \"Waterbear WASM\""));

@@ -4,8 +4,8 @@ use walrus::{ValType, ir::Instr};
 
 use super::{
     domain::AbstractDomain,
-    forward::{ForwardAnalysis, RootKind, TransferContext},
-    index::ValueId,
+    forward::{ForwardAnalysis, ForwardResults, RootKind, TransferContext},
+    index::{ProgramIndex, ValueId},
 };
 
 /// The static value-production sites that can reach a program point.
@@ -22,6 +22,48 @@ impl ValueSet {
             unknown: false,
         }
     }
+}
+
+/// Recovers the WebAssembly type of a value whose instruction does not carry
+/// one explicitly, such as the result of an untyped `select`.
+pub(crate) fn value_type(
+    index: &ProgramIndex,
+    flow: &ForwardResults<ValueSet>,
+    value: ValueId,
+) -> Option<ValType> {
+    index.values[value.0]
+        .ty
+        .or_else(|| source_type(index, flow, &flow.values[value.0]))
+}
+
+/// Finds the common WebAssembly type of the values represented by `origins`.
+/// A well-typed module cannot merge different types, but returning `None` for
+/// an inconsistent set keeps malformed programmatic Walrus modules harmless.
+pub(crate) fn source_type(
+    index: &ProgramIndex,
+    flow: &ForwardResults<ValueSet>,
+    origins: &ValueSet,
+) -> Option<ValType> {
+    let mut pending = origins.values.iter().copied().collect::<Vec<_>>();
+    let mut visited = BTreeSet::new();
+    let mut common = None;
+
+    while let Some(value) = pending.pop() {
+        if !visited.insert(value) {
+            continue;
+        }
+        if let Some(candidate) = index.values[value.0].ty {
+            match common {
+                None => common = Some(candidate),
+                Some(existing) if existing == candidate => {}
+                Some(_) => return None,
+            }
+        } else {
+            pending.extend(flow.values[value.0].values.iter().copied());
+        }
+    }
+
+    common
 }
 
 impl AbstractDomain for ValueSet {

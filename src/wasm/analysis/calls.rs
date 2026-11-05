@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use walrus::{FunctionId, FunctionKind, Module, ValType, ir::Instr};
 
@@ -27,11 +27,21 @@ pub struct ArgumentSummary {
     pub pointer: PointerBehavior,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResultPointerSummary {
+    /// Parameter indexes whose pointer identity can reach this result.
+    pub parameters: BTreeSet<usize>,
+    pub static_data: bool,
+    pub shadow_stack: bool,
+    pub unknown: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CallSummary {
     pub parameters: Vec<ValType>,
     pub results: Vec<ValType>,
     pub arguments: Vec<ArgumentSummary>,
+    pub result_pointers: Vec<ResultPointerSummary>,
     pub memory: MemoryEffects,
 }
 
@@ -48,11 +58,19 @@ impl CallSummary {
                 pointer: PointerBehavior::Escapes,
             })
             .collect();
+        let result_pointers = results
+            .iter()
+            .map(|_| ResultPointerSummary {
+                unknown: true,
+                ..ResultPointerSummary::default()
+            })
+            .collect();
 
         Self {
             parameters,
             results,
             arguments,
+            result_pointers,
             memory: MemoryEffects::Unknown,
         }
     }
@@ -65,15 +83,23 @@ impl CallSummary {
             .iter()
             .copied()
             .map(|ty| ArgumentSummary {
-                observed_bits: integer_mask(ty),
+                // Local argument observations are inferred from the body.
+                // Starting at no observations lets the fixed point distinguish
+                // an unused parameter from one whose integer bits are read.
+                observed_bits: integer_mask(ty).map(|_| 0),
                 pointer: PointerBehavior::NotAPointer,
             })
+            .collect();
+        let result_pointers = results
+            .iter()
+            .map(|_| ResultPointerSummary::default())
             .collect();
 
         Self {
             parameters,
             results,
             arguments,
+            result_pointers,
             memory: MemoryEffects::Unknown,
         }
     }
@@ -155,6 +181,30 @@ impl InferredCallResolver {
                         argument.observed_bits = None;
                     }
                 }
+                let pointer_parameters = summary
+                    .arguments
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, argument)| {
+                        (argument.pointer != PointerBehavior::NotAPointer).then_some(index)
+                    })
+                    .collect::<BTreeSet<_>>();
+                summary.result_pointers = origins.function_returns[&function]
+                    .iter()
+                    .map(|result| ResultPointerSummary {
+                        parameters: result
+                            .parameters
+                            .iter()
+                            .filter_map(|origin| {
+                                parameters.iter().position(|parameter| parameter == origin)
+                            })
+                            .filter(|index| pointer_parameters.contains(index))
+                            .collect(),
+                        static_data: result.static_data,
+                        shadow_stack: result.shadow_stack,
+                        unknown: result.unknown,
+                    })
+                    .collect();
             }
 
             if summaries == previous {
@@ -165,6 +215,34 @@ impl InferredCallResolver {
 
     pub fn summaries(&self) -> &BTreeMap<FunctionId, CallSummary> {
         &self.summaries
+    }
+
+    /// Adds integer-bit observations discovered in a local function body.
+    ///
+    /// Pointer parameters use `None` because their accesses are described by
+    /// [`PointerBehavior`]. Non-pointer observations grow monotonically as
+    /// demands propagate through the direct-call graph.
+    pub(crate) fn join_observed_bits(
+        &mut self,
+        function: FunctionId,
+        observed_bits: impl IntoIterator<Item = u128>,
+    ) -> bool {
+        let Some(summary) = self.summaries.get_mut(&function) else {
+            return false;
+        };
+        let mut changed = false;
+        for (argument, observed_bits) in summary.arguments.iter_mut().zip(observed_bits) {
+            if argument.pointer != PointerBehavior::NotAPointer {
+                continue;
+            }
+            let Some(current) = argument.observed_bits.as_mut() else {
+                continue;
+            };
+            let joined = *current | observed_bits;
+            changed |= joined != *current;
+            *current = joined;
+        }
+        changed
     }
 }
 

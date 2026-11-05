@@ -14,7 +14,8 @@ use super::{
     domain::AbstractDomain,
     forward::ForwardResults,
     index::{InstructionId, ProgramIndex, ValueProducer},
-    value_flow::ValueSet,
+    integer::IntegerFact,
+    value_flow::{ValueSet, source_type},
 };
 
 #[derive(Debug)]
@@ -285,35 +286,6 @@ fn distribute<D: AbstractDomain>(demands: &mut [D], origins: &ValueSet, demand: 
     }
 }
 
-fn source_type(
-    index: &ProgramIndex,
-    flow: &ForwardResults<ValueSet>,
-    origins: &ValueSet,
-) -> Option<ValType> {
-    fn visit(
-        index: &ProgramIndex,
-        flow: &ForwardResults<ValueSet>,
-        value: super::index::ValueId,
-        visited: &mut BTreeSet<super::index::ValueId>,
-    ) -> Option<ValType> {
-        if !visited.insert(value) {
-            return None;
-        }
-        index.values[value.0].ty.or_else(|| {
-            flow.values[value.0]
-                .values
-                .iter()
-                .find_map(|origin| visit(index, flow, *origin, visited))
-        })
-    }
-
-    let mut visited = BTreeSet::new();
-    origins
-        .values
-        .iter()
-        .find_map(|value| visit(index, flow, *value, &mut visited))
-}
-
 fn is_implicit_copy(instruction: &Instr) -> bool {
     matches!(
         instruction,
@@ -419,10 +391,18 @@ impl AbstractDomain for BitDemand {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DemandedBitsAnalysis;
+#[derive(Clone, Copy, Debug)]
+pub struct DemandedBitsAnalysis<'a> {
+    integers: &'a ForwardResults<IntegerFact>,
+}
 
-impl BackwardAnalysis for DemandedBitsAnalysis {
+impl<'a> DemandedBitsAnalysis<'a> {
+    pub fn new(integers: &'a ForwardResults<IntegerFact>) -> Self {
+        Self { integers }
+    }
+}
+
+impl BackwardAnalysis for DemandedBitsAnalysis<'_> {
     type Demand = BitDemand;
     type Error = Infallible;
 
@@ -465,7 +445,13 @@ impl BackwardAnalysis for DemandedBitsAnalysis {
                 .map(|demand| vec![demand])
                 .unwrap_or_else(top),
 
-            Instr::Binop(op) => binary_demands(_cx, op.op, input_types, output),
+            Instr::Binop(op) => binary_demands(
+                _cx,
+                op.op,
+                input_types,
+                output,
+                self.integers.instruction_inputs[_cx.instruction.0].as_deref(),
+            ),
             Instr::Unop(op) => unary_demands(op.op, input_types, output),
             Instr::Select(_) => {
                 let value_demand = output.cloned().unwrap_or_else(|| BitDemand::bottom(None));
@@ -522,6 +508,7 @@ fn binary_demands(
     op: BinaryOp,
     input_types: &[Option<ValType>],
     output: Option<&BitDemand>,
+    integer_inputs: Option<&[IntegerFact]>,
 ) -> Vec<BitDemand> {
     use BinaryOp::*;
     let Some(output) = output else {
@@ -574,42 +561,50 @@ fn binary_demands(
         I32Add | I32Sub | I32Mul | I64Add | I64Sub | I64Mul => {
             vec![prefix(0), prefix(1)]
         }
-        I32Shl | I64Shl => match exact(1) {
-            Some(amount) => {
-                let width = input_types[0].map(type_width).unwrap_or(128);
-                let amount = (amount % u128::from(width)) as u32;
-                vec![demanded_with(0, output.demanded >> amount), full(1)]
-            }
-            None => vec![prefix(0), full(1)],
-        },
-        I32ShrU | I64ShrU => match exact(1) {
-            Some(amount) => {
-                let width = input_types[0].map(type_width).unwrap_or(128);
-                let amount = (amount % u128::from(width)) as u32;
-                vec![
-                    demanded_with(0, (output.demanded << amount) & low_mask(width)),
-                    full(1),
-                ]
-            }
-            None => vec![full(0), full(1)],
-        },
-        I32ShrS | I64ShrS => match exact(1) {
-            Some(amount) => {
-                let width = input_types[0].map(type_width).unwrap_or(128);
-                let amount = (amount % u128::from(width)) as u32;
-                let shifted_in = if amount == 0 {
-                    0
-                } else {
-                    low_mask(amount) << (width - amount)
-                };
-                let sign = u128::from(output.demanded & shifted_in != 0) << (width - 1);
-                vec![
-                    demanded_with(0, ((output.demanded << amount) & low_mask(width)) | sign),
-                    full(1),
-                ]
-            }
-            None => vec![full(0), full(1)],
-        },
+        I32Shl | I64Shl => {
+            let width = input_types[0].map(type_width).unwrap_or(128);
+            let amounts =
+                possible_shift_amounts(integer_inputs.and_then(|inputs| inputs.get(1)), width);
+            let demanded = amounts
+                .into_iter()
+                .fold(0, |demanded, amount| demanded | (output.demanded >> amount));
+            vec![
+                demanded_with(0, demanded),
+                demanded_with(1, shift_count_mask(width)),
+            ]
+        }
+        I32ShrU | I64ShrU => {
+            let width = input_types[0].map(type_width).unwrap_or(128);
+            let demanded =
+                possible_shift_amounts(integer_inputs.and_then(|inputs| inputs.get(1)), width)
+                    .into_iter()
+                    .fold(0, |demanded, amount| {
+                        demanded | ((output.demanded << amount) & low_mask(width))
+                    });
+            vec![
+                demanded_with(0, demanded),
+                demanded_with(1, shift_count_mask(width)),
+            ]
+        }
+        I32ShrS | I64ShrS => {
+            let width = input_types[0].map(type_width).unwrap_or(128);
+            let demanded =
+                possible_shift_amounts(integer_inputs.and_then(|inputs| inputs.get(1)), width)
+                    .into_iter()
+                    .fold(0, |demanded, amount| {
+                        let shifted_in = if amount == 0 {
+                            0
+                        } else {
+                            low_mask(amount) << (width - amount)
+                        };
+                        let sign = u128::from(output.demanded & shifted_in != 0) << (width - 1);
+                        demanded | ((output.demanded << amount) & low_mask(width)) | sign
+                    });
+            vec![
+                demanded_with(0, demanded),
+                demanded_with(1, shift_count_mask(width)),
+            ]
+        }
         I32Rotl | I64Rotl | I32Rotr | I64Rotr => match exact(1) {
             Some(amount) => {
                 let width = input_types[0].map(type_width).unwrap_or(128);
@@ -628,6 +623,25 @@ fn binary_demands(
         }
         _ => vec![full(0), full(1)],
     }
+}
+
+fn possible_shift_amounts(fact: Option<&IntegerFact>, width: u32) -> Vec<u32> {
+    let shift_mask = shift_count_mask(width);
+    let (known_zero, known_one) = fact
+        .and_then(IntegerFact::bits)
+        .map(|bits| (bits.known_zero & shift_mask, bits.known_one & shift_mask))
+        .unwrap_or((0, 0));
+
+    (0..width)
+        .filter(|&amount| {
+            let amount = u128::from(amount);
+            amount & known_zero == 0 && amount & known_one == known_one
+        })
+        .collect()
+}
+
+fn shift_count_mask(width: u32) -> u128 {
+    u128::from(width - 1)
 }
 
 fn exact_integer_input(cx: &BackwardContext<'_>, input: usize) -> Option<u128> {

@@ -462,11 +462,12 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::allocate;
+    use crate::wasm::intrinsics::{Intrinsic, Sfr};
     use crate::wasm::lir::{
         Block, BlockId, ByteOperand, ByteStorage, Function, FunctionAbi, FunctionKind, Instruction,
-        InstructionKind, InterruptHandlers, PhysicalPlacement, Program, Static, StaticByte,
-        Storage, StorageId, StorageKind, StorageOwner, StorageRegion, Terminator, TerminatorKind,
-        VirtualPlacement,
+        InstructionKind, InterruptHandlers, PhysicalPlacement, Program, ShiftOp, Static,
+        StaticByte, Storage, StorageId, StorageKind, StorageOwner, StorageRegion, Terminator,
+        TerminatorKind, ValueOperand, VirtualPlacement,
     };
 
     #[test]
@@ -652,5 +653,84 @@ mod tests {
             allocated.storages[0].placement,
             allocated.storages[1].placement
         );
+    }
+
+    #[test]
+    fn keeps_shift_inputs_separate_from_the_output() {
+        let byte = |storage| ByteStorage {
+            storage: StorageId(storage),
+            offset: 0,
+        };
+        let function = Function {
+            name: "main".into(),
+            kind: FunctionKind::Normal,
+            abi: FunctionAbi::default(),
+            blocks: vec![Block {
+                id: BlockId(0),
+                name: None,
+                instructions: vec![
+                    Instruction {
+                        kind: InstructionKind::CopyByte {
+                            destination: byte(0),
+                            source: ByteOperand::Immediate(0xff),
+                        },
+                    },
+                    Instruction {
+                        kind: InstructionKind::CopyByte {
+                            destination: byte(1),
+                            source: ByteOperand::Immediate(3),
+                        },
+                    },
+                    Instruction {
+                        kind: InstructionKind::ShiftBytes {
+                            op: ShiftOp::RightUnsigned,
+                            destinations: vec![byte(2)],
+                            value: vec![ByteOperand::Storage(byte(0))],
+                            amount: vec![ByteOperand::Storage(byte(1))],
+                            width: 8,
+                        },
+                    },
+                    Instruction {
+                        kind: InstructionKind::Intrinsic {
+                            operation: Intrinsic::SfrWrite(Sfr::LcdContrastControl),
+                            inputs: vec![ValueOperand::Byte(ByteOperand::Storage(byte(2)))],
+                            outputs: Vec::new(),
+                        },
+                    },
+                ],
+                terminator: Terminator {
+                    kind: TerminatorKind::Return,
+                },
+            }],
+            entry: BlockId(0),
+        };
+        let placement = VirtualPlacement {
+            allowed_regions: vec![StorageRegion::ApplicationRam],
+            must_be_direct: false,
+            fixed: None,
+        };
+        let program = Program {
+            main: function,
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+            storages: (0..3)
+                .map(|id| Storage {
+                    id: StorageId(id),
+                    name: Some(format!("value{id}")),
+                    owner: StorageOwner::Function("main".into()),
+                    kind: StorageKind::Byte,
+                    placement: placement.clone(),
+                })
+                .collect(),
+        };
+
+        let allocated = allocate(&program).expect("allocation succeeds");
+        let value = allocated.storages[0].placement;
+        let amount = allocated.storages[1].placement;
+        let output = allocated.storages[2].placement;
+
+        assert_ne!(output, value);
+        assert_ne!(output, amount);
     }
 }

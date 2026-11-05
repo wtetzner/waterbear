@@ -572,6 +572,11 @@ impl<'a> FunctionLowerer<'a> {
                     });
                 }
             }
+            MemoryFill {
+                destination,
+                value,
+                length,
+            } => self.lower_memory_fill(destination, value, length)?,
             Call {
                 destination,
                 function,
@@ -643,6 +648,187 @@ impl<'a> FunctionLowerer<'a> {
             Unreachable => self.terminate(TerminatorKind::Unreachable),
         }
         Ok(())
+    }
+
+    fn lower_memory_fill(
+        &mut self,
+        destination: &hir::Expression,
+        value: &hir::Expression,
+        length: &hir::Expression,
+    ) -> Result<(), LowerError> {
+        let destination = self.lower_address(destination)?;
+        let destination_bytes = destination.bytes().to_vec();
+        if destination_bytes.len() != 2 {
+            return Err(LowerError::UnsupportedExpression(format!(
+                "memory fill address occupies {} bytes instead of 2",
+                destination_bytes.len()
+            )));
+        }
+
+        let value = value_bytes(self.lower_expression(value)?)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                LowerError::UnsupportedExpression("memory fill value is empty".into())
+            })?;
+        let length = value_bytes(self.lower_expression(length)?)?;
+        if length.is_empty() {
+            return Err(LowerError::UnsupportedExpression(
+                "memory fill length is empty".into(),
+            ));
+        }
+
+        self.require_zero_high_memory_length(length.get(2..).unwrap_or_default());
+        if self.is_terminated() {
+            return Ok(());
+        }
+
+        let pointer = self.allocate_temporary(&hir::Type::Pointer)?;
+        let pointer_bytes = self.location_bytes(&pointer)?;
+        for (destination, source) in pointer_bytes.iter().copied().zip(destination_bytes) {
+            self.emit(InstructionKind::CopyByte {
+                destination,
+                source,
+            });
+        }
+
+        let counter_size = length.len().min(2);
+        let counter_type = hir::Type::Bits(
+            hir::BitWidth::new((counter_size * 8) as u8)
+                .expect("one- or two-byte memory fill counter"),
+        );
+        let counter = self.allocate_temporary(&counter_type)?;
+        let counter_bytes = self.location_bytes(&counter)?;
+        for (destination, source) in counter_bytes.iter().copied().zip(length) {
+            self.emit(InstructionKind::CopyByte {
+                destination,
+                source,
+            });
+        }
+
+        let header = self.new_block(Some("memory_fill_test".into()));
+        let body = self.new_block(Some("memory_fill_body".into()));
+        let after = self.new_block(Some("after_memory_fill".into()));
+        self.terminate(TerminatorKind::Jump(header));
+
+        self.current = header;
+        let condition = if let [counter] = counter_bytes.as_slice() {
+            BranchCondition::ByteZero(ByteOperand::Storage(*counter))
+        } else {
+            let is_zero = self.allocate_bit_temporary("memory_fill_empty");
+            self.emit(InstructionKind::CompareBytes {
+                op: CompareOp::Equal,
+                destination: is_zero,
+                left: counter_bytes
+                    .iter()
+                    .copied()
+                    .map(ByteOperand::Storage)
+                    .collect(),
+                right: vec![ByteOperand::Immediate(0); counter_bytes.len()],
+                width: (counter_bytes.len() * 8) as u8,
+            });
+            BranchCondition::BitSet(is_zero)
+        };
+        self.terminate(TerminatorKind::Branch {
+            condition,
+            when_true: after,
+            when_false: body,
+        });
+
+        self.current = body;
+        let address = Address::new(
+            destination.space(),
+            pointer_bytes
+                .iter()
+                .copied()
+                .map(ByteOperand::Storage)
+                .collect(),
+        )
+        .expect("memory fill pointer is nonempty");
+        self.emit(InstructionKind::StoreIndirect { address, value });
+        self.increment_bytes(&pointer_bytes, "memory_fill_pointer_carry");
+        self.decrement_bytes(&counter_bytes, "memory_fill_counter_borrow");
+        self.terminate(TerminatorKind::Jump(header));
+        self.current = after;
+        Ok(())
+    }
+
+    fn require_zero_high_memory_length(&mut self, high_bytes: &[ByteOperand]) {
+        if high_bytes.is_empty()
+            || high_bytes
+                .iter()
+                .all(|byte| *byte == ByteOperand::Immediate(0))
+        {
+            return;
+        }
+        if high_bytes
+            .iter()
+            .any(|byte| matches!(byte, ByteOperand::Immediate(value) if *value != 0))
+        {
+            self.terminate(TerminatorKind::Trap);
+            return;
+        }
+
+        let in_range = self.new_block(Some("memory_fill_length_in_range".into()));
+        let trap = self.new_block(Some("memory_fill_length_too_large".into()));
+        let high_is_zero = self.allocate_bit_temporary("memory_fill_high_zero");
+        self.emit(InstructionKind::CompareBytes {
+            op: CompareOp::Equal,
+            destination: high_is_zero,
+            left: high_bytes.to_vec(),
+            right: vec![ByteOperand::Immediate(0); high_bytes.len()],
+            width: (high_bytes.len() * 8) as u8,
+        });
+        self.terminate(TerminatorKind::Branch {
+            condition: BranchCondition::BitSet(high_is_zero),
+            when_true: in_range,
+            when_false: trap,
+        });
+        self.current = trap;
+        self.terminate(TerminatorKind::Trap);
+        self.current = in_range;
+    }
+
+    fn increment_bytes(&mut self, bytes: &[ByteStorage], carry_name: &str) {
+        let carry = if bytes.len() > 1 {
+            Some(self.allocate_carry(carry_name))
+        } else {
+            None
+        };
+        for (index, destination) in bytes.iter().copied().enumerate() {
+            self.emit(InstructionKind::Add {
+                destination,
+                left: ByteOperand::Storage(destination),
+                right: ByteOperand::Immediate(u8::from(index == 0)),
+                carry_in: if index == 0 { None } else { carry },
+                carry_out: if index + 1 == bytes.len() {
+                    None
+                } else {
+                    carry
+                },
+            });
+        }
+    }
+
+    fn decrement_bytes(&mut self, bytes: &[ByteStorage], borrow_name: &str) {
+        let borrow = if bytes.len() > 1 {
+            Some(self.allocate_carry(borrow_name))
+        } else {
+            None
+        };
+        for (index, destination) in bytes.iter().copied().enumerate() {
+            self.emit(InstructionKind::Subtract {
+                destination,
+                left: ByteOperand::Storage(destination),
+                right: ByteOperand::Immediate(u8::from(index == 0)),
+                borrow_in: if index == 0 { None } else { borrow },
+                borrow_out: if index + 1 == bytes.len() {
+                    None
+                } else {
+                    borrow
+                },
+            });
+        }
     }
 
     fn lower_call(

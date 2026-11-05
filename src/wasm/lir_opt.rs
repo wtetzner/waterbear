@@ -18,7 +18,23 @@ use super::{
 #[derive(Default)]
 struct Facts {
     bytes: BTreeMap<ByteStorage, ByteOperand>,
+    byte_bits: BTreeMap<ByteStorage, KnownByteBits>,
     bits: BTreeMap<StorageId, BitOperand>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct KnownByteBits {
+    zero: u8,
+    one: u8,
+}
+
+impl KnownByteBits {
+    fn constant(value: u8) -> Self {
+        Self {
+            zero: !value,
+            one: value,
+        }
+    }
 }
 
 pub fn optimize(
@@ -44,8 +60,8 @@ fn simplify_function(function: &mut Function, semantics: &ProgramSemantics) {
         let mut facts = Facts::default();
         for instruction in &mut block.instructions {
             rewrite_instruction(&mut instruction.kind, &facts);
+            fold_instruction(&mut instruction.kind, &facts);
             invalidate_definitions(&mut facts, &instruction.kind, semantics);
-            fold_instruction(&mut instruction.kind);
             record_facts(&mut facts, &instruction.kind);
             if invalidates_memory_facts(&instruction.kind) {
                 facts = Facts::default();
@@ -178,7 +194,7 @@ fn rewrite_instruction(instruction: &mut InstructionKind, facts: &Facts) {
     }
 }
 
-fn fold_instruction(instruction: &mut InstructionKind) {
+fn fold_instruction(instruction: &mut InstructionKind, facts: &Facts) {
     let replacement = match instruction {
         InstructionKind::CopyByte {
             destination,
@@ -207,7 +223,7 @@ fn fold_instruction(instruction: &mut InstructionKind) {
             destination,
             left,
             right,
-        } => fold_byte_binary(*op, *destination, *left, *right),
+        } => fold_byte_binary(*op, *destination, *left, *right, facts),
         InstructionKind::Add {
             destination,
             left,
@@ -289,6 +305,7 @@ fn fold_byte_binary(
     destination: ByteStorage,
     left: ByteOperand,
     right: ByteOperand,
+    facts: &Facts,
 ) -> Option<InstructionKind> {
     let value = match (left, right) {
         (ByteOperand::Immediate(left), ByteOperand::Immediate(right)) => {
@@ -315,6 +332,43 @@ fn fold_byte_binary(
             if left == right && op == ByteBinaryOp::Xor =>
         {
             ByteOperand::Immediate(0)
+        }
+        (ByteOperand::Storage(left), ByteOperand::Storage(right))
+            if left == right && matches!(op, ByteBinaryOp::And | ByteBinaryOp::Or) =>
+        {
+            ByteOperand::Storage(left)
+        }
+        (left, ByteOperand::Immediate(mask)) if op == ByteBinaryOp::And => {
+            let known = known_byte_bits(left, facts);
+            if known.zero | mask == u8::MAX {
+                left
+            } else {
+                return None;
+            }
+        }
+        (ByteOperand::Immediate(mask), right) if op == ByteBinaryOp::And => {
+            let known = known_byte_bits(right, facts);
+            if known.zero | mask == u8::MAX {
+                right
+            } else {
+                return None;
+            }
+        }
+        (left, ByteOperand::Immediate(mask)) if op == ByteBinaryOp::Or => {
+            let known = known_byte_bits(left, facts);
+            if known.one & mask == mask {
+                left
+            } else {
+                return None;
+            }
+        }
+        (ByteOperand::Immediate(mask), right) if op == ByteBinaryOp::Or => {
+            let known = known_byte_bits(right, facts);
+            if known.one & mask == mask {
+                right
+            } else {
+                return None;
+            }
         }
         _ => return None,
     };
@@ -405,6 +459,9 @@ fn invalidate_definitions(
             storage.storage != definition
                 && !matches!(value, ByteOperand::Storage(source) if source.storage == definition)
         });
+        facts
+            .byte_bits
+            .retain(|storage, _| storage.storage != definition);
         facts.bits.retain(|storage, value| {
             *storage != definition
                 && !matches!(value, BitOperand::Storage(source) if *source == definition)
@@ -421,6 +478,47 @@ fn record_facts(facts: &mut Facts, instruction: &InstructionKind) {
             facts
                 .bytes
                 .insert(*destination, resolve_byte(*source, facts));
+            facts
+                .byte_bits
+                .insert(*destination, known_byte_bits(*source, facts));
+        }
+        InstructionKind::ByteUnary {
+            op: ByteUnaryOp::Not,
+            destination,
+            input,
+        } => {
+            let input = known_byte_bits(*input, facts);
+            facts.byte_bits.insert(
+                *destination,
+                KnownByteBits {
+                    zero: input.one,
+                    one: input.zero,
+                },
+            );
+        }
+        InstructionKind::ByteBinary {
+            op,
+            destination,
+            left,
+            right,
+        } => {
+            let left = known_byte_bits(*left, facts);
+            let right = known_byte_bits(*right, facts);
+            let result = match op {
+                ByteBinaryOp::And => KnownByteBits {
+                    zero: left.zero | right.zero,
+                    one: left.one & right.one,
+                },
+                ByteBinaryOp::Or => KnownByteBits {
+                    zero: left.zero & right.zero,
+                    one: left.one | right.one,
+                },
+                ByteBinaryOp::Xor => KnownByteBits {
+                    zero: (left.zero & right.zero) | (left.one & right.one),
+                    one: (left.zero & right.one) | (left.one & right.zero),
+                },
+            };
+            facts.byte_bits.insert(*destination, result);
         }
         InstructionKind::CopyBit {
             destination,
@@ -442,6 +540,13 @@ fn record_facts(facts: &mut Facts, instruction: &InstructionKind) {
             }
         }
         _ => {}
+    }
+}
+
+fn known_byte_bits(operand: ByteOperand, facts: &Facts) -> KnownByteBits {
+    match resolve_byte(operand, facts) {
+        ByteOperand::Immediate(value) => KnownByteBits::constant(value),
+        ByteOperand::Storage(storage) => facts.byte_bits.get(&storage).copied().unwrap_or_default(),
     }
 }
 
@@ -650,9 +755,9 @@ mod tests {
 
     use super::optimize;
     use crate::wasm::lir::{
-        Block, BlockId, ByteOperand, ByteStorage, ByteUnaryOp, Function, FunctionAbi, FunctionKind,
-        Instruction, InstructionKind, InterruptHandlers, Program, Storage, StorageId, StorageKind,
-        StorageOwner, StorageRegion, Terminator, TerminatorKind, VirtualPlacement,
+        Block, BlockId, ByteBinaryOp, ByteOperand, ByteStorage, ByteUnaryOp, Function, FunctionAbi,
+        FunctionKind, Instruction, InstructionKind, InterruptHandlers, Program, Storage, StorageId,
+        StorageKind, StorageOwner, StorageRegion, Terminator, TerminatorKind, VirtualPlacement,
     };
 
     #[test]
@@ -738,5 +843,85 @@ mod tests {
             instruction.kind,
             InstructionKind::CopyByte { destination, .. } if destination == byte(1)
         )));
+    }
+
+    #[test]
+    fn removes_a_redundant_byte_mask() {
+        let byte = |storage| ByteStorage {
+            storage: StorageId(storage),
+            offset: 0,
+        };
+        let program_function = Function {
+            name: "main".into(),
+            kind: FunctionKind::Normal,
+            abi: FunctionAbi::default(),
+            blocks: vec![Block {
+                id: BlockId(0),
+                name: None,
+                instructions: vec![
+                    Instruction {
+                        kind: InstructionKind::ByteBinary {
+                            op: ByteBinaryOp::And,
+                            destination: byte(1),
+                            left: ByteOperand::Storage(byte(0)),
+                            right: ByteOperand::Immediate(7),
+                        },
+                    },
+                    Instruction {
+                        kind: InstructionKind::ByteBinary {
+                            op: ByteBinaryOp::And,
+                            destination: byte(2),
+                            left: ByteOperand::Storage(byte(1)),
+                            right: ByteOperand::Immediate(7),
+                        },
+                    },
+                    Instruction {
+                        kind: InstructionKind::Push(ByteOperand::Storage(byte(2))),
+                    },
+                ],
+                terminator: Terminator {
+                    kind: TerminatorKind::Return,
+                },
+            }],
+            entry: BlockId(0),
+        };
+        let placement = || VirtualPlacement {
+            allowed_regions: vec![StorageRegion::ApplicationRam],
+            must_be_direct: false,
+            fixed: None,
+        };
+        let mut program = Program {
+            main: program_function,
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+            storages: (0..3)
+                .map(|index| Storage {
+                    id: StorageId(index),
+                    name: None,
+                    owner: StorageOwner::Function("main".into()),
+                    kind: StorageKind::Byte,
+                    placement: placement(),
+                })
+                .collect(),
+        };
+
+        optimize(&mut program).unwrap();
+
+        let masks = program.main.blocks[0]
+            .instructions
+            .iter()
+            .filter(|instruction| {
+                matches!(
+                    instruction.kind,
+                    InstructionKind::ByteBinary {
+                        op: ByteBinaryOp::And,
+                        right: ByteOperand::Immediate(7),
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(masks, 1);
     }
 }

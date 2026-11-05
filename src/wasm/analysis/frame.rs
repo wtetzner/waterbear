@@ -81,6 +81,7 @@ pub fn recover_frames<R: CallResolver>(
             ..FunctionFrame::default()
         };
         let mut accesses = Vec::new();
+        let mut frame_address_is_borrowed = false;
 
         for &instruction_id in &info.instructions {
             let instruction = index.instruction(module, instruction_id);
@@ -97,6 +98,8 @@ pub fn recover_frames<R: CallResolver>(
             );
             frame.address_escapes |=
                 instruction_escapes(module, calls, instruction, inputs, function, stack_pointer);
+            frame_address_is_borrowed |=
+                instruction_borrows_frame(module, calls, instruction, inputs, function);
 
             if let Some(access) = memory_access(instruction_id, instruction, inputs, function) {
                 if matches!(access.offset, FrameOffset::Range { .. }) {
@@ -106,7 +109,12 @@ pub fn recover_frames<R: CallResolver>(
             }
         }
 
-        frame.objects = build_objects(&mut accesses, frame.address_escapes);
+        frame.objects = build_objects(
+            &mut accesses,
+            frame.address_escapes,
+            frame.size_lower_bound,
+            frame_address_is_borrowed,
+        );
         for access in accesses {
             results.accesses.insert(access.instruction, access);
         }
@@ -146,7 +154,30 @@ fn memory_access(
     })
 }
 
-fn build_objects(accesses: &mut [FrameAccess], address_escapes: bool) -> Vec<FrameObject> {
+fn build_objects(
+    accesses: &mut [FrameAccess],
+    address_escapes: bool,
+    frame_size: u64,
+    frame_address_is_borrowed: bool,
+) -> Vec<FrameObject> {
+    if frame_address_is_borrowed && frame_size > 0 {
+        let start = -(frame_size.min(i64::MAX as u64) as i64);
+        let mut object = FrameObject {
+            id: FrameObjectId(0),
+            start,
+            size: frame_size,
+            alignment: 1,
+            accesses: Vec::new(),
+            address_escapes,
+        };
+        for access in accesses {
+            object.alignment = object.alignment.max(access.alignment);
+            object.accesses.push(access.instruction);
+            access.object = Some(object.id);
+        }
+        return vec![object];
+    }
+
     let mut fixed: Vec<_> = accesses
         .iter()
         .enumerate()
@@ -163,7 +194,9 @@ fn build_objects(accesses: &mut [FrameAccess], address_escapes: bool) -> Vec<Fra
     for (access_index, start, end) in fixed {
         let existing = objects.last_mut().filter(|object| {
             let object_end = object.start.saturating_add(object.size as i64);
-            start < object_end && end > object.start
+            // Keep adjacent accesses together so an address into the region
+            // retains their relative layout after abstract storage allocation.
+            start <= object_end && end > object.start
         });
         let object = match existing {
             Some(object) => {
@@ -191,6 +224,37 @@ fn build_objects(accesses: &mut [FrameAccess], address_escapes: bool) -> Vec<Fra
         accesses[access_index].object = Some(object.id);
     }
     objects
+}
+
+fn instruction_borrows_frame<R: CallResolver>(
+    module: &Module,
+    calls: &R,
+    instruction: &Instr,
+    inputs: &[AddressFact],
+    function: FunctionId,
+) -> bool {
+    if matches!(instruction, Instr::MemoryFill(_)) {
+        return inputs
+            .first()
+            .is_some_and(|input| input.stack_range(function).is_some());
+    }
+
+    let callee = match instruction {
+        Instr::Call(call) => call.func,
+        Instr::ReturnCall(call) => call.func,
+        _ => return false,
+    };
+    let summary = calls.resolve(module, callee);
+    inputs
+        .iter()
+        .zip(&summary.arguments)
+        .any(|(input, argument)| {
+            input.stack_range(function).is_some()
+                && matches!(
+                    argument.pointer,
+                    PointerBehavior::ReadOnly | PointerBehavior::ReadWrite
+                )
+        })
 }
 
 fn update_frame_size(

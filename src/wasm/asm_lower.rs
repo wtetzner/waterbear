@@ -18,6 +18,9 @@ use super::{
         PhysicalPlacement, RamBank, RotateDirection, ShiftOp, StaticByte, Storage, StorageId,
         StorageKind, StorageOwner, TerminatorKind, ValueOperand, ValueStorage,
     },
+    lir_analysis::{
+        ProgramSemantics, StorageUnit, instruction_unit_definitions, instruction_unit_uses,
+    },
     target::WORK_RAM_BYTES,
 };
 
@@ -112,6 +115,9 @@ struct Lowerer<'a> {
     label_counter: usize,
     accumulator: Option<AccumulatorValue>,
     selected_work_address: Option<u16>,
+    selected_xram: Option<XramSelection>,
+    semantics: ProgramSemantics,
+    shift_tables: BTreeMap<(ShiftOp, u8), String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -135,8 +141,71 @@ enum AccumulatorValue {
     Location(ByteLocation),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SelectedByte {
+    Immediate(u8),
+    Location(ByteLocation),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct XramSelection {
+    bank: SelectedByte,
+    offset: SelectedByte,
+}
+
+fn bit_overlaps_byte(bit: BitLocation, byte: ByteLocation) -> bool {
+    matches!(
+        (bit, byte),
+        (BitLocation::Direct { address: bit, .. }, ByteLocation::Direct(byte))
+            | (BitLocation::WorkRam { address: bit, .. }, ByteLocation::WorkRam(byte))
+            if bit == byte
+    )
+}
+
+fn collect_shift_tables(program: &AllocatedProgram) -> BTreeMap<(ShiftOp, u8), String> {
+    let mut tables = BTreeMap::new();
+    for instruction in program
+        .all_functions()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+    {
+        let InstructionKind::ShiftBytes {
+            op,
+            destinations,
+            value,
+            amount,
+            width: 8,
+        } = &instruction.kind
+        else {
+            continue;
+        };
+        let ([ByteStorage { .. }], [ByteOperand::Immediate(value)], [ByteOperand::Storage(_)]) =
+            (destinations.as_slice(), value.as_slice(), amount.as_slice())
+        else {
+            continue;
+        };
+        let next_index = tables.len();
+        tables
+            .entry((*op, *value))
+            .or_insert_with(|| format!("__waterbear_shift_table_{next_index}"));
+    }
+    tables
+}
+
+fn evaluate_byte_shift(operation: ShiftOp, value: u8, amount: u8) -> u8 {
+    let amount = u32::from(amount & 7);
+    match operation {
+        ShiftOp::Left => value.wrapping_shl(amount),
+        ShiftOp::RightUnsigned => value.wrapping_shr(amount),
+        ShiftOp::RightSigned => ((value as i8) >> amount) as u8,
+        ShiftOp::RotateLeft => value.rotate_left(amount),
+        ShiftOp::RotateRight => value.rotate_right(amount),
+    }
+}
+
 impl<'a> Lowerer<'a> {
     fn new(program: &'a AllocatedProgram) -> Self {
+        let shift_tables = collect_shift_tables(program);
         Self {
             program,
             output: Statements::empty(),
@@ -144,6 +213,9 @@ impl<'a> Lowerer<'a> {
             label_counter: 0,
             accumulator: None,
             selected_work_address: None,
+            selected_xram: None,
+            semantics: ProgramSemantics::new(program),
+            shift_tables,
         }
     }
 
@@ -157,7 +229,29 @@ impl<'a> Lowerer<'a> {
         for function in &self.program.functions {
             self.emit_function(function, false)?;
         }
+        self.emit_shift_tables();
         Ok(self.output)
+    }
+
+    fn emit_shift_tables(&mut self) {
+        if self.shift_tables.is_empty() {
+            return;
+        }
+        self.output
+            .push_comment("constant byte shift lookup tables");
+        for (&(operation, value), label) in &self.shift_tables {
+            self.output.push_label(label);
+            self.output.push(Statement::byte(
+                (0..8)
+                    .map(|amount| {
+                        ByteValue::Expr(Expr::num(i32::from(evaluate_byte_shift(
+                            operation, value, amount,
+                        ))))
+                    })
+                    .collect(),
+            ));
+        }
+        self.output.push_comment("");
     }
 
     fn emit_flash_statics(&mut self) -> Result<(), LowerError> {
@@ -303,6 +397,7 @@ impl<'a> Lowerer<'a> {
     }
 
     fn emit_instruction(&mut self, instruction: &InstructionKind) -> Result<(), LowerError> {
+        self.invalidate_xram_selection(instruction)?;
         match instruction {
             InstructionKind::CopyByte {
                 destination,
@@ -474,7 +569,9 @@ impl<'a> Lowerer<'a> {
                 outputs,
             } => {
                 let result = self.intrinsic(*operation, inputs, outputs);
-                self.reset_machine_state();
+                if !matches!(operation, Intrinsic::XramRead | Intrinsic::XramWrite) {
+                    self.reset_machine_state();
+                }
                 result
             }
         }
@@ -525,12 +622,84 @@ impl<'a> Lowerer<'a> {
 
     fn emit_label(&mut self, label: impl AsRef<str>) {
         self.output.push_label(label.as_ref());
-        self.reset_machine_state();
+        // Internal instruction-selection branches merge accumulator and WRAM
+        // address state, but do not alter the selected XRAM bank or R2.
+        self.accumulator = None;
+        self.selected_work_address = None;
     }
 
     fn reset_machine_state(&mut self) {
         self.accumulator = None;
         self.selected_work_address = None;
+        self.selected_xram = None;
+    }
+
+    fn invalidate_xram_selection(
+        &mut self,
+        instruction: &InstructionKind,
+    ) -> Result<(), LowerError> {
+        let Some(selection) = self.selected_xram else {
+            return Ok(());
+        };
+
+        if matches!(
+            instruction,
+            InstructionKind::LoadIndirect { .. }
+                | InstructionKind::StoreIndirect { .. }
+                | InstructionKind::Call { .. }
+                | InstructionKind::CallIndirect { .. }
+                | InstructionKind::Intrinsic {
+                    operation: Intrinsic::SfrRead(_)
+                        | Intrinsic::SfrWrite(_)
+                        | Intrinsic::SfrBitRead(_)
+                        | Intrinsic::SfrBitWrite(_)
+                        | Intrinsic::SfrBitToggle(_)
+                        | Intrinsic::XramCopyFromMain
+                        | Intrinsic::XramCopyToMain,
+                    ..
+                }
+        ) {
+            self.selected_xram = None;
+            return Ok(());
+        }
+
+        let uses = instruction_unit_uses(instruction, &self.semantics);
+        let definitions = instruction_unit_definitions(instruction, &self.semantics);
+        if uses
+            .iter()
+            .chain(&definitions)
+            .any(|unit| self.storage_is_xram(unit.storage()))
+            || definitions.iter().any(|unit| {
+                self.unit_overwrites_selected(*unit, selection)
+                    .unwrap_or(true)
+            })
+        {
+            self.selected_xram = None;
+        }
+        Ok(())
+    }
+
+    fn unit_overwrites_selected(
+        &self,
+        unit: StorageUnit,
+        selection: XramSelection,
+    ) -> Result<bool, LowerError> {
+        let overwrites = |selected| match selected {
+            SelectedByte::Immediate(_) => Ok(false),
+            SelectedByte::Location(location) => match unit {
+                StorageUnit::Byte(byte) => Ok(self.byte_location(byte)? == location),
+                StorageUnit::Bit(storage) => {
+                    Ok(bit_overlaps_byte(self.bit_location(storage)?, location))
+                }
+                StorageUnit::Object(_) => Ok(true),
+            },
+        };
+        Ok(overwrites(selection.bank)? || overwrites(selection.offset)?)
+    }
+
+    fn storage_is_xram(&self, storage: StorageId) -> bool {
+        self.storage(storage)
+            .is_ok_and(|storage| matches!(storage.placement, PhysicalPlacement::XRam { .. }))
     }
 
     fn jmpf(&mut self, label: impl AsRef<str>) {
@@ -1362,6 +1531,22 @@ impl<'a> Lowerer<'a> {
         amount: &[ByteOperand],
         width: u8,
     ) -> Result<(), LowerError> {
+        if let (8, [destination], [ByteOperand::Immediate(value)], [ByteOperand::Storage(amount)]) =
+            (width, destinations, value, amount)
+        {
+            let label = self
+                .shift_tables
+                .get(&(op, *value))
+                .expect("constant byte shift table was collected")
+                .clone();
+            self.instr(Instr::Mov_d9(lower_byte(Expr::name(&label)), direct(TRL)));
+            self.instr(Instr::Mov_d9(upper_byte(Expr::name(&label)), direct(TRH)));
+            self.load_storage(*amount)?;
+            self.instr(Instr::And_i8(Expr::num(7)));
+            self.instr(Instr::Ldc);
+            return self.store_accumulator(*destination);
+        }
+
         for (destination, source) in destinations.iter().zip(value) {
             self.copy_byte(*destination, *source)?;
         }
@@ -2163,12 +2348,29 @@ impl<'a> Lowerer<'a> {
     }
 
     fn select_xram(&mut self, bank: ByteOperand, offset: ByteOperand) -> Result<(), LowerError> {
+        let selection = XramSelection {
+            bank: self.selected_byte(bank)?,
+            offset: self.selected_byte(offset)?,
+        };
+        if self.selected_xram == Some(selection) {
+            return Ok(());
+        }
         self.load_operand(bank)?;
         self.instr(Instr::St_d9(direct(XBNK)));
         self.load_operand(offset)?;
         self.instr(Instr::Add_i8(Expr::num(0x80)));
         self.instr(Instr::St_d9(direct(R2)));
+        self.selected_xram = Some(selection);
         Ok(())
+    }
+
+    fn selected_byte(&self, operand: ByteOperand) -> Result<SelectedByte, LowerError> {
+        match operand {
+            ByteOperand::Immediate(value) => Ok(SelectedByte::Immediate(value)),
+            ByteOperand::Storage(storage) => {
+                self.byte_location(storage).map(SelectedByte::Location)
+            }
+        }
     }
 
     fn xram_copy(
@@ -2526,10 +2728,10 @@ mod tests {
     use super::lower;
     use crate::wasm::intrinsics::Intrinsic;
     use crate::wasm::lir::{
-        Block, BlockId, BranchCondition, ByteOperand, ByteStorage, Function, FunctionAbi,
-        FunctionKind, Instruction, InstructionKind, InterruptHandlers, PhysicalPlacement, Program,
-        Static, StaticByte, Storage, StorageId, StorageKind, StorageOwner, Terminator,
-        TerminatorKind, ValueOperand,
+        Block, BlockId, BranchCondition, ByteBinaryOp, ByteOperand, ByteStorage, Function,
+        FunctionAbi, FunctionKind, Instruction, InstructionKind, InterruptHandlers,
+        PhysicalPlacement, Program, ShiftOp, Static, StaticByte, Storage, StorageId, StorageKind,
+        StorageOwner, Terminator, TerminatorKind, ValueOperand, ValueStorage,
     };
 
     fn returning_function(name: &str, kind: FunctionKind) -> Function {
@@ -2711,5 +2913,116 @@ mod tests {
         for (index, _) in code_loads {
             assert_eq!(lines[index - 1].trim(), "mov   #$00, $0100");
         }
+    }
+
+    #[test]
+    fn reuses_an_unchanged_xram_selection() {
+        let byte = |storage| ByteStorage {
+            storage: StorageId(storage),
+            offset: 0,
+        };
+        let mut main = returning_function("main", FunctionKind::Normal);
+        main.blocks[0].instructions = vec![
+            Instruction {
+                kind: InstructionKind::Intrinsic {
+                    operation: Intrinsic::XramRead,
+                    inputs: vec![
+                        ValueOperand::Byte(ByteOperand::Storage(byte(0))),
+                        ValueOperand::Byte(ByteOperand::Storage(byte(1))),
+                    ],
+                    outputs: vec![ValueStorage::Byte(byte(2))],
+                },
+            },
+            Instruction {
+                kind: InstructionKind::ByteBinary {
+                    op: ByteBinaryOp::Or,
+                    destination: byte(3),
+                    left: ByteOperand::Storage(byte(2)),
+                    right: ByteOperand::Immediate(0x80),
+                },
+            },
+            Instruction {
+                kind: InstructionKind::Intrinsic {
+                    operation: Intrinsic::XramWrite,
+                    inputs: vec![
+                        ValueOperand::Byte(ByteOperand::Storage(byte(4))),
+                        ValueOperand::Byte(ByteOperand::Storage(byte(5))),
+                        ValueOperand::Byte(ByteOperand::Storage(byte(3))),
+                    ],
+                    outputs: Vec::new(),
+                },
+            },
+        ];
+        let program = Program::<PhysicalPlacement> {
+            main,
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+            storages: (0..6)
+                .map(|index| Storage {
+                    id: StorageId(index),
+                    name: None,
+                    owner: StorageOwner::Function("main".into()),
+                    kind: StorageKind::Byte,
+                    placement: PhysicalPlacement::ApplicationRam {
+                        offset: match index {
+                            4 => 0x20,
+                            5 => 0x21,
+                            index => 0x20 + index as u8,
+                        },
+                    },
+                })
+                .collect(),
+        };
+
+        let output = lower(&program).unwrap().to_string();
+
+        assert_eq!(output.matches("st    $0125").count(), 1, "{output}");
+        assert_eq!(output.matches("st    $02").count(), 1, "{output}");
+    }
+
+    #[test]
+    fn uses_a_lookup_table_for_a_constant_byte_shift() {
+        let byte = |storage| ByteStorage {
+            storage: StorageId(storage),
+            offset: 0,
+        };
+        let mut main = returning_function("main", FunctionKind::Normal);
+        main.blocks[0].instructions = vec![Instruction {
+            kind: InstructionKind::ShiftBytes {
+                op: ShiftOp::RightUnsigned,
+                destinations: vec![byte(1)],
+                value: vec![ByteOperand::Immediate(0x80)],
+                amount: vec![ByteOperand::Storage(byte(0))],
+                width: 8,
+            },
+        }];
+        let program = Program::<PhysicalPlacement> {
+            main,
+            interrupt_handlers: InterruptHandlers::default(),
+            functions: Vec::new(),
+            statics: Vec::new(),
+            storages: (0..2)
+                .map(|index| Storage {
+                    id: StorageId(index),
+                    name: None,
+                    owner: StorageOwner::Function("main".into()),
+                    kind: StorageKind::Byte,
+                    placement: PhysicalPlacement::ApplicationRam {
+                        offset: 0x20 + index as u8,
+                    },
+                })
+                .collect(),
+        };
+
+        let output = lower(&program).unwrap().to_string();
+
+        assert!(output.contains("__waterbear_shift_table_0:"), "{output}");
+        assert!(
+            output.contains(".byte $80,$40,$20,$10,$08,$04,$02,$01"),
+            "{output}"
+        );
+        assert!(output.lines().any(|line| line.trim() == "ldc"), "{output}");
+        assert!(!output.contains("shift_loop"), "{output}");
     }
 }
